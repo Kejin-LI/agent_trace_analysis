@@ -937,9 +937,6 @@
     };
 
     try {
-      // 显示加载中状态
-      tbody.innerHTML = `<tr><td colspan="8" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">加载中…</td></tr>`;
-      
       const r = await fetch('./data/sessions.json', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
@@ -948,8 +945,13 @@
       // 数据就绪后再触发一次 applyRange，让筛选器与数据联动
       const savedRange = localStorage.getItem('agenttrace.range') || '7d';
       window.applyRange(savedRange);
+
+      const gl = document.getElementById('global-loader');
+      if (gl) gl.remove();
     } catch (e) {
       renderEmpty('加载失败：' + (e.message || String(e)));
+      const gl = document.getElementById('global-loader');
+      if (gl) gl.remove();
     }
   })();
 </script>

@@ -540,14 +540,8 @@ function render() {
 }
 
 /* ============== 加载真实数据 ============== */
-(async () => {
+(async function() {
   try {
-    const grid = document.getElementById('clusterGrid');
-    grid.innerHTML = `
-      <div class="grid-empty">
-        <div class="text-[14px] font-medium text-[--text-secondary]">数据加载中...</div>
-      </div>`;
-      
     const r = await fetch('./data/sessions.json', { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
@@ -561,12 +555,16 @@ function render() {
         render();
       }
     });
+    const gl = document.getElementById('global-loader');
+    if (gl) gl.remove();
   } catch (e) {
     document.getElementById('clusterGrid').innerHTML = `
       <div class="grid-empty">
         <div class="text-[14px] font-medium text-[--apple-red]">加载失败</div>
         <div class="text-[12px] text-[--text-tertiary] mt-1.5">${escapeHtml(e.message || String(e))}</div>
       </div>`;
+    const gl = document.getElementById('global-loader');
+    if (gl) gl.remove();
   }
 })();
 

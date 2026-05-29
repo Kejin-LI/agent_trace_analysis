@@ -605,6 +605,11 @@
 </style>
 </head>
 <body class="h-screen flex flex-col">
+<!-- Global Loader -->
+<div id="global-loader" class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#FAFAFA]">
+  <div class="w-8 h-8 border-4 border-black/10 border-t-[--apple-blue] rounded-full animate-spin"></div>
+  <div class="mt-4 text-[13px] text-[--text-secondary] font-medium">加载中...</div>
+</div>
 
 <!-- ===== Top Bar ===== -->
 <header class="glass-strong border-b border-black/5 flex-shrink-0">
@@ -2544,6 +2549,9 @@
 
     // 文档标题
     document.title = s.title.slice(0, 24) + ' · Session 详情';
+    
+    const gl = document.getElementById('global-loader');
+    if (gl) gl.remove();
   })();
 
   // 工具：安全提取 JSON 字段

@@ -820,8 +820,12 @@
           renderAll();
         }
       });
+      const gl = document.getElementById('global-loader');
+      if (gl) gl.remove();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--apple-red]">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
+      const gl = document.getElementById('global-loader');
+      if (gl) gl.remove();
     }
   })();
 </script>
