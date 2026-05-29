@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Trace 诊断平台 · 聚类</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-1: #F5F5F7;
+    --bg-2: #FAFAFA;
+    --apple-blue: #0071E3;
+    --apple-orange: #FF9F0A;
+    --apple-green: #30D158;
+    --apple-red: #FF453A;
+    --apple-purple: #BF5AF2;
+    --apple-cyan: #64D2FF;
+    --text-primary: #1D1D1F;
+    --text-secondary: #6E6E73;
+    --text-tertiary: #A1A1A6;
+  }
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html, body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(0,113,227,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 20%, rgba(255,159,10,0.08), transparent 60%),
+      radial-gradient(800px 400px at 50% 110%, rgba(191,90,242,0.06), transparent 60%),
+      linear-gradient(180deg, #F5F5F7 0%, #FAFAFA 100%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.8) inset,
+      0 8px 32px rgba(0, 0, 0, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.02);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.06);
+  }
+  .badge-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
+  .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; font-size: 11px; font-weight: 500; letter-spacing: 0.01em; }
+  .seg { background: rgba(120,120,128,0.12); border-radius: 9px; padding: 2px; display: inline-flex; }
+  .seg button { padding: 4px 12px; font-size: 12px; border-radius: 7px; color: var(--text-secondary); }
+  .seg button.active { background: white; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .lift { transition: transform .25s ease, box-shadow .25s ease; }
+  .lift:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(0,0,0,0.08); }
+
+  /* 趋势 sparkline */
+  .spark path { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
+  .spark .area { fill: currentColor; opacity: 0.08; }
+  .spark .baseline { stroke: rgba(0,0,0,0.08); stroke-dasharray: 2 3; stroke-width: 1; }
+  .spark .cursor { stroke: rgba(0,0,0,0.25); stroke-dasharray: 2 2; stroke-width: 1; opacity: 0; }
+  .spark .dot-hit { fill: white; stroke-width: 2; opacity: 0; }
+  .spark .dot-single { stroke-width: 2; fill: white; }
+  .spark-empty { font-size: 10.5px; fill: var(--text-tertiary); text-anchor: middle; letter-spacing: 0.02em; }
+  .spark-wrap { position: relative; }
+  .spark-wrap.hover .cursor, .spark-wrap.hover .dot-hit { opacity: 1; }
+
+  /* 苹果风 tooltip · sparkline */
+  .spark-tip {
+    position: absolute; pointer-events: none; z-index: 50;
+    background: rgba(28,28,30,0.92); color: white;
+    backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border-radius: 8px; padding: 6px 9px; font-size: 11px; line-height: 1.45;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    transform: translate(-50%, -100%); white-space: nowrap;
+    opacity: 0; transition: opacity .12s ease;
+  }
+  .spark-tip.show { opacity: 1; }
+  .spark-tip .tip-time { font-size: 10.5px; opacity: 0.7; margin-bottom: 1px; }
+  .spark-tip .tip-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .spark-tip .tip-delta { font-size: 10px; margin-left: 4px; opacity: 0.85; }
+
+  /* ===== Help Tooltip · 指标 / 口径说明（同 dashboard 风格） ===== */
+  .help { position: relative; display: inline-flex; align-items: center; gap: 3px; cursor: help; }
+  .help::after {
+    content: "ⓘ"; font-size: 10px; color: var(--text-tertiary);
+    opacity: 0.55; transition: opacity .2s ease; margin-left: 1px; font-style: normal;
+  }
+  .help:hover::after { opacity: 1; color: var(--apple-blue); }
+  .help-tip {
+    position: fixed; width: 280px; padding: 12px 14px;
+    background: rgba(28,28,30,0.92);
+    backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+    color: rgba(255,255,255,0.95); border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+    z-index: 9999; white-space: normal; visibility: hidden;
+  }
+  .help-tip.is-visible { opacity: 1; visibility: visible; }
+  .help-tip .tip-title { font-size: 12px; font-weight: 600; color: white; margin-bottom: 4px; display:flex; align-items:center; gap:5px; }
+  .help-tip .tip-formula {
+    background: rgba(255,255,255,0.08); padding: 4px 7px; border-radius: 5px;
+    font-family: 'JetBrains Mono','SF Mono',monospace; font-size: 10.5px;
+    color: rgba(255,255,255,0.85); margin: 6px 0; display: inline-block;
+  }
+  .help-tip .tip-row {
+    display: flex; justify-content: space-between; gap: 8px; margin-top: 4px;
+    color: rgba(255,255,255,0.7); font-size: 10.5px;
+  }
+  .help-tip .tip-row span:last-child { color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; }
+  .help-tip .tip-row .tip-dot { width:6px; height:6px; border-radius:9999px; display:inline-block; margin-right:5px; vertical-align: middle; }
+  .help-tip hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; }
+  .help-tip-host-purple { color: var(--apple-purple); }
+  .help-tip-host-orange { color: var(--apple-orange); }
+  .help-tip-host-green  { color: var(--apple-green); }
+
+  /* 全局空态 */
+  .grid-empty {
+    grid-column: 1 / -1;
+    border: 1px dashed rgba(0,0,0,0.12);
+    border-radius: 16px; padding: 48px 24px; text-align: center;
+    background: rgba(255,255,255,0.4);
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ===== Top Nav ===== -->
+<header class="sticky top-0 z-40">
+  <div class="glass-strong border-b border-black/5">
+    <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-6">
+        <a href="./index.html" class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+            </svg>
+          </div>
+          <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
+        </a>
+        <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
+          <a href="./dashboard.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
+          <a href="./sessions.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">明细</a>
+          <a href="./clusters.html" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">异常</a>
+        </nav>
+      </div>
+      <div class="flex items-center gap-3">
+        <!-- 全局日期筛选器（共享组件 range-picker.js） -->
+        <div id="global-range" class="relative"></div>
+        <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+        <div class="flex items-center gap-1.5 text-[12px] bg-black/5 rounded-lg px-2.5 h-8">
+          <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
+          agentic-rl-prod
+        </div>
+        <div class="w-8 h-8 rounded-full bg-[--apple-orange] text-white text-[12px] font-semibold flex items-center justify-center">N</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1440px] mx-auto px-8 py-8 space-y-6">
+
+  <!-- Page Header -->
+  <section class="flex items-end justify-between">
+    <div>
+      <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">CLUSTERS · <span id="hdr-today">2026-05-25</span></div>
+      <h1 class="text-[34px] font-semibold tracking-tight leading-tight">异常聚类分析</h1>
+      <p class="text-[13px] text-[--text-secondary] mt-2 flex items-center gap-2">
+        <span>按平均健康度倒序，每张卡代表一类异常。颜色代表该类问题的平均严重程度：</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-green]"></span> 健康</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-orange]"></span> 注意</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-purple]"></span> 亚健康</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-red]"></span> 严重</span>
+      </p>
+    </div>
+  </section>
+
+  <!-- 概览 3 卡 · 全部基于真实 sessions.json -->
+  <section class="grid grid-cols-3 gap-4">
+    <div class="glass rounded-2xl p-4">
+      <div class="text-[11px] text-[--text-tertiary]">
+        <span class="help">异常类型数
+          <div class="help-tip">
+            <div class="tip-title">异常类型数</div>
+            当前窗口下，所有 session 中至少命中过 1 次的不同异常 (failed_label) 总数。
+            <div class="tip-formula">count(distinct failed_label where passed = false)</div>
+          </div>
+        </span>
+      </div>
+      <div class="flex items-end justify-between mt-1">
+        <div class="text-[24px] font-semibold num-mono leading-none" id="ovw-cluster-count">—</div>
+        <div class="text-[11px] text-[--text-tertiary] num-mono">类</div>
+      </div>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <div class="text-[11px] text-[--text-tertiary]">
+        <span class="help">受影响 Session
+          <div class="help-tip">
+            <div class="tip-title">受影响 Session</div>
+            被任意一类异常命中过的 session 去重总数（一个 session 可能命中多类，只算 1 次）。
+            <div class="tip-formula">count(distinct session_id where any rule failed)</div>
+          </div>
+        </span>
+      </div>
+      <div class="flex items-end justify-between mt-1">
+        <div class="text-[24px] font-semibold num-mono leading-none" id="ovw-affected">—</div>
+        <div class="text-[11px] text-[--text-tertiary] num-mono">/ <span id="ovw-total">—</span> 个</div>
+      </div>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <div class="text-[11px] text-[--text-tertiary]">
+        <span class="help">平均健康度
+          <div class="help-tip">
+            <div class="tip-title">平均健康度分档</div>
+            当前窗口下所有 session 的健康度评分平均值。
+            <div class="tip-row mt-2"><span class="text-[--apple-green]">≥ 85</span><span>健康</span></div>
+            <div class="tip-row"><span class="text-[--apple-orange]">70–84</span><span>注意</span></div>
+            <div class="tip-row"><span class="text-[--apple-purple]">50–69</span><span>亚健康</span></div>
+            <div class="tip-row"><span class="text-[--apple-red]">&lt; 50</span><span>严重</span></div>
+          </div>
+        </span>
+      </div>
+      <div class="flex items-end justify-between mt-1">
+        <div class="text-[24px] font-semibold num-mono leading-none" id="ovw-avg-score">—</div>
+        <div class="text-[11px] text-[--text-tertiary] num-mono">/100</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 聚类卡片网格 -->
+  <section id="clusterGrid" class="grid grid-cols-3 gap-5">
+    <!-- 卡片由 JS 渲染 -->
+  </section>
+
+</main>
+
+<script>
+/* ============== 异常聚类 · 真实数据驱动 ==============
+ * 数据源：./data/sessions.json（与大盘 / 明细共用）
+ * 口径：复用 sessions.html 的 buildAnomalies（含执行步数 3-9 黄金区动态校准）
+ * 每张卡 = 一类 failed_label，hits = 命中该 label 的 session 数
+ */
+
+const COLOR = { red:'#FF453A', orange:'#FF9F0A', green:'#30D158', purple:'#BF5AF2', cyan:'#64D2FF' };
+const STATE = { range: localStorage.getItem('agenttrace.range') || '7d' };
+
+/* 健康度档位 → 颜色（与 sessions.html 完全一致） */
+function scoreBand(score) {
+  if (score >= 85) return 'green';
+  if (score >= 70) return 'orange';
+  if (score >= 50) return 'purple';
+  return 'red';
+}
+
+/* 异常解析 · 复用明细页口径（含执行步数动态校准） */
+function buildAnomalies(s) {
+  const rulesRaw = s.rules || [];
+  const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
+  const rules = rulesRaw.map(r => {
+    if (!r) return r;
+    if (r.name === '轮数合理' || r.name === '执行步数合理'
+        || r.failed_label === '轮数过多' || r.failed_label === '轮数过少'
+        || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
+      if (turnsN >= 3 && turnsN <= 9) {
+        return Object.assign({}, r, { name: '执行步数合理', passed: true, detail: turnsN + ' 步（处于 3-9 黄金区）' });
+      } else if (turnsN > 9) {
+        return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: turnsN + ' 步（建议 3-9）' });
+      } else {
+        return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: turnsN + ' 步（建议 3-9）' });
+      }
+    }
+    return r;
+  });
+  return rules.filter(r => r && r.passed === false);
+}
+
+/* 聚合：按 failed_label → { label, sessions[], avgScore } */
+function buildClusters(sessions) {
+  const map = new Map();
+  sessions.forEach(s => {
+    const failed = buildAnomalies(s);
+    failed.forEach(r => {
+      const label = r.failed_label || r.name;
+      if (!map.has(label)) map.set(label, { label, sessions: [] });
+      map.get(label).sessions.push(s);
+    });
+  });
+  return [...map.values()].map(c => {
+    const avgScore = c.sessions.reduce((a, s) => a + (s.score ?? 0), 0) / c.sessions.length;
+    
+    // Determine dimension category (simplified logic based on label)
+    let dimension = '其他';
+    if (c.label.includes('步数') || c.label.includes('轮数') || c.label.includes('死循环')) dimension = '编排维度';
+    else if (c.label.includes('时间') || c.label.includes('耗时')) dimension = '响应维度';
+    else if (c.label.includes('失败') || c.label.includes('异常')) dimension = '稳定维度';
+    else if (c.label.includes('上下文') || c.label.includes('Token')) dimension = '资源维度';
+    
+    return { ...c, avgScore, severity: scoreBand(avgScore), dimension };
+  }).sort((a, b) => a.avgScore - b.avgScore); // Sort by average score ascending (most severe first)
+}
+
+/* 时间桶 · 严格以当前系统时间为锚点 */
+function genBuckets(range, sessions) {
+  const baseMs = Date.now();
+  const now = new Date(baseMs);
+  const buckets = [];
+  if (range === '24h') {
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 3600 * 1000);
+      d.setMinutes(0, 0, 0);
+      buckets.push({ ts: d.getTime(), label: `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`, span: 3600*1000 });
+    }
+  } else if (range === '7d') {
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 86400 * 1000);
+      d.setHours(0, 0, 0, 0);
+      buckets.push({ ts: d.getTime(), label: `${pad(d.getMonth()+1)}-${pad(d.getDate())} 周${weekdayCN(d.getDay())}`, span: 86400*1000 });
+    }
+  } else {
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 86400 * 1000);
+      d.setHours(0, 0, 0, 0);
+      buckets.push({ ts: d.getTime(), label: `${pad(d.getMonth()+1)}-${pad(d.getDate())}`, span: 86400*1000 });
+    }
+  }
+  return buckets;
+}
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function weekdayCN(n) { return '日一二三四五六'[n]; }
+
+/* 把 cluster.sessions 投到桶上（每个 session 落到 started_at_ms 所在桶） */
+function genSeries(cluster, buckets) {
+  const counts = new Array(buckets.length).fill(0);
+  cluster.sessions.forEach(s => {
+    const t = s.started_at_ms || 0;
+    for (let i = 0; i < buckets.length; i++) {
+      const b = buckets[i];
+      if (t >= b.ts && t < b.ts + b.span) { counts[i]++; break; }
+    }
+  });
+  return counts;
+}
+
+/* ============== 渲染单张卡片 ============== */
+function renderCard(cluster, buckets) {
+  const sevColor = COLOR[cluster.severity];
+  const series = genSeries(cluster, buckets);
+  const total = cluster.sessions.length;
+  const rangeLabel = ({'24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天'})[STATE.range];
+  const inWindow = series.reduce((a, b) => a + b, 0);
+  const previewIds = cluster.sessions.slice(0, 3).map(s => s.id);
+
+  return `
+    <div class="glass rounded-2xl p-5 lift" data-cluster="${escapeAttr(cluster.label)}">
+      <div class="flex items-start justify-between mb-3">
+        <div class="chip bg-[--apple-${cluster.severity}]/10 text-[--apple-${cluster.severity}]">
+          <span class="badge-dot bg-[--apple-${cluster.severity}]"></span>${escapeHtml(cluster.label)}
+        </div>
+        <div class="text-[10px] text-[--text-secondary] px-1.5 py-0.5 rounded border border-black/10">${cluster.dimension}</div>
+      </div>
+      <div class="flex items-baseline gap-2 mb-1">
+        <div class="text-[28px] font-semibold num-mono leading-none">${total}</div>
+        <div class="text-[12px] text-[--text-secondary]">个 session 命中</div>
+      </div>
+      <div class="text-[11.5px] text-[--text-tertiary] mb-3">
+        平均健康度 <span class="num-mono font-semibold text-[--apple-${cluster.severity}]">${Math.round(cluster.avgScore)}</span>
+        ${inWindow !== total ? `· 窗口内 <span class="num-mono">${inWindow}</span>` : ''}
+      </div>
+      <div class="spark-wrap mb-3" style="color:${sevColor};">
+        <svg class="spark w-full h-10" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>
+        <div class="spark-tip"></div>
+      </div>
+      <div class="pt-3 border-t border-black/5">
+        <div class="text-[10.5px] text-[--text-tertiary] mb-1.5">命中 Session</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          ${previewIds.map(id => `<a href="./session-detail.html?id=${encodeURIComponent(id)}" class="text-[11px] num-mono px-1.5 py-0.5 rounded bg-black/5 hover:bg-[--apple-blue] hover:text-white transition-colors">${escapeHtml(id)}</a>`).join('')}
+          ${total > 3 ? `<span class="text-[10.5px] text-[--text-tertiary] num-mono">+${total - 3}</span>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function escapeAttr(s){ return escapeHtml(s).replace(/'/g, '&#39;'); }
+
+/* ============== sparkline ============== */
+function drawSpark(card, series, buckets, color) {
+  const svg = card.querySelector('.spark');
+  svg.innerHTML = '';
+  const W = 200, H = 40, PAD = 4;
+  const total = series.reduce((a, b) => a + b, 0);
+
+  if (total === 0) {
+    svg.innerHTML = `
+      <line class="baseline" x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" />
+      <text class="spark-empty" x="${W/2}" y="${H/2+4}">该窗口内暂无命中</text>
+    `;
+    return;
+  }
+  if (series.length === 1) {
+    const cx = W/2, cy = H/2;
+    svg.innerHTML = `
+      <line class="baseline" x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" />
+      <circle class="dot-single" cx="${cx}" cy="${cy}" r="3" stroke="${color}" />
+    `;
+    bindHover(card, [{x:cx, y:cy, idx:0}], series, buckets, color, true);
+    return;
+  }
+
+  const max = Math.max(...series, 1);
+  const points = series.map((v, i) => {
+    const x = PAD + (W - 2*PAD) * (i / (series.length - 1));
+    const y = H - PAD - (H - 2*PAD) * (v / max);
+    return { x, y, idx: i };
+  });
+  const linePath = points.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+  const areaPath = `${linePath} L${points[points.length-1].x},${H} L${points[0].x},${H} Z`;
+  svg.innerHTML = `
+    <path class="area" d="${areaPath}" />
+    <path d="${linePath}" stroke="${color}" />
+    <line class="cursor" x1="0" y1="0" x2="0" y2="${H}" />
+    <circle class="dot-hit" cx="0" cy="0" r="3" stroke="${color}" />
+  `;
+  bindHover(card, points, series, buckets, color, false);
+}
+
+function bindHover(card, points, series, buckets, color, isSingle) {
+  const wrap = card.querySelector('.spark-wrap');
+  const svg = card.querySelector('.spark');
+  const cursor = svg.querySelector('.cursor');
+  const dot = svg.querySelector('.dot-hit');
+  const tip = card.querySelector('.spark-tip');
+
+  function showAt(i) {
+    const p = points[i];
+    const v = series[i];
+    const b = buckets[i];
+    const rect = svg.getBoundingClientRect();
+    const px = rect.width * (p.x / 200);
+    const py = rect.height * (p.y / 40);
+    if (cursor) { cursor.setAttribute('x1', p.x); cursor.setAttribute('x2', p.x); }
+    if (dot) { dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y); }
+    tip.innerHTML = `
+      <div class="tip-time">${b.label}</div>
+      <div><span class="tip-val">${v}</span><span class="tip-delta" style="opacity:0.7;"> session 命中</span></div>
+    `;
+    tip.style.left = px + 'px';
+    tip.style.top = (py - 6) + 'px';
+    tip.classList.add('show');
+    wrap.classList.add('hover');
+  }
+  function hide() { tip.classList.remove('show'); wrap.classList.remove('hover'); }
+
+  if (isSingle) {
+    wrap.addEventListener('mouseenter', () => showAt(0));
+    wrap.addEventListener('mouseleave', hide);
+    return;
+  }
+  wrap.addEventListener('mousemove', (e) => {
+    const rect = svg.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    let nearest = 0, nd = Infinity;
+    points.forEach((p, i) => {
+      const d = Math.abs(p.x / 200 - ratio);
+      if (d < nd) { nd = d; nearest = i; }
+    });
+    showAt(nearest);
+  });
+  wrap.addEventListener('mouseleave', hide);
+}
+
+/* ============== 全局空态 ============== */
+function renderGlobalEmpty() {
+  return `
+    <div class="grid-empty">
+      <div class="text-[14px] font-medium text-[--text-secondary]">所选时间范围内暂无任何异常</div>
+      <div class="text-[12px] text-[--text-tertiary] mt-1.5">尝试切换到更长的时间窗（如 30d）。</div>
+      <button id="emptyExpand" class="mt-4 px-4 h-8 text-[12px] rounded-lg bg-[--apple-blue] text-white hover:bg-[#0058B7]">扩大到 30 天</button>
+    </div>
+  `;
+}
+
+/* ============== 渲染入口 ============== */
+let ALL_SESSIONS = [];
+
+function render() {
+  const grid = document.getElementById('clusterGrid');
+  if (!ALL_SESSIONS.length) { grid.innerHTML = renderGlobalEmpty(); return; }
+
+  const buckets = genBuckets(STATE.range, ALL_SESSIONS);
+  const winFrom = buckets[0].ts;
+  const winTo = buckets[buckets.length - 1].ts + buckets[buckets.length - 1].span;
+  const winSessions = ALL_SESSIONS.filter(s => {
+    const t = s.started_at_ms || 0;
+    return t >= winFrom && t < winTo;
+  });
+  // 时间窗内为空，则退化为全集（避免原型数据全部被过滤掉）
+  const effective = winSessions.length ? winSessions : ALL_SESSIONS;
+
+  // 概览
+  const clusters = buildClusters(effective);
+  const affected = effective.filter(s => buildAnomalies(s).length > 0);
+  document.getElementById('ovw-cluster-count').textContent = clusters.length;
+  document.getElementById('ovw-affected').textContent = affected.length;
+  document.getElementById('ovw-total').textContent = effective.length;
+  const avgScore = effective.length
+    ? effective.reduce((a, s) => a + (s.score ?? 0), 0) / effective.length
+    : 0;
+  const ovwAvg = document.getElementById('ovw-avg-score');
+  ovwAvg.textContent = Math.round(avgScore);
+  const avgBand = scoreBand(avgScore);
+  ovwAvg.style.color = avgBand === 'green' ? 'var(--text-primary)' : `var(--apple-${avgBand})`;
+
+  // 卡片
+  if (!clusters.length) {
+    grid.innerHTML = renderGlobalEmpty();
+    const btn = document.getElementById('emptyExpand');
+    if (btn) btn.addEventListener('click', () => {
+      // 直接点击共享筛选器中的 30d 按钮，让 range-picker 同步状态并触发 onChange
+      const target = document.querySelector('#global-range button[data-range="30d"]');
+      if (target) target.click();
+    });
+    return;
+  }
+  grid.innerHTML = clusters.map(c => renderCard(c, buckets)).join('');
+  grid.querySelectorAll('[data-cluster]').forEach((card, i) => {
+    const cluster = clusters[i];
+    const series = genSeries(cluster, buckets);
+    drawSpark(card, series, buckets, COLOR[cluster.severity]);
+  });
+}
+
+/* ============== 加载真实数据 ============== */
+(async () => {
+  try {
+    const r = await fetch('./data/sessions.json', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    ALL_SESSIONS = d.sessions || [];
+    render();
+    // 挂载共享日期筛选器（数据加载后）
+    window.mountRangePicker({
+      container: document.getElementById('global-range'),
+      onChange: (range) => {
+        STATE.range = range;
+        render();
+      }
+    });
+  } catch (e) {
+    document.getElementById('clusterGrid').innerHTML = `
+      <div class="grid-empty">
+        <div class="text-[14px] font-medium text-[--apple-red]">加载失败</div>
+        <div class="text-[12px] text-[--text-tertiary] mt-1.5">${escapeHtml(e.message || String(e))}</div>
+      </div>`;
+  }
+})();
+
+/* ============== Help Tooltip Portal · 防裁切 / 防遮挡 ============== */
+(function () {
+  document.querySelectorAll('.help').forEach((host) => {
+    const tip = host.querySelector(':scope > .help-tip');
+    if (!tip) return;
+    const place = () => {
+      const r = host.getBoundingClientRect();
+      const tipRect = tip.getBoundingClientRect();
+      const tw = tipRect.width || 280;
+      const th = tipRect.height || 120;
+      let left = r.left + r.width / 2 - tw / 2;
+      let top = r.top - th - 8;
+      if (top < 8) top = r.bottom + 8;
+      left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    };
+    host.addEventListener('mouseenter', () => {
+      document.body.appendChild(tip);
+      tip.classList.add('is-visible');
+      place();
+    });
+    host.addEventListener('mouseleave', () => {
+      tip.classList.remove('is-visible');
+    });
+    window.addEventListener('scroll', () => {
+      if (tip.classList.contains('is-visible')) place();
+    }, true);
+  });
+})();
+</script>
+
+<!-- 共享日期筛选器组件 -->
+<script src="./range-picker.js"></script>
+
+</body>
+</html>

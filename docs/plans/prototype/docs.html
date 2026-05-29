@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentTrace · 使用说明</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-1: #F5F5F7;
+    --bg-2: #FAFAFA;
+    --apple-blue: #0071E3;
+    --apple-orange: #FF9F0A;
+    --apple-green: #30D158;
+    --apple-red: #FF453A;
+    --apple-purple: #BF5AF2;
+    --apple-cyan: #64D2FF;
+    --text-primary: #1D1D1F;
+    --text-secondary: #6E6E73;
+    --text-tertiary: #A1A1A6;
+  }
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html, body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(0,113,227,0.08), transparent 60%),
+      radial-gradient(900px 500px at 110% 20%, rgba(255,159,10,0.06), transparent 60%),
+      linear-gradient(180deg, #F5F5F7 0%, #FAFAFA 100%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 8px 32px rgba(0,0,0,0.04);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.06);
+  }
+  .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  /* ===== 排版 ===== */
+  .doc-prose { font-size: 14px; line-height: 1.78; color: var(--text-primary); }
+  .doc-prose p { margin: 12px 0; color: var(--text-primary); }
+  .doc-prose h2 {
+    font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+    margin: 56px 0 12px; padding-top: 12px;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  .doc-prose h2 .ch-no {
+    font-size: 44px; line-height: 1; font-weight: 700;
+    background: linear-gradient(135deg, #0071E3, #BF5AF2);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    letter-spacing: -0.04em;
+  }
+  .doc-prose h3 {
+    font-size: 17px; font-weight: 600; margin: 32px 0 8px;
+    color: var(--text-primary);
+  }
+  .doc-prose h4 {
+    font-size: 14px; font-weight: 600; margin: 20px 0 6px;
+    color: var(--text-secondary);
+  }
+  .doc-prose ul { margin: 8px 0 12px; padding-left: 4px; }
+  .doc-prose ul li { margin: 6px 0; padding-left: 18px; position: relative; }
+  .doc-prose ul li::before {
+    content: ""; position: absolute; left: 4px; top: 10px;
+    width: 4px; height: 4px; border-radius: 9999px; background: var(--text-tertiary);
+  }
+  .doc-prose ol { margin: 8px 0 12px; padding-left: 22px; }
+  .doc-prose ol li { margin: 6px 0; }
+  .doc-prose strong { color: var(--text-primary); font-weight: 600; }
+  .doc-prose code {
+    background: rgba(0,0,0,0.05); padding: 1px 6px; border-radius: 4px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 12px;
+  }
+
+  /* 章节封面 */
+  .ch-cover {
+    margin: 40px 0 8px;
+    padding: 22px 24px; border-radius: 18px;
+    background: linear-gradient(135deg, rgba(0,113,227,0.06), rgba(191,90,242,0.04));
+    border: 1px solid rgba(0,0,0,0.04);
+  }
+  .ch-cover .ch-summary { color: var(--text-secondary); font-size: 13.5px; line-height: 1.7; margin-top: 4px; }
+  .ch-cover .ch-meta { font-size: 11.5px; color: var(--text-tertiary); margin-top: 8px; }
+
+  /* 高亮块 */
+  .callout { margin: 14px 0; padding: 12px 14px 12px 14px; border-radius: 10px; border-left: 3px solid; font-size: 13px; line-height: 1.7; }
+  .callout-title { font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .callout-blue   { background: rgba(0,113,227,0.06);   border-color: var(--apple-blue);   color: #0d3a6e; }
+  .callout-blue   .callout-title { color: var(--apple-blue); }
+  .callout-green  { background: rgba(48,209,88,0.06);   border-color: var(--apple-green);  color: #14532d; }
+  .callout-green  .callout-title { color: #1e8e3e; }
+  .callout-orange { background: rgba(255,159,10,0.07);  border-color: var(--apple-orange); color: #7a4a00; }
+  .callout-orange .callout-title { color: #b25e00; }
+  .callout-red    { background: rgba(255,69,58,0.06);   border-color: var(--apple-red);    color: #7a1d1a; }
+  .callout-red    .callout-title { color: #c4291c; }
+  .callout-purple { background: rgba(191,90,242,0.06);  border-color: var(--apple-purple); color: #4b1872; }
+  .callout-purple .callout-title { color: #8a2bc7; }
+
+  /* 表格 */
+  .doc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; margin: 14px 0; }
+  .doc-table thead th {
+    background: rgba(0,0,0,0.04); color: var(--text-secondary); font-weight: 600;
+    text-align: left; padding: 9px 12px; border-bottom: 1px solid rgba(0,0,0,0.06);
+    letter-spacing: 0.02em;
+  }
+  .doc-table thead th:first-child { border-top-left-radius: 10px; }
+  .doc-table thead th:last-child  { border-top-right-radius: 10px; }
+  .doc-table tbody td {
+    padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,0.04);
+    vertical-align: top; line-height: 1.6;
+  }
+  .doc-table tbody tr:nth-child(even) td { background: rgba(0,0,0,0.015); }
+  .doc-table tbody tr:last-child td { border-bottom: none; }
+  .doc-table .col-formula { font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 11.5px; color: var(--text-secondary); white-space: pre-wrap; }
+
+  /* chip / pill */
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; }
+  .badge-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
+  .pill-num { font-variant-numeric: tabular-nums; font-weight: 600; padding: 0 4px; border-radius: 4px; }
+  .key-num { color: var(--apple-blue); font-weight: 600; }
+  .key-orange { color: var(--apple-orange); font-weight: 600; }
+  .key-red { color: var(--apple-red); font-weight: 600; }
+  .key-green { color: var(--apple-green); font-weight: 600; }
+  .key-purple { color: var(--apple-purple); font-weight: 600; }
+
+  /* 术语下划线 + tooltip */
+  .term {
+    border-bottom: 1px dashed rgba(0,113,227,0.5);
+    cursor: help; position: relative;
+  }
+  .term:hover { color: var(--apple-blue); }
+  .term-tip {
+    position: fixed; max-width: 320px; padding: 10px 12px; border-radius: 9px;
+    background: rgba(28,28,30,0.94); color: rgba(255,255,255,0.95); font-size: 11.5px; line-height: 1.6;
+    z-index: 9999; pointer-events: none; opacity: 0; transform: translateY(-3px);
+    transition: opacity .12s ease, transform .12s ease;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.2); display: none;
+    font-weight: 400; letter-spacing: 0;
+  }
+  .term-tip.show { display: block; opacity: 1; transform: translateY(0); }
+  .term-tip strong { color: #fff; }
+
+  /* 5 维彩点 */
+  .dim { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+  .dim::before { content: ""; width: 8px; height: 8px; border-radius: 9999px; }
+  .dim-response::before  { background: var(--apple-orange); }
+  .dim-stability::before { background: var(--apple-red); }
+  .dim-thinking::before  { background: var(--apple-blue); }
+  .dim-resource::before  { background: var(--apple-green); }
+  .dim-orch::before      { background: var(--apple-purple); }
+
+  /* 分档颜色 chip */
+  .band-chip { display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:9999px; font-size:11px; font-weight:500; }
+  .band-green  { background: rgba(48,209,88,0.12);   color: #1e8e3e; }
+  .band-orange { background: rgba(255,159,10,0.12);  color: #b25e00; }
+  .band-purple { background: rgba(191,90,242,0.12);  color: #8a2bc7; }
+  .band-red    { background: rgba(255,69,58,0.12);   color: #c4291c; }
+
+  /* 锚点目录 */
+  .toc-link {
+    display: block; padding: 6px 10px; border-radius: 7px; font-size: 12.5px;
+    color: var(--text-secondary); line-height: 1.5; text-decoration: none;
+    border-left: 2px solid transparent;
+  }
+  .toc-link:hover { background: rgba(0,0,0,0.04); color: var(--text-primary); }
+  .toc-link.active {
+    background: rgba(0,113,227,0.08); color: var(--apple-blue); font-weight: 500;
+    border-left-color: var(--apple-blue);
+  }
+  .toc-link.toc-sub { padding-left: 22px; font-size: 12px; color: var(--text-tertiary); }
+  .toc-link.toc-sub.active { color: var(--apple-blue); }
+
+  /* 演示数据 toggle */
+  .toggle {
+    position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: rgba(120,120,128,0.32); border-radius: 9999px;
+    transition: .2s ease;
+  }
+  .toggle-slider::before {
+    content: ""; position: absolute; left: 2px; top: 2px;
+    width: 16px; height: 16px; background: white; border-radius: 9999px;
+    transition: .2s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .toggle input:checked + .toggle-slider { background: var(--apple-green); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+  /* drop cap */
+  .drop-cap::first-letter {
+    font-size: 36px; font-weight: 700; float: left; line-height: 0.95;
+    margin: 4px 8px 0 0; color: var(--apple-blue);
+  }
+
+  /* 路径流程图 */
+  .path-flow { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+  .path-step {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 14px; border-radius: 12px;
+    background: white; border: 1px solid rgba(0,0,0,0.05);
+  }
+  .path-step .num {
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: 9999px;
+    background: linear-gradient(135deg, #0071E3, #BF5AF2); color: white;
+    font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+  }
+  .path-step .content { font-size: 13px; line-height: 1.65; flex: 1; }
+  .path-step .content .step-title { font-weight: 600; margin-bottom: 2px; }
+  .path-arrow { color: var(--text-tertiary); text-align: center; font-size: 14px; }
+
+  /* 演示开关隐藏内容 */
+  body.demo-off .demo-only { display: none !important; }
+  body.demo-off .demo-replace::after {
+    content: "（演示数据已关闭）"; color: var(--text-tertiary); font-size: 12px;
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ===== Top Nav ===== -->
+<header class="sticky top-0 z-40">
+  <div class="glass-strong border-b border-black/5">
+    <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-6">
+        <a href="./index.html" class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+            </svg>
+          </div>
+          <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
+        </a>
+        <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
+          <a href="./dashboard.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
+          <a href="./sessions.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">明细</a>
+          <a href="./clusters.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">异常</a>
+        </nav>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="./docs.html" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium text-[13px]">📖 说明</a>
+        <!-- 演示数据开关已暂时隐藏，待接入真实数据后通过移除 hidden 类恢复 -->
+        <div class="hidden items-center gap-2 text-[12px] text-[--text-secondary] bg-black/5 rounded-lg px-3 h-8">
+          <span>演示数据</span>
+          <label class="toggle">
+            <input type="checkbox" id="demo-toggle" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="flex items-center gap-1.5 text-[12px] bg-black/5 rounded-lg px-2.5 h-8">
+          <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
+          agentic-rl-prod
+        </div>
+        <div class="w-8 h-8 rounded-full bg-[--apple-orange] text-white text-[12px] font-semibold flex items-center justify-center">N</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== Body ===== -->
+<main class="max-w-[1440px] mx-auto px-8 py-8 grid grid-cols-12 gap-8">
+
+  <!-- 左侧锚点 TOC -->
+  <aside class="col-span-3">
+    <div class="sticky top-20">
+      <div class="glass rounded-2xl p-3">
+        <div class="text-[11px] font-semibold text-[--text-tertiary] uppercase tracking-widest px-2 mb-2">目录</div>
+        <nav id="toc" class="flex flex-col gap-0.5">
+          <a class="toc-link" href="#ch1">一、平台速览</a>
+          <a class="toc-link toc-sub" href="#ch1-1">1.1 一句话定位</a>
+          <a class="toc-link toc-sub" href="#ch1-2">1.2 三大菜单一图流</a>
+          <a class="toc-link toc-sub" href="#ch1-3">1.3 你该读哪一节</a>
+
+          <a class="toc-link" href="#ch2">二、核心概念</a>
+          <a class="toc-link toc-sub" href="#ch2-1">2.1 会话三层结构</a>
+          <a class="toc-link toc-sub" href="#ch2-2">2.2 5 维健康度</a>
+          <a class="toc-link toc-sub" href="#ch2-3">2.3 健康度分档</a>
+          <a class="toc-link toc-sub" href="#ch2-4">2.4 关键路径</a>
+
+          <a class="toc-link" href="#ch3">三、菜单使用指南</a>
+          <a class="toc-link toc-sub" href="#ch3-1">3.1 大盘</a>
+          <a class="toc-link toc-sub" href="#ch3-2">3.2 明细</a>
+          <a class="toc-link toc-sub" href="#ch3-3">3.3 异常</a>
+
+          <a class="toc-link" href="#ch4">四、指标口径手册</a>
+          <a class="toc-link toc-sub" href="#ch4-1">4.1 耗时类</a>
+          <a class="toc-link toc-sub" href="#ch4-2">4.2 成本类</a>
+          <a class="toc-link toc-sub" href="#ch4-3">4.3 步数类</a>
+          <a class="toc-link toc-sub" href="#ch4-4">4.4 健康度子项</a>
+          <a class="toc-link toc-sub" href="#ch4-5">4.5 异常标签</a>
+
+          <a class="toc-link" href="#ch5">五、问题排查路径</a>
+          <a class="toc-link toc-sub" href="#ch5-1">路径 A · P95 飙升</a>
+          <a class="toc-link toc-sub" href="#ch5-2">路径 B · 异常标签飙红</a>
+          <a class="toc-link toc-sub" href="#ch5-3">路径 C · 单 session 不健康</a>
+
+          <a class="toc-link" href="#appendix">附录 · 术语 / FAQ</a>
+        </nav>
+      </div>
+      <div class="mt-3 px-3 text-[11px] text-[--text-tertiary] leading-relaxed">
+        预计阅读 <span class="num-mono key-num">15</span> 分钟<br>
+        最近更新：2026-05-29
+      </div>
+    </div>
+  </aside>
+
+  <!-- 正文 -->
+  <article class="col-span-9 glass rounded-3xl p-12 doc-prose">
+
+    <!-- 文档大标题 -->
+    <header class="mb-2">
+      <div class="text-[12px] text-[--text-tertiary] uppercase tracking-widest font-medium">DOCUMENTATION</div>
+      <h1 class="text-[36px] font-bold tracking-tight mt-1 leading-tight">AgentTrace · 使用说明</h1>
+      <p class="text-[15px] text-[--text-secondary] mt-2 leading-relaxed">
+        给 Agent 装一个体检中心。本文面向产品、运营与业务方，逐章解释三大菜单的定位、每个指标的计算口径，以及如何用本平台一步步定位 Agent 的真实问题。
+      </p>
+    </header>
+
+    <!-- ============ 第一章 ============ -->
+    <section id="ch1">
+      <h2><span class="ch-no">01</span>平台速览</h2>
+      <div class="ch-cover">
+        <div class="text-[15px] font-semibold">这个平台到底是干什么的？</div>
+        <div class="ch-summary">如果把 Agent 看作一个员工，AgentTrace 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话评估它的响应、稳定、思考、资源、编排五项体征，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
+        <div class="ch-meta">本章 · 预计阅读 2 分钟</div>
+      </div>
+
+      <h3 id="ch1-1">1.1 一句话定位</h3>
+      <p class="drop-cap">
+        Agent 的运行链路很长，单看某一次回答好不好并不能反映系统真实质量。AgentTrace 把每一次完整对话当作一份"体检报告"，
+        在你看不到的"幕后流程"里，量化它<strong>用了多久</strong>、<strong>调了几个工具</strong>、<strong>错在哪一步</strong>、<strong>烧了多少 Token</strong>。
+        当业务方提出"最近 Agent 是不是变笨了"、"为什么客户等了这么久"这类问题时，本平台给你<strong>可量化、可追溯、可分组</strong>的答案。
+      </p>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">💡 适合谁用</div>
+        <ul class="!my-1">
+          <li><strong>产品 / 运营</strong>：监控线上 Agent 体检趋势，发现劣化及时止血。</li>
+          <li><strong>算法 / 研发</strong>：定位单次会话的失败根因，输出工程改进项。</li>
+          <li><strong>业务方</strong>：用统一口径汇报 Agent 服务质量，对外承诺 SLA。</li>
+        </ul>
+      </div>
+
+      <h3 id="ch1-2">1.2 三大菜单一图流</h3>
+      <p>本平台只有三个菜单，按"由远到近"排列，构成一条天然的下钻链路：</p>
+      <table class="doc-table">
+        <thead><tr><th style="width:14%">菜单</th><th style="width:26%">看什么</th><th style="width:30%">解决什么问题</th><th>典型行为</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="band-chip band-orange">大盘</span></td>
+            <td>整体趋势 + 5 维健康度 + 高风险 session 排行</td>
+            <td>"这周 Agent 状态怎么样？"</td>
+            <td>发现劣化趋势 / 定位重点 session</td>
+          </tr>
+          <tr>
+            <td><span class="band-chip band-purple">明细</span></td>
+            <td>单次会话的完整体检报告（DAG / 5 维 / 异常清单 / 质量评估）</td>
+            <td>"这个 session 到底错在哪一步？"</td>
+            <td>逐 span 追因 / 找关键路径</td>
+          </tr>
+          <tr>
+            <td><span class="band-chip band-red">异常</span></td>
+            <td>把命中相同异常标签的 session 归堆，看共性</td>
+            <td>"哪一类问题正在变多？"</td>
+            <td>共性诊断 / 推动批量修复</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-orange">
+        <div class="callout-title">⚠️ 容易混淆</div>
+        <strong>"异常"不是 AI 自动聚类</strong>，而是按 <code>failed_label</code>（如「执行步数过多」「上下文超限」）做的简单归堆。它解决的不是"找新问题"，而是"已知问题谁在中招"。
+      </div>
+
+      <h3 id="ch1-3">1.3 你该先读哪一节</h3>
+      <table class="doc-table">
+        <thead><tr><th>角色</th><th>建议阅读路径</th></tr></thead>
+        <tbody>
+          <tr><td>第一次接触 / 想全面了解</td><td>第一章 → 第二章 → 第三章（按顺序读，约 10 分钟）</td></tr>
+          <tr><td>产品 / 运营，要做日常监控</td><td>第二章 2.2-2.3 → 第三章 → 第五章</td></tr>
+          <tr><td>研发要查口径 / 排错</td><td>第四章（口径手册）→ 第五章（排查路径）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============ 第二章 ============ -->
+    <section id="ch2">
+      <h2><span class="ch-no">02</span>核心概念</h2>
+      <div class="ch-cover">
+        <div class="text-[15px] font-semibold">先把"刻度尺"立起来</div>
+        <div class="ch-summary">这一章是后面所有指标的地基。读完之后，你会对"会话 / 轮次 / 步骤 / 步骤埋点"四级结构、5 维健康度的含义、健康度分档、关键路径形成稳定理解。<strong>建议必读。</strong></div>
+        <div class="ch-meta">本章 · 预计阅读 4 分钟</div>
+      </div>
+
+      <h3 id="ch2-1">2.1 会话三层结构</h3>
+      <p>理解 Agent 的执行结构，只需要记住三个层级：</p>
+      <table class="doc-table">
+        <thead><tr><th style="width:18%">层级</th><th style="width:32%">业务话</th><th>技术话</th></tr></thead>
+        <tbody>
+          <tr><td><strong class="key-num">Session（会话）</strong></td><td>用户和 Agent 的<strong>一次完整对话</strong></td><td>一次 trace · 含一个根 span</td></tr>
+          <tr><td><strong class="key-orange">Turn（对话轮次）</strong></td><td>用户问一句、Agent 答一句，算<strong>一轮</strong></td><td>同一个 session 下的一组 user→assistant 消息对</td></tr>
+          <tr><td><strong class="key-purple">Step（执行步数）</strong></td><td>Agent 内心活动一次：<strong>想 + 调工具</strong> 算一步</td><td>一次 LLM call 加它紧随的 tool calls</td></tr>
+          <tr><td><strong>Span（步骤埋点）</strong></td><td>步骤里的<strong>每一个具体动作</strong></td><td>OpenTelemetry 链路上的最小单元</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">💡 用对话理解一遍</div>
+        用户："帮我订张明天去上海的票" → Agent 想了下，调 <code>flight.search</code>、<code>flight.book</code>、<code>calendar.add</code>。
+        <ul class="!my-1">
+          <li>这是 <span class="key-num">1 个 Session</span></li>
+          <li>包含 <span class="key-orange">1 个 Turn</span>（用户问了一次）</li>
+          <li>包含 <span class="key-purple">1 个 Step</span>（Agent 一次思考触发了 3 个工具）</li>
+          <li>但有 <strong>4 个 Span</strong>（1 LLM + 3 tool）</li>
+        </ul>
+      </div>
+
+      <h3 id="ch2-2">2.2 5 维健康度</h3>
+      <p>把"Agent 体检"拆成五项独立指标，每一维满分 100，综合分取均值：</p>
+      <table class="doc-table">
+        <thead><tr><th style="width:13%">维度</th><th style="width:26%">它在测什么</th><th style="width:31%">不及格代表</th><th>核心信号</th></tr></thead>
+        <tbody>
+          <tr><td><span class="dim dim-response">响应</span></td><td>用户等了多久</td><td>Agent <strong>慢</strong>，用户感知差</td><td>端到端耗时 ≤ 60s 满分</td></tr>
+          <tr><td><span class="dim dim-stability">稳定</span></td><td>调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出</td></tr>
+          <tr><td><span class="dim dim-thinking">思考</span></td><td>步数合不合理</td><td>Agent <strong>想得太少或太多</strong></td><td>执行步数（黄金区 3-9 步）</td></tr>
+          <tr><td><span class="dim dim-resource">资源</span></td><td>Token 用得省不省</td><td>Agent <strong>烧得多但产出少</strong></td><td>单轮 Token ≤ 76k 满分</td></tr>
+          <tr><td><span class="dim dim-orch">编排</span></td><td>调度模式合不合理</td><td>Agent <strong>来回踩同一个坑</strong>（过程导向）</td><td>连续重试次数、工具多样性</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-orange">
+        <div class="callout-title">⚠️ 稳定 vs 编排：很容易搞混</div>
+        <strong>稳定看后果，编排看模式。</strong> 同一个 session 可能"跌跌撞撞最终成功"——稳定 100、编排 50。这种 case 真实发生：
+        <span class="demo-only">参考演示数据 <a class="key-num" href="./session-detail.html?id=441ce4">441ce4</a>，连续 7 次 retry 同一工具但最终成功。</span>
+      </div>
+
+      <h3 id="ch2-3">2.3 健康度分档</h3>
+      <p>每个 session 的综合分会被映射到四档颜色，<strong>大盘 / 明细 / 异常三个菜单的颜色编码完全一致</strong>，便于跨菜单直觉记忆：</p>
+
+      <div class="grid grid-cols-4 gap-3 my-3">
+        <div class="rounded-xl p-4" style="background:rgba(48,209,88,0.08)">
+          <div class="band-chip band-green mb-2"><span class="badge-dot bg-[--apple-green]"></span>≥ 85 健康</div>
+          <div class="text-[12px] text-[--text-secondary] leading-relaxed">体检通过。继续监控。</div>
+        </div>
+        <div class="rounded-xl p-4" style="background:rgba(255,159,10,0.08)">
+          <div class="band-chip band-orange mb-2"><span class="badge-dot bg-[--apple-orange]"></span>70 - 84 一般</div>
+          <div class="text-[12px] text-[--text-secondary] leading-relaxed">轻度异常，关注趋势。</div>
+        </div>
+        <div class="rounded-xl p-4" style="background:rgba(191,90,242,0.08)">
+          <div class="band-chip band-purple mb-2"><span class="badge-dot bg-[--apple-purple]"></span>50 - 69 风险</div>
+          <div class="text-[12px] text-[--text-secondary] leading-relaxed">需要排查，避免劣化。</div>
+        </div>
+        <div class="rounded-xl p-4" style="background:rgba(255,69,58,0.08)">
+          <div class="band-chip band-red mb-2"><span class="badge-dot bg-[--apple-red]"></span>&lt; 50 严重</div>
+          <div class="text-[12px] text-[--text-secondary] leading-relaxed">立即介入，影响线上。</div>
+        </div>
+      </div>
+
+      <h3 id="ch2-4">2.4 关键路径</h3>
+      <p>
+        关键路径（<span class="term" data-term="critical-path">Critical Path</span>）= DAG 里<strong>最长的串行链路</strong>，决定了用户感知的总耗时。
+        理解它最直观的方式是把 Agent 的执行流程想成一场<strong>接力赛</strong>：
+      </p>
+      <ul>
+        <li><strong>多人并行</strong>跑 = 同时调多个工具，最终耗时 = 最慢那个</li>
+        <li><strong>接力串行</strong>跑 = 一个工具调完才能调下一个，耗时 = 所有耗时之和</li>
+        <li>关键路径就是这条最长的接力链 —— <strong>它一秒不优化，端到端就一秒不变快</strong></li>
+      </ul>
+
+      <div class="callout callout-green">
+        <div class="callout-title">✅ 怎么读关键路径占比</div>
+        <ul class="!my-1">
+          <li>占比 <span class="key-red">&gt; 80%</span>：典型的<strong>串行瓶颈</strong>，Agent 在反复 thinking 或 retry，重点查模型/重试逻辑</li>
+          <li>占比 <span class="key-green">50%-80%</span>：编排相对健康</li>
+          <li>占比 <span class="key-orange">&lt; 50%</span>：可能存在<strong>排队 / 并发浪费</strong>，多个工具同时启动但未带来速度收益</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 第三章 ============ -->
+    <section id="ch3">
+      <h2><span class="ch-no">03</span>菜单使用指南</h2>
+      <div class="ch-cover">
+        <div class="text-[15px] font-semibold">"我打开它能干什么"</div>
+        <div class="ch-summary">三大菜单逐一拆解。每个菜单按统一模板讲清：它在哪、看什么、怎么用、典型场景。</div>
+        <div class="ch-meta">本章 · 预计阅读 5 分钟</div>
+      </div>
+
+      <h3 id="ch3-1">3.1 大盘（Dashboard）</h3>
+      <p>顶部导航 → <a class="key-num" href="./dashboard.html">大盘</a>。这是日常监控的第一站。</p>
+
+      <h4>顶部 4 卡 · 核心指标</h4>
+      <table class="doc-table">
+        <thead><tr><th>指标</th><th>含义</th><th>口径</th></tr></thead>
+        <tbody>
+          <tr><td><strong>E2E P95</strong></td><td>95% 用户的最长等待</td><td class="col-formula">所有 session.duration 的 P95</td></tr>
+          <tr><td><strong>E2E P50</strong></td><td>典型用户等待</td><td class="col-formula">所有 session.duration 的中位数</td></tr>
+          <tr><td><strong>总成本</strong></td><td>累计 Token 折算费用</td><td class="col-formula">Σ(input + output) × $1.5 / 1M</td></tr>
+          <tr><td><strong>累计 Token</strong></td><td>所有 session 的输入输出总量</td><td class="col-formula">Σ(input_tokens + output_tokens)</td></tr>
+        </tbody>
+      </table>
+
+      <h4>健康度分布堆叠条 + 5 维雷达</h4>
+      <ul>
+        <li><strong>堆叠条</strong>：四档健康度占比一目了然。绿色越长 = 整体越好。</li>
+        <li><strong>雷达图</strong>：5 维平均得分。<strong>形状不对称 → 哪一维拖后腿</strong>。例如雷达明显朝"思考"维度凹陷，说明步数普遍越界，要去看是不是某类工具产生了过多 retry。</li>
+      </ul>
+
+      <h4>高风险 session 表</h4>
+      <p>按健康度<strong>升序</strong>排列（最差的在最上面），异常列用 <code>+n</code> 折叠展示，hover 可看全部异常明细。</p>
+      <div class="callout callout-blue">
+        <div class="callout-title">💡 为什么按健康度而不是按耗时？</div>
+        耗时高的不一定是<strong>系统真问题</strong>（用户提了个复杂任务自然慢）。健康度综合了 5 维信号，更接近"<strong>这一次 Agent 是不是真的失常了</strong>"。
+      </div>
+
+      <h3 id="ch3-2">3.2 明细（Sessions）</h3>
+      <p>顶部导航 → <a class="key-purple" href="./sessions.html">明细</a>。这是单次会话的"X 光片"。</p>
+
+      <h4>列表页</h4>
+      <ul>
+        <li><strong>筛选</strong>：状态（全部 / 异常 / 健康）+ 异常类型 + 健康度档位 + 时间窗</li>
+        <li><strong>搜索</strong>：session_id / 标题 / 用户名模糊匹配</li>
+      </ul>
+
+      <h4>Session 详情页 · 模块拆解</h4>
+      <table class="doc-table">
+        <thead><tr><th style="width:22%">模块</th><th>看什么</th></tr></thead>
+        <tbody>
+          <tr><td><strong>基本信息</strong></td><td>session_id、用户、起始时间、Agent 版本、综合得分</td></tr>
+          <tr><td><strong>5 维雷达</strong></td><td>本次 session 各维得分。每维 hover 可看子项口径</td></tr>
+          <tr><td><strong>DAG 甘特图</strong></td><td>所有 span 按时间轴展开。<strong>关键路径高亮，并行节点同行排列</strong></td></tr>
+          <tr><td><strong>执行分析</strong></td><td>实时日志风格的事件流：每一步 LLM 思考 / 工具调用 / 失败重试 用颜色区分</td></tr>
+          <tr><td><strong>质量评估</strong></td><td>规则评估 + LLM-as-Judge + 人工校准（三卡 UI 对齐）</td></tr>
+          <tr><td><strong>异常清单</strong></td><td>本次 session 命中的所有 <code>failed_label</code> + 对应明细</td></tr>
+        </tbody>
+      </table>
+
+      <h4>DAG 怎么读</h4>
+      <ul>
+        <li><strong>节点颜色</strong>：蓝 LLM call、紫 tool call、红 失败、灰 跳过</li>
+        <li><strong>同一行多个节点</strong> = 并行调用（异步 / 多线程）</li>
+        <li><strong>橙色高亮的链路</strong> = 关键路径（最长串行链）</li>
+        <li><strong>「⚡ 直接调用工具」标签</strong>：模型隐式决策，没有产出文本但直接发起了 tool call</li>
+      </ul>
+
+      <h3 id="ch3-3">3.3 异常（Clusters）</h3>
+      <p>顶部导航 → <a class="key-red" href="./clusters.html">异常</a>。这是"同病相怜"视角。</p>
+
+      <h4>顶部 3 卡 · 概览</h4>
+      <ul>
+        <li><strong>异常类型数</strong>：当前时间窗内出现的不同 <code>failed_label</code> 类型数</li>
+        <li><strong>受影响 Session</strong>：至少命中 1 个异常的 session 数</li>
+        <li><strong>平均健康度</strong>：所有异常 session 的健康度均值</li>
+      </ul>
+
+      <h4>每个聚类卡片字段</h4>
+      <table class="doc-table">
+        <thead><tr><th style="width:24%">字段</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><strong>异常 label</strong></td><td>chip 颜色 = 该聚类平均健康度对应分档</td></tr>
+          <tr><td><strong>命中 session 数</strong></td><td>该聚类下命中的 session 总数</td></tr>
+          <tr><td><strong>平均健康度</strong></td><td>聚类下所有 session 的健康度均值</td></tr>
+          <tr><td><strong>趋势 sparkline</strong></td><td>按时间分桶的命中数走势。<strong>上升 = 这周这个问题在变多</strong></td></tr>
+          <tr><td><strong>命中 Session ID</strong></td><td>前 3 个命中 session 的可点击链接，多于 3 个显示 +N</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============ 第四章 ============ -->
+    <section id="ch4">
+      <h2><span class="ch-no">04</span>指标口径手册</h2>
+      <div class="ch-cover">
+        <div class="text-[15px] font-semibold">较真的人请看这里</div>
+        <div class="ch-summary">本章是平台所有指标的<strong>权威口径</strong>。当你和算法 / 研发对齐数据时，所有公式、字段来源、兜底规则都以本章为准。</div>
+        <div class="ch-meta">本章 · 预计阅读 4 分钟（可作工具书查阅）</div>
+      </div>
+
+      <h3 id="ch4-1">4.1 耗时类</h3>
+      <table class="doc-table">
+        <thead><tr><th style="width:18%">指标</th><th style="width:24%">含义</th><th style="width:30%">口径公式</th><th>数据来源</th></tr></thead>
+        <tbody>
+          <tr><td>E2E 耗时</td><td>用户从提问到收到完整答复的总时长</td><td class="col-formula">root_span.end_time − root_span.start_time</td><td>OTel root span</td></tr>
+          <tr><td>E2E P95</td><td>95 分位耗时</td><td class="col-formula">percentile(durations, 0.95)</td><td>当前时间窗内全部 session</td></tr>
+          <tr><td>E2E P50</td><td>中位耗时</td><td class="col-formula">percentile(durations, 0.50)</td><td>同上</td></tr>
+          <tr><td>关键路径耗时</td><td>DAG 最长串行链总和</td><td class="col-formula">DFS(DAG) → max(serial chain duration)</td><td>span 父子关系</td></tr>
+          <tr><td>关键路径占比</td><td>关键路径 / 总耗时</td><td class="col-formula">critical_path / e2e</td><td>同上</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="ch4-2">4.2 成本类</h3>
+      <table class="doc-table">
+        <thead><tr><th style="width:18%">指标</th><th style="width:24%">含义</th><th style="width:30%">口径公式</th><th>数据来源</th></tr></thead>
+        <tbody>
+          <tr><td>累计 Token</td><td>输入 + 输出 token 之和</td><td class="col-formula">Σ(input_tokens + output_tokens)</td><td>每个 LLM span 的 attributes</td></tr>
+          <tr><td>总成本（$）</td><td>按统一单价折算</td><td class="col-formula">total_token × $1.5 / 1M</td><td>同上 · 单价为占位估算</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-orange">
+        <div class="callout-title">⚠️ 单价说明</div>
+        平台用 <strong>$1.5 / 1M token</strong> 简化计价，<strong>不区分 input / output 实际单价</strong>，与财务实际账单可能存在偏差。仅用于横向对比 session 间的资源消耗。
+      </div>
+
+      <h3 id="ch4-3">4.3 步数类</h3>
+      <table class="doc-table">
+        <thead><tr><th style="width:18%">指标</th><th style="width:24%">含义</th><th style="width:30%">口径</th><th>判定</th></tr></thead>
+        <tbody>
+          <tr><td>执行步数</td><td>Agent 一次会话的思考循环数</td><td class="col-formula">trace_count<br>（兜底用 turns）</td><td>—</td></tr>
+          <tr><td>步数合理 黄金区</td><td>3-9 步</td><td class="col-formula">3 ≤ steps ≤ 9</td><td><span class="band-chip band-green">合理</span></td></tr>
+          <tr><td>执行步数过多</td><td>步数 &gt; 9，疑似进入循环</td><td class="col-formula">steps &gt; 9</td><td><span class="band-chip band-red">异常</span></td></tr>
+          <tr><td>执行步数过少</td><td>步数 &lt; 3，疑似过早结束</td><td class="col-formula">steps &lt; 3</td><td><span class="band-chip band-red">异常</span></td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="ch4-4">4.4 健康度子项打分</h3>
+      <table class="doc-table">
+        <thead><tr><th style="width:14%">维度</th><th style="width:26%">满分条件</th><th>计分公式</th></tr></thead>
+        <tbody>
+          <tr><td><span class="dim dim-response">响应</span></td><td>≤ 60s</td><td class="col-formula">100 × (1 − max(0, duration − 60s) / 60s)</td></tr>
+          <tr><td><span class="dim dim-stability">稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
+          <tr><td><span class="dim dim-thinking">思考</span></td><td>6 步</td><td class="col-formula">距黄金区 3-9 越近得分越高</td></tr>
+          <tr><td><span class="dim dim-resource">资源</span></td><td>≤ 76k token / 轮</td><td class="col-formula">100 × (1 − max(0, tokens − 76k) / 76k)</td></tr>
+          <tr><td><span class="dim dim-orch">编排</span></td><td>低 max_serial_run + 高工具多样性</td><td class="col-formula">惩罚连续相同工具调用 (max_serial_run)<br>奖励 unique_tools / tool_calls</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="ch4-5">4.5 异常标签枚举</h3>
+      <table class="doc-table">
+        <thead><tr><th style="width:24%">failed_label</th><th>触发条件</th><th>归属维度</th></tr></thead>
+        <tbody>
+          <tr><td><strong>执行步数过多</strong></td><td>steps &gt; 9</td><td><span class="dim dim-thinking">思考</span></td></tr>
+          <tr><td><strong>执行步数过少</strong></td><td>steps &lt; 3</td><td><span class="dim dim-thinking">思考</span></td></tr>
+          <tr><td><strong>上下文超限</strong></td><td>单次 LLM 调用 token 超出模型上下文窗口</td><td><span class="dim dim-resource">资源</span></td></tr>
+          <tr><td><strong>执行失败</strong></td><td>根 span 异常退出 / 任务未完成</td><td><span class="dim dim-stability">稳定</span></td></tr>
+          <tr><td><strong>出现死循环</strong></td><td>同一工具连续调用 max_serial_run ≥ 阈值</td><td><span class="dim dim-orch">编排</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============ 第五章 ============ -->
+    <section id="ch5">
+      <h2><span class="ch-no">05</span>问题排查路径</h2>
+      <div class="ch-cover">
+        <div class="text-[15px] font-semibold">"我看到异常了，下一步怎么办？"</div>
+        <div class="ch-summary">本章把日常使用中最常遇到的 3 类排查场景，做成可复用的下钻路径。每条路径配一个真实 session 案例。</div>
+        <div class="ch-meta">本章 · 预计阅读 4 分钟 · <strong>本文档最有价值的章节</strong></div>
+      </div>
+
+      <h3 id="ch5-1">路径 A · 大盘看到 P95 飙升 → 怎么定位到具体 session</h3>
+      <div class="path-flow">
+        <div class="path-step"><div class="num">1</div><div class="content">
+          <div class="step-title">在<a class="key-num" href="./dashboard.html">大盘</a>看到 P95 异常</div>
+          顶部 4 卡的 P95 数字明显高于历史水位（颜色变橙 / 红）。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">2</div><div class="content">
+          <div class="step-title">下拉到「高风险 session 表」</div>
+          按健康度升序排列，最差的 session 在最上面。<strong>异常 chip 列就是分诊单</strong>。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">3</div><div class="content">
+          <div class="step-title">点击 session id 进入<a class="key-purple" href="./sessions.html">明细</a>详情页</div>
+          重点看 <strong>5 维雷达</strong>：是不是<strong>响应</strong>维度独凹下去？是的话进入路径 C。
+        </div></div>
+      </div>
+      <p class="demo-only text-[12px] text-[--text-tertiary]">演示样例：点击 <a class="key-num" href="./session-detail.html?id=af2cb1">af2cb1</a>（健康度 49 / 严重档）查看详情。</p>
+
+      <h3 id="ch5-2">路径 B · 异常菜单某个标签飙红 → 怎么找共性</h3>
+      <div class="path-flow">
+        <div class="path-step"><div class="num">1</div><div class="content">
+          <div class="step-title">在<a class="key-red" href="./clusters.html">异常</a>看到趋势 sparkline 上升</div>
+          某个聚类的 sparkline 明显抬头，说明该问题<strong>正在变多</strong>。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">2</div><div class="content">
+          <div class="step-title">点击命中 Session ID 抽查 2-3 个</div>
+          看是否<strong>共用同一个工具 / 同一类用户输入 / 同一个 Agent 版本</strong>。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">3</div><div class="content">
+          <div class="step-title">在每个 session 的 DAG 里定位失败 span</div>
+          失败 span 颜色为红色，hover 可看 attributes 里的 error message。共性出现 → 推动批量修复。
+        </div></div>
+      </div>
+
+      <h3 id="ch5-3">路径 C · 单 session 健康度 &lt; 50 → 怎么用 5 维雷达 + DAG 找根因</h3>
+      <div class="path-flow">
+        <div class="path-step"><div class="num">1</div><div class="content">
+          <div class="step-title">在 5 维雷达上找最低维</h4>
+          <strong>哪一维独凹下去就先查哪一维</strong>。每维 hover 可看子项口径。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">2</div><div class="content">
+          <div class="step-title">在 DAG 上定位关键路径</div>
+          关键路径橙色高亮。如果占比 &gt; 80%，说明<strong>串行瓶颈</strong>，重点查链路上耗时最长的那个 span。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">3</div><div class="content">
+          <div class="step-title">读「执行分析」事件流</div>
+          按时间顺序看每一步 LLM thinking / tool call / retry，红色事件就是断点。
+        </div></div>
+        <div class="path-arrow">↓</div>
+        <div class="path-step"><div class="num">4</div><div class="content">
+          <div class="step-title">读「异常清单」+「质量评估」</div>
+          异常清单是规则维度的诊断；质量评估给的是<strong>结果维度</strong>的打分（rule / LLM-as-Judge / 人工）。两者交叉验证，可以避免单一信号误判。
+        </div></div>
+      </div>
+
+      <div class="callout callout-green">
+        <div class="callout-title">✅ 排查心法</div>
+        <ol class="!my-1">
+          <li><strong>先看分布，再看个体</strong>：大盘 → 异常 → 明细，避免被极端 case 带偏。</li>
+          <li><strong>哪一维独凹下去先查哪一维</strong>：5 维雷达就是分诊。</li>
+          <li><strong>关键路径优先</strong>：DAG 上节点很多但只有橙色链决定总耗时。</li>
+          <li><strong>规则信号 ∩ LLM 信号</strong>：单一来源容易误报，交叉验证更可靠。</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============ 附录 ============ -->
+    <section id="appendix">
+      <h2><span class="ch-no">06</span>附录</h2>
+
+      <h3>A · 术语对照表</h3>
+      <table class="doc-table">
+        <thead><tr><th style="width:20%">术语</th><th style="width:40%">业务话</th><th>技术话</th></tr></thead>
+        <tbody>
+          <tr><td>Session</td><td>一次完整对话</td><td>OTel root trace</td></tr>
+          <tr><td>Turn</td><td>对话轮次</td><td>一组 user→assistant message 对</td></tr>
+          <tr><td>Step</td><td>执行步数</td><td>1 LLM call + 紧随的 tool calls</td></tr>
+          <tr><td>Span</td><td>步骤埋点</td><td>OTel span，最小可观测单元</td></tr>
+          <tr><td>DAG</td><td>执行流程图</td><td>父子 span 构成的有向无环图</td></tr>
+          <tr><td>Critical Path</td><td>关键路径</td><td>DAG 中最长的串行链路</td></tr>
+          <tr><td>OTel</td><td>埋点协议</td><td>OpenTelemetry 标准</td></tr>
+          <tr><td>failed_label</td><td>异常标签</td><td>规则评估失败时打上的分类标签</td></tr>
+          <tr><td>max_serial_run</td><td>最长连续相同工具调用</td><td>编排维度核心信号</td></tr>
+        </tbody>
+      </table>
+
+      <h3>B · FAQ</h3>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">Q1 · 为什么我看到的总成本和实际财务账单对不上？</div>
+        平台用 <code>$1.5 / 1M token</code> 简化估算，<strong>不区分 input / output 实际单价</strong>，仅用于横向对比 session 间的资源消耗，不是财务真账。
+      </div>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">Q2 · 为什么这个 session 没有 DAG？</div>
+        OTel 上报数据残缺（只有 root span 没有子 span），通常是埋点版本不一致或日志被截断。可以联系研发同学确认。
+      </div>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">Q3 · "执行步数"和"对话轮次"的区别？</div>
+        <strong>对话轮次 = 用户问了几次</strong>（一来一回算一次）；<strong>执行步数 = Agent 自己思考了几次</strong>（用户问 1 次但 Agent 可能内部思考 7 步）。
+      </div>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">Q4 · 健康度 ≥85 是不是就万事大吉？</div>
+        不一定。综合分会被某些维度拉高。建议同时看<strong>5 维雷达形状</strong>：理想形状是接近正五边形，明显凹陷的维度无论综合分多高都值得关注。
+      </div>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">Q5 · 异常菜单的趋势 sparkline 数据从哪来？</div>
+        当前为按 session 真实 <code>started_at_ms</code> 时间戳分桶的命中数。原型阶段数据样本较少（仅 6 条），接入真实 API 后会自动铺满时间窗。
+      </div>
+    </section>
+
+    <footer class="mt-16 pt-8 border-t border-black/5 text-[12px] text-[--text-tertiary] flex justify-between">
+      <div>AgentTrace · 使用说明 · v1.0</div>
+      <div>反馈与变更：<a class="key-num" href="mailto:agenttrace@example.com">agenttrace@example.com</a></div>
+    </footer>
+
+  </article>
+</main>
+
+<!-- 术语 tooltip portal -->
+<div id="term-tip-portal" class="term-tip"></div>
+
+<script>
+(function () {
+  // ===== 演示数据 toggle（保持跨菜单一致 · 默认开） =====
+  const KEY = 'agenttrace.demo';
+  const toggle = document.getElementById('demo-toggle');
+  const saved = localStorage.getItem(KEY);
+  const initial = saved === null ? 'on' : saved;
+  toggle.checked = initial === 'on';
+  document.body.classList.toggle('demo-off', initial !== 'on');
+  toggle.addEventListener('change', () => {
+    const v = toggle.checked ? 'on' : 'off';
+    localStorage.setItem(KEY, v);
+    document.body.classList.toggle('demo-off', v !== 'on');
+  });
+
+  // ===== TOC 跟踪当前章节 =====
+  const links = document.querySelectorAll('#toc .toc-link');
+  const sections = [...links].map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+
+  function setActive() {
+    const top = window.scrollY + 100;
+    let curId = sections[0]?.id;
+    for (const sec of sections) {
+      if (sec.offsetTop <= top) curId = sec.id;
+    }
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + curId));
+  }
+  window.addEventListener('scroll', setActive, { passive: true });
+  setActive();
+
+  // ===== 术语 tooltip =====
+  const TERMS = {
+    'critical-path': '<strong>Critical Path（关键路径）</strong><br>DAG 中最长的串行链路。它的耗时直接等于会话端到端耗时下限：减少它一秒，用户少等一秒。',
+  };
+  const tip = document.getElementById('term-tip-portal');
+  document.querySelectorAll('.term').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      const key = el.getAttribute('data-term');
+      tip.innerHTML = TERMS[key] || el.textContent;
+      const r = el.getBoundingClientRect();
+      tip.style.left = Math.max(8, r.left) + 'px';
+      tip.style.top = (r.bottom + 6) + 'px';
+      tip.classList.add('show');
+    });
+    el.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  });
+})();
+</script>
+
+</body>
+</html>

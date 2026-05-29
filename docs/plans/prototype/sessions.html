@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Trace 诊断平台 · Session</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-1: #F5F5F7;
+    --bg-2: #FAFAFA;
+    --apple-blue: #0071E3;
+    --apple-orange: #FF9F0A;
+    --apple-green: #30D158;
+    --apple-red: #FF453A;
+    --apple-purple: #BF5AF2;
+    --apple-cyan: #64D2FF;
+    --text-primary: #1D1D1F;
+    --text-secondary: #6E6E73;
+    --text-tertiary: #A1A1A6;
+  }
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html, body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(0,113,227,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 20%, rgba(255,159,10,0.08), transparent 60%),
+      radial-gradient(800px 400px at 50% 110%, rgba(191,90,242,0.06), transparent 60%),
+      linear-gradient(180deg, #F5F5F7 0%, #FAFAFA 100%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.8) inset,
+      0 8px 32px rgba(0, 0, 0, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.02);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.06);
+  }
+  .badge-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
+  .scroll-x::-webkit-scrollbar { height: 6px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 9999px; }
+  .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; font-size: 11px; font-weight: 500; letter-spacing: 0.01em; }
+  .seg { background: rgba(120,120,128,0.12); border-radius: 9px; padding: 2px; display: inline-flex; }
+  .seg button { padding: 4px 12px; font-size: 12px; border-radius: 7px; color: var(--text-secondary); }
+  .seg button.active { background: white; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
+  .lift { transition: transform .25s ease, box-shadow .25s ease; }
+  .lift:hover { transform: translateY(-1px); box-shadow: 0 12px 32px rgba(0,0,0,0.06); }
+
+  /* Table 行 hover */
+  .row-hover { transition: background .15s ease; }
+  .row-hover:hover { background: rgba(0,0,0,0.025); }
+  .row-hover .session-title { transition: color .15s ease; }
+  .row-hover:hover .session-title { color: var(--apple-blue); }
+
+  /* 健康度小柱 */
+  .score-bar { width: 28px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.06); position: relative; overflow: hidden; }
+  .score-bar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
+
+  /* 迷你 sparkline */
+  .mini-spark path { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
+
+  /* 通用 Tooltip Hover 释义 */
+  .with-tip { position: relative; }
+  .with-tip > .tip {
+    position: absolute; top: calc(100% + 8px); left: 0;
+    width: 260px; padding: 10px 12px; border-radius: 10px;
+    background: rgba(29,29,31,0.96); color: #F5F5F7;
+    font-size: 11.5px; line-height: 1.55; font-weight: 400;
+    letter-spacing: 0.01em;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+    opacity: 0; transform: translateY(-4px); pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+    z-index: 9999;
+    white-space: normal;
+  }
+  .with-tip > .tip::before {
+    content: ''; position: absolute; top: -5px; left: 14px;
+    width: 10px; height: 10px; background: rgba(29,29,31,0.96); transform: rotate(45deg);
+  }
+  .with-tip > .tip .tip-title { font-weight: 600; color: #fff; margin-bottom: 4px; font-size: 12px; display: block; }
+  .with-tip > .tip .tip-flow { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); font-size: 11px; display: block; }
+  .with-tip > .tip .tip-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 11px; }
+  .with-tip > .tip .tip-row > span:first-child { color: rgba(255,255,255,0.55); flex-shrink: 0; }
+  .with-tip > .tip .tip-row > span:last-child { color: #fff; text-align: right; }
+  .with-tip:hover { z-index: 9999; }
+  .with-tip:hover > .tip { opacity: 1; transform: translateY(0); }
+  /* 让筛选条整体处于较高层级，确保 tooltip 不被下方表格毛玻璃压住 */
+  .filter-bar { position: relative; z-index: 100; overflow: visible !important; }
+  .filter-bar .seg { overflow: visible; }
+
+  /* 单元格自定义 hover 浮层（替代浏览器原生 title） */
+  .cell-tip { position: relative; }
+  #cell-tip-portal {
+    position: fixed; pointer-events: none;
+    max-width: 480px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(29,29,31,0.96); color: #F5F5F7;
+    font-size: 11.5px; line-height: 1.55; font-weight: 400;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+    opacity: 0; transform: translateY(-3px);
+    transition: opacity .12s ease, transform .12s ease;
+    z-index: 9999; white-space: normal; word-break: break-word;
+    display: none;
+  }
+  #cell-tip-portal.show { opacity: 1; transform: translateY(0); display: block; }
+  #cell-tip-portal .chip { background: rgba(255,255,255,0.10); color: #fff; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; font-size: 11px; }
+  #cell-tip-portal .chips-list { display: flex; flex-direction: column; gap: 4px; }
+
+  /* 表格行：交替底色 + 圆润 hover */
+  .row-hover td:first-child { padding-left: 20px; }
+  .row-hover td:last-child  { padding-right: 20px; }
+
+  /* 筛选条下拉：原生 details + summary 风格 */
+  .dd { position: relative; }
+  .dd-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 0 10px; height: 28px; border-radius: 6px;
+    background: rgba(0,0,0,0.05); color: var(--text-secondary);
+    font-size: 12px; cursor: pointer; transition: background .15s ease;
+    user-select: none;
+  }
+  .dd-btn:hover { background: rgba(0,0,0,0.1); }
+  .dd-btn.is-active { background: rgba(0,113,227,0.10); color: var(--apple-blue); }
+  .dd-btn .caret { width: 10px; height: 10px; transition: transform .15s ease; }
+  .dd.open .dd-btn .caret { transform: rotate(180deg); }
+  .dd-menu {
+    position: absolute; top: calc(100% + 6px); left: 0;
+    min-width: 180px; max-height: 280px; overflow-y: auto;
+    padding: 4px; border-radius: 10px;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.10);
+    z-index: 200; display: none;
+  }
+  .dd.open .dd-menu { display: block; }
+  .dd-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: 7px; cursor: pointer;
+    font-size: 12.5px; color: var(--text-primary);
+    user-select: none;
+  }
+  .dd-item:hover { background: rgba(0,0,0,0.05); }
+  .dd-item.selected { color: var(--apple-blue); font-weight: 500; }
+  .dd-item .dd-check { width: 14px; flex-shrink: 0; color: var(--apple-blue); opacity: 0; }
+  .dd-item.selected .dd-check { opacity: 1; }
+  .dd-item .dd-count { margin-left: auto; font-size: 11px; color: var(--text-tertiary); }
+
+  /* 筛选条搜索框 */
+  .filter-search {
+    position: relative; display: inline-flex; align-items: center;
+  }
+  .filter-search input {
+    background: rgba(0,0,0,0.05); border-radius: 7px;
+    padding-left: 30px; padding-right: 10px; height: 28px; width: 240px;
+    font-size: 12.5px; color: var(--text-primary);
+    transition: background .15s ease, box-shadow .15s ease;
+  }
+  .filter-search input::placeholder { color: var(--text-tertiary); }
+  .filter-search input:focus { outline: none; background: white; box-shadow: 0 0 0 2px rgba(0,113,227,0.25); }
+  .filter-search svg { position: absolute; left: 9px; width: 13px; height: 13px; color: var(--text-tertiary); pointer-events: none; }
+  .filter-search .clear-btn {
+    position: absolute; right: 6px; width: 18px; height: 18px; border-radius: 9999px;
+    display: none; align-items: center; justify-content: center;
+    color: var(--text-tertiary); cursor: pointer;
+  }
+  .filter-search .clear-btn:hover { background: rgba(0,0,0,0.08); color: var(--text-primary); }
+  .filter-search.has-value .clear-btn { display: inline-flex; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ===== Top Nav ===== -->
+<header class="sticky top-0 z-40">
+  <div class="glass-strong border-b border-black/5">
+    <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-6">
+        <a href="./index.html" class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+            </svg>
+          </div>
+          <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
+        </a>
+        <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
+          <a href="./dashboard.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
+          <a href="./sessions.html" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">明细</a>
+          <a href="./clusters.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">异常</a>
+        </nav>
+      </div>
+      <div class="flex items-center gap-3 relative">
+        <!-- 全局日期筛选器（共享组件 range-picker.js） -->
+        <div id="global-range" class="relative"></div>
+        <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+        <div class="flex items-center gap-1.5 text-[12px] bg-black/5 rounded-lg px-2.5 h-8">
+          <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
+          agentic-rl-prod
+        </div>
+        <div class="w-8 h-8 rounded-full bg-[--apple-orange] text-white text-[12px] font-semibold flex items-center justify-center">N</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1440px] mx-auto px-8 py-8 space-y-6">
+
+  <!-- Page Header -->
+  <section class="flex items-end justify-between">
+    <div>
+      <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">SESSIONS</div>
+      <h1 class="text-[28px] font-semibold tracking-tight leading-tight">Session 列表</h1>
+      <p class="text-[13px] text-[--text-secondary] mt-1">
+        共 <span class="font-medium text-[--text-primary] num-mono" id="total-count">--</span> 个 session，按健康度排序，便于优先排查。
+      </p>
+    </div>
+  </section>
+
+  <!-- 筛选条 -->
+  <section class="filter-bar glass rounded-2xl p-3 flex items-center gap-3 flex-wrap" id="filter-bar">
+    <!-- 状态分段（数据驱动 count） -->
+    <div class="seg" id="status-seg">
+      <button data-status="all" class="active with-tip">全部 · <span class="num-mono" data-count="all">--</span>
+        <span class="tip">
+          <span class="tip-title">全部 Session</span>
+          时间范围内所有 Session（含健康/异常），按健康度排序，便于全局浏览。
+        </span>
+      </button>
+      <button data-status="anomaly" class="with-tip">有异常 · <span class="num-mono" data-count="anomaly">--</span>
+        <span class="tip">
+          <span class="tip-title">有异常的 Session</span>
+          健康度 &lt; 85 分。可能存在执行失败、死循环、执行步数偏多/偏少、上下文超限等问题，需要重点关注。
+        </span>
+      </button>
+      <button data-status="healthy" class="with-tip">健康 · <span class="num-mono" data-count="healthy">--</span>
+        <span class="tip">
+          <span class="tip-title">健康 Session</span>
+          健康度 ≥ 85 分（绿色档）。整体执行表现良好，可作为正样本参考。
+        </span>
+      </button>
+    </div>
+
+    <div class="w-px h-5 bg-black/10"></div>
+
+    <!-- 搜索框（替代顶部冗余搜索） -->
+    <div class="filter-search" id="search-box">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.3-4.3M10 18a8 8 0 100-16 8 8 0 000 16z"/></svg>
+      <input id="filter-search-input" placeholder="搜索 session_id / 标题 / 用户" />
+      <span class="clear-btn" id="filter-search-clear" title="清空">
+        <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M6 6l12 12M6 18L18 6"/></svg>
+      </span>
+    </div>
+
+    <!-- 异常类型 -->
+    <div class="dd" data-key="anomaly-type">
+      <button class="dd-btn"><span class="dd-label">异常类型: 全部</span><svg class="caret" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>
+      <div class="dd-menu" id="dd-anomaly-type">
+        <div class="dd-item selected" data-value="all"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>全部</div>
+        <!-- 动态注入 failed_label -->
+      </div>
+    </div>
+
+    <!-- 健康度 -->
+    <div class="dd" data-key="score">
+      <button class="dd-btn"><span class="dd-label">健康度: 全部</span><svg class="caret" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>
+      <div class="dd-menu" id="dd-score">
+        <div class="dd-item selected" data-value="all"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>全部</div>
+        <div class="dd-item" data-value="green"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg><span class="badge-dot bg-[--apple-green]"></span>健康（≥ 85）</div>
+        <div class="dd-item" data-value="orange"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg><span class="badge-dot bg-[--apple-orange]"></span>注意（70–84）</div>
+        <div class="dd-item" data-value="purple"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg><span class="badge-dot bg-[--apple-purple]"></span>亚健康（50–69）</div>
+        <div class="dd-item" data-value="red"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg><span class="badge-dot bg-[--apple-red]"></span>严重（&lt; 50）</div>
+      </div>
+    </div>
+
+    <div class="ml-auto text-[12px] text-[--text-secondary] flex items-center gap-2">
+      <span>排序：</span>
+      <div class="dd" data-key="sort">
+        <button class="dd-btn is-active"><span class="dd-label">健康度 ↓</span><svg class="caret" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>
+        <div class="dd-menu" id="dd-sort" style="left:auto;right:0">
+          <div class="dd-item selected" data-value="score-desc"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>健康度 ↓</div>
+          <div class="dd-item" data-value="score-asc"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>健康度 ↑</div>
+          <div class="dd-item" data-value="time-desc"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>开始时间 ↓</div>
+          <div class="dd-item" data-value="time-asc"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>开始时间 ↑</div>
+          <div class="dd-item" data-value="duration-desc"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>耗时 ↓</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 表格 -->
+  <section class="glass rounded-2xl overflow-hidden">
+    <div class="overflow-x-auto scroll-x">
+      <table class="w-full text-[13px] table-fixed">
+        <colgroup>
+          <col style="width:38%" />
+          <col style="width:14%" />
+          <col style="width:13%" />
+          <col style="width:13%" />
+          <col style="width:7%" />
+          <col style="width:15%" />
+        </colgroup>
+        <thead class="bg-white/30">
+          <tr class="text-[10.5px] text-[--text-tertiary] uppercase tracking-wider">
+            <th class="text-left font-medium px-5 py-3">Session</th>
+            <th class="text-left font-medium py-3">用户</th>
+            <th class="text-left font-medium py-3">
+              <span class="with-tip cursor-help inline-flex items-center gap-1">
+                健康度
+                <svg class="w-3 h-3 text-[--text-tertiary]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 8v.01M11 12h1v4h1"/></svg>
+                <span class="tip" style="width:320px">
+                  <span class="tip-title">健康度评分如何计算</span>
+                  <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
+                  <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
+                  <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
+                  <div class="tip-row"><span>思考</span><span>执行步数（6 步最优）</span></div>
+                  <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
+                  <div class="tip-row"><span>编排</span><span>调度模式（连续重试 / 工具多样性）</span></div>
+                  <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
+                    <span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span>
+                  </div>
+                  <div style="margin-top:6px;color:rgba(255,255,255,0.7);font-size:10.5px">调用失败时硬封顶 50；异常标签取最低分维度。</div>
+                </span>
+              </span>
+            </th>
+            <th class="text-left font-medium py-3">异常</th>
+            <th class="text-right font-medium py-3 num-mono">耗时</th>
+            <th class="text-right font-medium py-3 pr-5">开始时间</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-black/5"
+               id="session-tbody">
+          <tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="flex items-center justify-between px-5 py-3 border-t border-black/5 text-[12px] text-[--text-secondary]" id="pagination">
+      <div id="pagination-info">显示 0 / 0</div>
+      <div class="flex items-center gap-1" id="pagination-pages"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
+  (async function () {
+    const tbody = document.getElementById('session-tbody');
+    const totalCountEl = document.getElementById('total-count');
+    const searchInput = document.getElementById('filter-search-input');
+    const searchClear = document.getElementById('filter-search-clear');
+    const searchBox = document.getElementById('search-box');
+    const statusSeg = document.getElementById('status-seg');
+    const ddAnomaly = document.getElementById('dd-anomaly-type');
+    const ddScore = document.getElementById('dd-score');
+    const ddSort = document.getElementById('dd-sort');
+    const pgInfo = document.getElementById('pagination-info');
+    const pgPages = document.getElementById('pagination-pages');
+    if (!tbody) return;
+
+    // ----- 工具 -----
+    function fmtDuration(ms) {
+      if (!ms || ms < 1000) return (ms || 0) + 'ms';
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      let res = '';
+      if (h > 0) res += h + 'h';
+      if (m > 0 || h > 0) res += m + 'm';
+      res += s + 's';
+      return res;
+    }
+    function pad(n) { return n.toString().padStart(2, '0'); }
+    function fmtTime(ms) {
+      const d = new Date(ms);
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function escapeHtml(s) {
+      return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+    function buildAnomalies(s) {
+      const rulesRaw = s.rules || [];
+      // 用前端真实"思考循环次数"（trace_count）重新校准"执行步数合理"规则
+      const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
+      const rules = rulesRaw.map(r => {
+        if (!r) return r;
+        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
+          if (turnsN >= 3 && turnsN <= 9) {
+            return Object.assign({}, r, { name: '执行步数合理', passed: true, detail: turnsN + ' 步（处于 3-9 黄金区）' });
+          } else if (turnsN > 9) {
+            return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: turnsN + ' 步（建议 3-9）' });
+          } else {
+            return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: turnsN + ' 步（建议 3-9）' });
+          }
+        }
+        return r;
+      });
+      const failed = rules.filter(r => r && r.passed === false);
+      if (!failed.length) return null;
+      const score = s.score ?? 0;
+      const color = scoreBand(score);
+      return {
+        color,
+        list: failed.map(r => ({ label: r.failed_label || r.name, detail: r.detail || '' })),
+      };
+    }
+    // ===== 健康度档位 → 颜色（与详情页 hover 说明保持一致）=====
+    //   ≥85  健康     green
+    //   70-84 注意     orange
+    //   50-69 亚健康   purple
+    //   <50  严重     red
+    function scoreBand(score) {
+      if (score >= 85) return 'green';
+      if (score >= 70) return 'orange';
+      if (score >= 50) return 'purple';
+      return 'red';
+    }
+
+    // ----- 状态 -----
+    const PAGE_SIZE = 20;
+    const state = {
+      all: [],
+      filter: {
+        status: 'all',          // all / anomaly / healthy
+        anomalyType: 'all',     // all / failed_label
+        score: 'all',           // all / green / orange / red
+        keyword: '',            // 模糊搜索：session_id / 标题 / 用户
+        range: localStorage.getItem('agenttrace.range') || '7d',
+        customFrom: parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null, // ms
+        customTo: parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null,     // ms
+      },
+      sort: 'score-desc',
+      page: 1,
+    };
+
+    // 时间范围对应的毫秒数（以最新一条 session 时间为基准，避免 prototype 老数据被全部过滤掉）
+    const RANGE_MS = { '24h': 24*3600e3, '7d': 7*86400e3, '30d': 30*86400e3 };
+    let baseTimeMs = Date.now();
+
+    // ----- 渲染单行 -----
+    function renderRow(s) {
+      const score = s.score ?? 80;
+      const scoreColor = scoreBand(score);
+      const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
+      const userInitial = (s.user || 'A').charAt(0).toUpperCase();
+      const ano = buildAnomalies(s);
+
+      let chipsCellHtml = '<span class="text-[--text-tertiary]">—</span>';
+      if (ano) {
+        const main = ano.list[0];
+        const extra = ano.list.length - 1;
+        const tipHtml = `<div class="chips-list">${ano.list.map(it => `<span class="chip"><span class="badge-dot bg-[--apple-${ano.color}]"></span>${escapeHtml(it.label)}${it.detail ? ` <span style="opacity:.6;margin-left:4px">· ${escapeHtml(it.detail)}</span>` : ''}</span>`).join('')}</div>`;
+        chipsCellHtml = `
+          <div class="cell-tip inline-flex items-center gap-1.5" data-tip='${encodeURIComponent(tipHtml)}'>
+            <span class="chip bg-[--apple-${ano.color}]/10 text-[--apple-${ano.color}]">
+              <span class="badge-dot bg-[--apple-${ano.color}]"></span>${escapeHtml(main.label)}
+            </span>
+            ${extra > 0 ? `<span class="text-[10.5px] text-[--text-tertiary] num-mono px-1 rounded bg-black/5">+${extra}</span>` : ''}
+          </div>`;
+      }
+
+      const titleCellHtml = `
+        <div class="min-w-0 cell-tip" data-tip='${encodeURIComponent(titleEsc)}'>
+          <div class="session-title font-medium truncate">${titleEsc}</div>
+          <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5">${s.id} · ${s.turns || 0} turns · ${s.trace_count || 1} traces</div>
+        </div>`;
+
+      return `<tr class="row-hover cursor-pointer" data-href="./session-detail.html?id=${encodeURIComponent(s.id)}">
+        <td class="px-5 py-3.5">${titleCellHtml}</td>
+        <td class="py-3.5">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-6 h-6 rounded-full bg-[--apple-blue] text-white text-[10px] font-semibold flex items-center justify-center flex-shrink-0">${userInitial}</div>
+            <span class="text-[--text-secondary] truncate">${escapeHtml(s.user || 'anonymous')}</span>
+          </div>
+        </td>
+        <td class="py-3.5">
+          <div class="flex items-center gap-2">
+            <div class="score-bar"><span style="width:${score}%; background:var(--apple-${scoreColor});"></span></div>
+            <span class="num-mono font-semibold text-[--apple-${scoreColor}]">${score}</span>
+          </div>
+        </td>
+        <td class="py-3.5">${chipsCellHtml}</td>
+        <td class="text-right py-3.5 num-mono">${fmtDuration(s.duration_ms)}</td>
+        <td class="text-right py-3.5 pr-5 text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
+      </tr>`;
+    }
+
+    // ----- 派生：筛选 + 排序 -----
+    function applyFilter() {
+      const f = state.filter;
+      const kw = f.keyword.trim().toLowerCase();
+      const winMs = RANGE_MS[f.range];
+      const minTime = winMs ? (baseTimeMs - winMs) : 0;
+
+      let arr = state.all.filter(s => {
+        // 时间窗口：严格以当前系统时间为锚点
+        const ts = s.started_at_ms ?? 0;
+        if (f.range === 'custom') {
+          if (f.customFrom && ts < f.customFrom) return false;
+          if (f.customTo && ts > f.customTo) return false;
+        } else if (winMs && ts < minTime) {
+          return false;
+        }
+        const ano = buildAnomalies(s);
+        // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
+        // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
+        const isHealthy = (s.score ?? 0) >= 85;
+        // 状态分段
+        if (f.status === 'anomaly' && isHealthy) return false;
+        if (f.status === 'healthy' && !isHealthy) return false;
+        // 异常类型
+        if (f.anomalyType !== 'all') {
+          if (!ano) return false;
+          if (!ano.list.some(it => it.label === f.anomalyType)) return false;
+        }
+        // 健康度档位
+        if (f.score !== 'all') {
+          const sc = s.score ?? 0;
+          if (scoreBand(sc) !== f.score) return false;
+        }
+        // 关键字模糊搜索：session_id（含完整 id 精确命中）/ 标题 / 用户
+        if (kw) {
+          const hay = `${s.id || ''} ${s.title || ''} ${s.user || ''}`.toLowerCase();
+          if (!hay.includes(kw)) return false;
+        }
+        return true;
+      });
+
+      // 排序
+      const cmps = {
+        'score-desc': (a, b) => (b.score ?? 0) - (a.score ?? 0),
+        'score-asc':  (a, b) => (a.score ?? 0) - (b.score ?? 0),
+        'time-desc':  (a, b) => (b.started_at_ms ?? 0) - (a.started_at_ms ?? 0),
+        'time-asc':   (a, b) => (a.started_at_ms ?? 0) - (b.started_at_ms ?? 0),
+        'duration-desc': (a, b) => (b.duration_ms ?? 0) - (a.duration_ms ?? 0),
+      };
+      arr.sort(cmps[state.sort] || cmps['score-desc']);
+      return arr;
+    }
+
+    // ----- 渲染表格 + 分页 -----
+    function renderAll() {
+      refreshStatusCount();
+      const list = applyFilter();
+      const total = list.length;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      if (state.page > pages) state.page = pages;
+      const start = (state.page - 1) * PAGE_SIZE;
+      const slice = list.slice(start, start + PAGE_SIZE);
+
+      // 空态
+      if (!slice.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="px-5 py-24 text-center">
+          <div class="flex flex-col items-center justify-center opacity-80">
+            <div class="w-12 h-12 rounded-full bg-black/5 flex items-center justify-center mb-4">
+              <svg class="w-6 h-6 text-[--text-tertiary]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+            </div>
+            <div class="text-[14px] text-[--text-secondary] font-medium mb-1">这个时间段静悄悄的，连 Bug 都在睡大觉呢 😴</div>
+            <div class="text-[12px] text-[--text-tertiary]">当前筛选条件下暂无 Session 数据，请尝试调整筛选或清空搜索关键字</div>
+          </div>
+        </td></tr>`;
+      } else {
+        if (tbody) {
+          tbody.innerHTML = slice.map(renderRow).join('');
+          tbody.querySelectorAll('tr[data-href]').forEach(tr => {
+            tr.addEventListener('click', () => window.location.href = tr.dataset.href);
+          });
+        }
+      }
+
+      // 顶部统计
+      totalCountEl.textContent = total.toLocaleString();
+
+      // 分页信息
+      const from = total ? start + 1 : 0;
+      const to = Math.min(start + PAGE_SIZE, total);
+      pgInfo.textContent = `显示 ${from}–${to} / ${total.toLocaleString()}`;
+
+      // 分页按钮（≤5 全展开，>5 用 1 … prev cur next … last）
+      const btn = (label, opts = {}) => {
+        const cls = opts.active
+          ? 'w-7 h-7 rounded-md bg-[--apple-blue] text-white font-medium'
+          : 'w-7 h-7 rounded-md hover:bg-black/5';
+        const dis = opts.disabled ? 'disabled' : '';
+        return `<button class="${cls} disabled:opacity-40" ${dis} data-page="${opts.page ?? ''}">${label}</button>`;
+      };
+      const arrow = (dir, page, disabled) =>
+        `<button class="px-2.5 h-7 rounded-md hover:bg-black/5 disabled:opacity-40" ${disabled ? 'disabled' : ''} data-page="${page}">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="${dir === 'prev' ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}"/>
+          </svg>
+        </button>`;
+      let html = arrow('prev', state.page - 1, state.page <= 1);
+      const pageNums = [];
+      if (pages <= 7) {
+        for (let i = 1; i <= pages; i++) pageNums.push(i);
+      } else {
+        pageNums.push(1);
+        if (state.page > 3) pageNums.push('…');
+        const lo = Math.max(2, state.page - 1), hi = Math.min(pages - 1, state.page + 1);
+        for (let i = lo; i <= hi; i++) pageNums.push(i);
+        if (state.page < pages - 2) pageNums.push('…');
+        pageNums.push(pages);
+      }
+      pageNums.forEach(p => {
+        if (p === '…') html += `<span class="px-1 text-[--text-tertiary]">…</span>`;
+        else html += btn(String(p), { active: p === state.page, page: p });
+      });
+      html += arrow('next', state.page + 1, state.page >= pages);
+      pgPages.innerHTML = html;
+      pgPages.querySelectorAll('button[data-page]').forEach(b => {
+        b.addEventListener('click', () => {
+          const p = parseInt(b.dataset.page, 10);
+          if (!isNaN(p)) { state.page = p; renderAll(); }
+        });
+      });
+    }
+
+    // ----- Cell tooltip portal -----
+    function setupCellTooltip() {
+      const portal = document.getElementById('cell-tip-portal') || (() => {
+        const el = document.createElement('div');
+        el.id = 'cell-tip-portal';
+        document.body.appendChild(el);
+        return el;
+      })();
+      function showTip(target) {
+        const raw = target.getAttribute('data-tip');
+        if (!raw) return;
+        portal.innerHTML = decodeURIComponent(raw);
+        portal.classList.add('show');
+        const r = target.getBoundingClientRect();
+        let top = r.bottom + 6, left = r.left;
+        const pw = portal.offsetWidth, ph = portal.offsetHeight;
+        if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
+        if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+        portal.style.left = left + 'px';
+        portal.style.top = top + 'px';
+      }
+      function hideTip() { portal.classList.remove('show'); }
+      tbody.addEventListener('mouseover', e => {
+        const t = e.target.closest('.cell-tip');
+        if (t && tbody.contains(t)) showTip(t);
+      });
+      tbody.addEventListener('mouseout', e => {
+        if (e.target.closest('.cell-tip')) hideTip();
+      });
+    }
+
+    // ----- 状态分段 count -----
+    function refreshStatusCount() {
+      const f = state.filter;
+      const winMs = RANGE_MS[f.range];
+      const minTime = winMs ? (baseTimeMs - winMs) : 0;
+
+      let anomaly = 0, healthy = 0, total = 0;
+      // 与 applyFilter 中保持同一口径：健康 = score ≥ 85（绿色档）
+      state.all.forEach(s => {
+        // 时间窗口过滤
+        const ts = s.started_at_ms ?? 0;
+        if (f.range === 'custom') {
+          if (f.customFrom && ts < f.customFrom) return;
+          if (f.customTo && ts > f.customTo) return;
+        } else if (winMs && ts < minTime) {
+          return;
+        }
+
+        total++;
+        if ((s.score ?? 0) >= 85) healthy++; else anomaly++;
+      });
+      statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();
+      statusSeg.querySelector('[data-count="anomaly"]').textContent = anomaly.toLocaleString();
+      statusSeg.querySelector('[data-count="healthy"]').textContent = healthy.toLocaleString();
+    }
+
+    // ----- 动态填充：异常类型 -----
+    function buildDynamicDropdowns() {
+      const anomalySet = new Map();
+      state.all.forEach(s => {
+        (s.rules || []).forEach(r => {
+          if (r && r.passed === false) {
+            const lbl = r.failed_label || r.name;
+            anomalySet.set(lbl, (anomalySet.get(lbl) || 0) + 1);
+          }
+        });
+      });
+
+      const ddAnomalyAll = `<div class="dd-item selected" data-value="all"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>全部</div>`;
+      const ddAnomalyItems = [...anomalySet.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<div class="dd-item" data-value="${escapeHtml(k)}"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>${escapeHtml(k)}<span class="dd-count">${v}</span></div>`)
+        .join('');
+      ddAnomaly.innerHTML = ddAnomalyAll + ddAnomalyItems;
+    }
+
+    // ----- 状态分段交互 -----
+    statusSeg.querySelectorAll('button[data-status]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        statusSeg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.filter.status = btn.dataset.status;
+        state.page = 1;
+        renderAll();
+      });
+    });
+
+    // ----- 搜索框交互 -----
+    let searchTimer;
+    searchInput.addEventListener('input', () => {
+      const v = searchInput.value;
+      searchBox.classList.toggle('has-value', !!v);
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        state.filter.keyword = v;
+        state.page = 1;
+        renderAll();
+      }, 150);
+    });
+    searchClear.addEventListener('click', () => {
+      searchInput.value = '';
+      searchBox.classList.remove('has-value');
+      state.filter.keyword = '';
+      state.page = 1;
+      renderAll();
+      searchInput.focus();
+    });
+
+    // ----- 通用下拉交互 -----
+    function setupDropdown(dd) {
+      const btn = dd.querySelector('.dd-btn');
+      const label = dd.querySelector('.dd-label');
+      const menu = dd.querySelector('.dd-menu');
+      const key = dd.dataset.key;
+      const labelPrefix = ({
+        'anomaly-type': '异常类型',
+        'score': '健康度',
+        'sort': '',
+      })[key];
+
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        // 关闭其他
+        document.querySelectorAll('.dd.open').forEach(d => { if (d !== dd) d.classList.remove('open'); });
+        dd.classList.toggle('open');
+      });
+      menu.addEventListener('click', e => {
+        const item = e.target.closest('.dd-item');
+        if (!item) return;
+        menu.querySelectorAll('.dd-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+        const val = item.dataset.value;
+        const text = item.textContent.trim().replace(/\d+$/, '').trim();
+        if (key === 'sort') {
+          label.textContent = text;
+          state.sort = val;
+        } else {
+          label.textContent = labelPrefix + ': ' + text;
+          if (key === 'anomaly-type') state.filter.anomalyType = val;
+          else if (key === 'score') state.filter.score = val;
+          // 高亮
+          btn.classList.toggle('is-active', val !== 'all');
+        }
+        dd.classList.remove('open');
+        state.page = 1;
+        renderAll();
+      });
+    }
+    document.querySelectorAll('.dd').forEach(setupDropdown);
+    // 点击空白关下拉
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open'));
+    });
+
+    // ----- 时间范围切换：由共享组件 range-picker.js 接管，挂载在脚本末尾 -----
+
+    // ----- 加载 -----
+    try {
+      const r = await fetch('./data/sessions.json', { cache: 'no-store' });
+      const d = await r.json();
+      state.all = d.sessions || [];
+      if (!state.all.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">暂无数据</td></tr>`;
+        return;
+      }
+      // 时间基准 = 当前系统时间（保证 24h/7d 等窗口与用户本地时间一致）
+      baseTimeMs = Date.now();
+      buildDynamicDropdowns();
+      setupCellTooltip();
+      renderAll();
+      // 挂载共享日期筛选器
+      window.mountRangePicker({
+        container: document.getElementById('global-range'),
+        onChange: (range, customFrom, customTo) => {
+          state.filter.range = range;
+          if (range === 'custom') {
+            state.filter.customFrom = customFrom || null;
+            state.filter.customTo = customTo || null;
+          }
+          state.page = 1;
+          renderAll();
+        }
+      });
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--apple-red]">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
+    }
+  })();
+</script>
+
+<!-- 共享日期筛选器组件 -->
+<script src="./range-picker.js"></script>
+
+</body>
+</html>

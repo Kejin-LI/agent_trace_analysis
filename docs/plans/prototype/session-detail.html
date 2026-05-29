@@ -1,0 +1,3539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Session 详情 · AgentTrace</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --apple-blue: #0071E3;
+    --apple-orange: #FF9F0A;
+    --apple-green: #30D158;
+    --apple-red: #FF453A;
+    --apple-purple: #BF5AF2;
+    --apple-cyan: #64D2FF;
+    --text-primary: #1D1D1F;
+    --text-secondary: #6E6E73;
+    --text-tertiary: #A1A1A6;
+  }
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html, body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(0,113,227,0.08), transparent 60%),
+      radial-gradient(900px 500px at 110% 20%, rgba(255,159,10,0.06), transparent 60%),
+      linear-gradient(180deg, #F5F5F7 0%, #FAFAFA 100%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    overflow: hidden;
+  }
+  .mono { font-family: 'JetBrains Mono', 'SF Mono', monospace; font-feature-settings: "tnum"; }
+  .num-mono { font-variant-numeric: tabular-nums; }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  .scroll-y::-webkit-scrollbar { width: 6px; }
+  .scroll-y::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 9999px; }
+  .scroll-x::-webkit-scrollbar { height: 6px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 9999px; }
+
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; }
+  .badge-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
+
+  .seg { background: rgba(120,120,128,0.12); border-radius: 8px; padding: 2px; display: inline-flex; }
+  .seg button { padding: 4px 10px; font-size: 11px; border-radius: 6px; color: var(--text-secondary); }
+  .seg button.active { background: white; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
+  /* DAG */
+  .gantt-row { transition: background .15s ease; }
+  .gantt-row:hover { background: rgba(0,113,227,0.04); }
+  .gantt-row.is-hidden { display: none !important; }
+  .gantt-toggle {
+    width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 4px; background: rgba(0,0,0,0.05); color: var(--text-secondary);
+    cursor: pointer; margin-right: 4px; flex-shrink: 0; transition: transform 0.15s;
+  }
+  .gantt-toggle:hover { background: rgba(0,0,0,0.1); color: var(--text-primary); }
+  .gantt-toggle.is-collapsed { transform: rotate(-90deg); }
+  .gantt-bar-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; display: block; pointer-events: none; }
+  .gantt-bar {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 22px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all .2s ease;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: rgba(29,29,31,0.85);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gantt-bar:hover { transform: translateY(-50%) scale(1.02); box-shadow: 0 4px 14px rgba(0,0,0,0.12); z-index: 10; }
+  .gantt-bar.selected { box-shadow: 0 0 0 2px white, 0 0 0 4px var(--apple-blue); }
+
+  .bar-agent { background: linear-gradient(135deg, rgba(100,210,255,0.45), rgba(100,210,255,0.25)); border: 1px solid rgba(100,210,255,0.6); }
+  .bar-tool { background: linear-gradient(135deg, rgba(48,209,88,0.4), rgba(48,209,88,0.22)); border: 1px solid rgba(48,209,88,0.55); }
+  .bar-mcp { background: linear-gradient(135deg, rgba(191,90,242,0.4), rgba(191,90,242,0.22)); border: 1px solid rgba(191,90,242,0.55); }
+  .bar-skill { background: linear-gradient(135deg, rgba(255,159,10,0.4), rgba(255,159,10,0.22)); border: 1px solid rgba(255,159,10,0.55); }
+  .bar-llm { background: linear-gradient(135deg, rgba(0,113,227,0.4), rgba(0,113,227,0.22)); border: 1px solid rgba(0,113,227,0.55); }
+  .bar-queue { background: repeating-linear-gradient(45deg, rgba(120,120,128,0.18), rgba(120,120,128,0.18) 4px, rgba(120,120,128,0.08) 4px, rgba(120,120,128,0.08) 8px); border: 1px dashed rgba(120,120,128,0.4); color: var(--text-secondary); }
+
+  /* Critical path glow */
+  .bar-critical {
+    border-color: var(--apple-orange) !important;
+    box-shadow: 0 0 0 1.5px rgba(255,159,10,0.6), 0 0 14px rgba(255,159,10,0.35);
+  }
+
+  /* Retry waves */
+  .bar-retry::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 4px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'><path d='M0 2 Q 5 0 10 2 T 20 2' fill='none' stroke='%23FF453A' stroke-width='1.2'/></svg>") repeat-x;
+    background-size: 12px 4px;
+  }
+
+  /* Time axis ticks */
+  .axis-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.04); }
+  .axis-label { position: absolute; top: -16px; transform: translateX(-50%); font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  /* Critical path overlay */
+  .cp-line { stroke: var(--apple-orange); stroke-width: 1.2; stroke-dasharray: 4 4; fill: none; opacity: 0.55; }
+
+  .shape-agent { width: 12px; height: 12px; border-radius: 4px; background: var(--apple-cyan); display: inline-block; }
+  .shape-tool { width: 12px; height: 12px; background: var(--apple-green); display: inline-block; }
+  .shape-mcp { width: 12px; height: 12px; background: var(--apple-purple); transform: rotate(45deg); display: inline-block; }
+  .shape-skill { width: 14px; height: 12px; background: var(--apple-orange); clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); display: inline-block; }
+  .shape-llm { width: 12px; height: 12px; border-radius: 50%; background: var(--apple-blue); display: inline-block; }
+
+  .lift { transition: transform .25s ease, box-shadow .25s ease; }
+  .lift:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(0,0,0,0.06); }
+
+  /* Message bubble */
+  .msg-user { background: linear-gradient(135deg, #0071E3 0%, #0058B7 100%); color: white; }
+  .msg-assistant { background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.06); }
+  /* Agent 消息：去掉气泡背景与边框，直接贴在对话流上以节省纵向空间 */
+  .msg-agent { background: transparent; border: 0; padding-left: 0; padding-right: 0; }
+
+  /* 工具/Skill/MCP 调用 - 单行 chip 风格（在气泡内紧跟回复） */
+  .tool-line {
+    display: flex; align-items: center; gap: 8px;
+    margin: 4px 0 0;
+    padding: 3px 0;
+    font-size: 11px;
+    color: #C7791F;
+  }
+  .msg-agent .tool-line:first-child { margin-top: 6px; }
+  .msg-agent .agent-text + .tool-line { margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgba(0,0,0,0.06); }
+  .tool-line-icon {
+    font-size: 11px;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px;
+  }
+  .tool-line-icon.mcp { color: #FF9F0A; }
+  .tool-line-icon.skill { color: #BF5AF2; }
+  .tool-line-icon.tool { color: #0071E3; }
+  .tool-line-label { font-weight: 500; color: var(--text-secondary); }
+  .tool-line-name { font-family: 'JetBrains Mono', SF Mono, Menlo, monospace; font-size: 10.5px; font-weight: 500; color: var(--text-primary); }
+  .tool-line-dur { color: var(--text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; margin-left: auto; }
+  .tool-line-status.fail { color: var(--apple-red); font-weight: 500; }
+  .tool-line.fail { color: var(--apple-red); }
+  .tool-line.fail .tool-line-icon { color: var(--apple-red); }
+
+  /* 同 prompt 下多 trace 的轻量分隔（在合并气泡内） */
+  .agent-turn-sep {
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin: 8px 0;
+    padding: 4px 0;
+    border-top: 1px dashed rgba(0,0,0,0.08);
+    letter-spacing: 0.3px;
+  }
+
+  /* 隐式决策行：LLM 未输出可见文本，直接产生工具调用 */
+  .step-implicit {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin: 0 0 4px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    background: rgba(120,120,128,0.08);
+    border-radius: 999px;
+    cursor: help;
+  }
+
+  /* 思考块（默认折叠为浅灰胶囊，点击展开为面板） */
+  .thought-inline {
+    display: inline-block;
+    margin: 0 0 6px;
+    background: rgba(120,120,128,0.10);
+    border-radius: 999px;
+    padding: 2px 10px;
+    max-width: 100%;
+    transition: background .15s ease, border-radius .15s ease, padding .15s ease;
+  }
+  .thought-inline[open] {
+    display: block;
+    background: rgba(0,0,0,0.03);
+    border-radius: 8px;
+    border-left: 2px solid rgba(120,120,128,0.25);
+    padding: 4px 8px;
+  }
+  .thought-inline > summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+  }
+  .thought-inline > summary::-webkit-details-marker { display: none; }
+  .thought-inline > summary::before { content: '▸ '; }
+  .thought-inline[open] > summary::before { content: '▾ '; }
+  .thought-inline > summary:hover { color: var(--text-secondary); }
+  .thought-body {
+    margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid rgba(0,0,0,0.05);
+    font-size: 11.5px; color: var(--text-secondary);
+    line-height: 1.5; white-space: pre-wrap;
+  }
+
+  /* 弱化产物（代码/中间文件）折叠 */
+  .weak-artifacts {
+    margin: 6px 0;
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.02);
+    border-radius: 8px;
+    font-size: 11px;
+  }
+  .weak-artifacts > summary {
+    color: var(--text-tertiary);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .weak-artifacts > summary::-webkit-details-marker { display: none; }
+  .weak-artifacts > summary::before { content: '▸ '; }
+  .weak-artifacts[open] > summary::before { content: '▾ '; }
+  .weak-artifacts > summary:hover { color: var(--text-secondary); }
+  .weak-artifacts-list {
+    margin-top: 6px;
+    display: flex; flex-direction: column; gap: 3px;
+    padding-left: 8px;
+  }
+  .weak-artifact-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 4px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background .12s ease, color .12s ease;
+  }
+  .weak-artifact-item:hover {
+    background: rgba(0,113,227,0.06);
+    color: var(--apple-blue);
+  }
+  .weak-artifact-name {
+    font-family: 'JetBrains Mono', SF Mono, Menlo, monospace;
+    font-size: 10.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* 跳转闪烁高亮 */
+  @keyframes artifact-flash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0,113,227,0); }
+    30%, 70% { box-shadow: 0 0 0 4px rgba(0,113,227,0.35); }
+  }
+  .artifact-flash { animation: artifact-flash 1.6s ease-out; }
+
+  /* 代码块 + 折叠 */
+  .code-blk {
+    font-family: 'JetBrains Mono', SF Mono, Menlo, monospace;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: #3C3C43;
+    background: rgba(0,0,0,0.03);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0;
+    overflow: auto;
+    white-space: pre;
+    word-break: normal;
+  }
+  .code-blk.collapsed { overflow: hidden; }
+  .code-collapse { position: relative; }
+  .code-collapse .code-blk.collapsed::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 28px; height: 28px;
+    background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.95));
+    pointer-events: none;
+  }
+  .code-toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+  .code-toggle-btn {
+    font-size: 10.5px; color: var(--apple-blue); padding: 2px 6px; border-radius: 4px;
+    background: transparent; cursor: pointer; transition: background .15s;
+  }
+  .code-toggle-btn:hover { background: rgba(0,113,227,0.08); }
+  .code-meta { font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  /* Spring animation */
+  @keyframes slide-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+  .anim-in { animation: slide-in .3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+
+  .json-key { color: #BF5AF2; }
+  .json-string { color: #30D158; }
+  .json-number { color: #FF9F0A; }
+
+  /* ===== Help Tooltip ===== */
+  .help { position: relative; display: inline-flex; align-items: center; gap: 3px; cursor: help; }
+  .help::after {
+    content: "ⓘ"; font-size: 10px; color: var(--text-tertiary);
+    opacity: 0.55; transition: opacity .2s ease; margin-left: 1px; font-style: normal;
+  }
+  .help:hover::after { opacity: 1; color: var(--apple-blue); }
+  .help[data-tip]:hover::before { opacity: 1; }
+  .tip {
+    position: fixed;
+    width: 280px; padding: 12px 14px;
+    background: rgba(28,28,30,0.92);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    color: rgba(255,255,255,0.95);
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    font-size: 11.5px; font-weight: 400; line-height: 1.55;
+    letter-spacing: 0; text-align: left;
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity .15s ease;
+    z-index: 9999; white-space: normal;
+  }
+  .tip.is-visible { opacity: 1; visibility: visible; }
+  .tip::after { display: none; }
+  .tip .tip-title { font-size: 12px; font-weight: 600; color: white; margin-bottom: 4px; }
+  .tip .tip-formula {
+    background: rgba(255,255,255,0.08); padding: 4px 7px; border-radius: 5px;
+    font-family: 'JetBrains Mono','SF Mono',monospace; font-size: 10.5px;
+    color: rgba(255,255,255,0.85); margin: 6px 0; display: inline-block;
+  }
+  .tip .tip-row {
+    display: flex; justify-content: space-between; gap: 8px; margin-top: 4px;
+    color: rgba(255,255,255,0.7); font-size: 10.5px;
+  }
+  .tip .tip-row span:last-child { color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; }
+  .tip-warn { color: #FF9F0A !important; }
+  .tip-good { color: #30D158 !important; }
+  .tip-bad { color: #FF453A !important; }
+
+  /* KPI 副标签 badge：用胶囊 + 浅色底，避免和数字颜色混用 */
+  .kpi-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    height: 18px; padding: 0 7px;
+    font-size: 10.5px; font-weight: 500; letter-spacing: 0.1px;
+    border-radius: 9px;
+    background: rgba(0,0,0,0.04);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .kpi-badge.is-good { background: rgba(52,199,89,0.1); color: #2BA84A; }
+  .kpi-badge.is-warn { background: rgba(255,149,0,0.1); color: #C77700; }
+  .kpi-badge.is-bad  { background: rgba(255,59,48,0.1); color: #D93F33; }
+  .kpi-badge::before {
+    content: ""; width: 4px; height: 4px; border-radius: 50%;
+    background: currentColor; opacity: 0.7;
+  }
+
+  /* ===== Main Tabs ===== */
+  .main-tab {
+    position: relative;
+    padding: 0 14px; height: 38px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 500; color: var(--text-secondary);
+    cursor: pointer; transition: color .15s ease;
+    border-bottom: 2px solid transparent;
+  }
+  .main-tab:hover { color: var(--text-primary); }
+  .main-tab.active { color: var(--text-primary); border-bottom-color: var(--apple-blue); }
+  .main-tab .tab-count {
+    font-size: 10.5px; padding: 1px 6px; border-radius: 9999px;
+    background: rgba(0,0,0,0.06); color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .main-tab.active .tab-count { background: var(--apple-blue); color: white; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; animation: slide-in .2s ease; }
+
+  /* ===== Resizable Splitter ===== */
+  .resize-handle {
+    width: 4px; flex-shrink: 0; cursor: col-resize;
+    background: transparent; position: relative;
+    transition: background .15s ease;
+  }
+  .resize-handle::after {
+    content: ""; position: absolute;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 2px; height: 36px; border-radius: 2px;
+    background: rgba(0,0,0,0.08);
+    transition: background .15s ease, height .15s ease;
+  }
+  .resize-handle:hover::after,
+  .resize-handle.dragging::after {
+    background: var(--apple-blue); height: 56px;
+  }
+  .resize-handle.dragging { background: rgba(0, 113, 227, 0.04); }
+  body.is-resizing { cursor: col-resize !important; user-select: none; }
+  body.is-resizing * { user-select: none !important; }
+
+  /* ===== Artifact (产物) ===== */
+  /* 左侧对话流中的产物卡片 */
+  .artifact-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.85);
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all .15s ease;
+  }
+  .artifact-card:hover {
+    border-color: var(--apple-blue);
+    box-shadow: 0 4px 14px rgba(0,113,227,0.12);
+    transform: translateY(-1px);
+  }
+  .artifact-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(0,113,227,0.12), rgba(191,90,242,0.10));
+    color: var(--apple-blue);
+  }
+  .artifact-meta { min-width: 0; flex: 1; }
+  .artifact-name {
+    font-size: 12px; font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .artifact-sub {
+    font-size: 10.5px; color: var(--text-tertiary);
+    margin-top: 1px;
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .artifact-version {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 600;
+    padding: 1px 5px; border-radius: 4px;
+    background: rgba(0,113,227,0.1); color: var(--apple-blue);
+  }
+  .artifact-version.is-latest {
+    background: rgba(48,209,88,0.12); color: #1a8d3e;
+  }
+
+  /* 右侧产物 Tab */
+  /* 双栏布局：左 sidebar + 右 detail */
+  .art-layout { display: flex; height: 100%; min-height: 0; }
+  .art-sidebar {
+    width: 220px; flex-shrink: 0;
+    border-right: 1px solid rgba(0,0,0,0.06);
+    display: flex; flex-direction: column;
+    background: rgba(248,248,250,0.6);
+  }
+  .art-sidebar-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+  .art-sidebar-list { flex: 1; overflow-y: auto; padding: 8px 6px; }
+  .art-detail { flex: 1; min-width: 0; overflow-y: auto; }
+
+  .art-group { margin-bottom: 4px; }
+  .art-group > summary {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; cursor: pointer;
+    font-size: 11px; font-weight: 600; color: var(--text-secondary);
+    list-style: none; user-select: none;
+    border-radius: 6px;
+  }
+  .art-group > summary::-webkit-details-marker { display: none; }
+  .art-group > summary:hover { background: rgba(0,0,0,0.03); }
+  .art-group-icon { font-size: 12px; }
+  .art-group-label { flex: 1; }
+  .art-group-count {
+    font-size: 10px; color: var(--text-tertiary);
+    background: rgba(0,0,0,0.05); padding: 1px 6px; border-radius: 9999px;
+  }
+  .art-group-items { padding: 2px 0 4px 6px; }
+
+  .art-item {
+    padding: 7px 10px; border-radius: 6px;
+    cursor: pointer; transition: background .15s;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .art-item:hover { background: rgba(0,113,227,0.06); }
+  .art-item.active { background: rgba(0,113,227,0.10); }
+  .art-item.active .art-item-name { color: var(--apple-blue); }
+  .art-item-name {
+    font-size: 12px; font-weight: 500; color: var(--text-primary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .art-item-meta {
+    font-size: 10.5px; color: var(--text-tertiary);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .art-item-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--apple-blue); }
+
+  .ver-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 9999px;
+    font-size: 11.5px; font-weight: 500;
+    background: rgba(0,0,0,0.04); color: var(--text-secondary);
+    cursor: pointer; transition: all .15s ease;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .ver-chip:hover { background: rgba(0,113,227,0.08); color: var(--apple-blue); }
+  .ver-chip.active {
+    background: rgba(0,113,227,0.10);
+    border-color: rgba(0,113,227,0.25);
+    color: var(--apple-blue);
+  }
+  .ver-chip .ver-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.7; }
+  .ver-arrow { color: var(--text-tertiary); font-size: 12px; user-select: none; }
+
+  .seg-view {
+    display: inline-flex;
+    background: rgba(120,120,128,0.10); border-radius: 8px; padding: 2px;
+  }
+  .seg-view button {
+    padding: 5px 12px; font-size: 11.5px; border-radius: 6px;
+    color: var(--text-secondary); cursor: pointer; transition: all .15s ease;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .seg-view button.active {
+    background: white; color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
+  .artifact-frame {
+    width: 100%;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  /* 源码视图 */
+  .code-view {
+    background: #1D1D1F; color: #F5F5F7;
+    border-radius: 12px; padding: 16px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; line-height: 1.7;
+    overflow: auto; max-height: 560px;
+  }
+  .code-view .ln {
+    display: inline-block; width: 32px;
+    color: rgba(255,255,255,0.3); text-align: right;
+    margin-right: 14px; user-select: none;
+  }
+
+  /* Diff 视图 */
+  .diff-view {
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.08);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; line-height: 1.7;
+    background: #FCFCFC;
+  }
+  .diff-line {
+    display: flex; align-items: flex-start;
+    padding: 0 12px;
+    white-space: pre;
+  }
+  .diff-line .ln {
+    width: 32px; flex-shrink: 0; color: rgba(0,0,0,0.3);
+    text-align: right; padding-right: 12px; user-select: none;
+  }
+  .diff-line .sign {
+    width: 14px; flex-shrink: 0; text-align: center; user-select: none;
+  }
+  .diff-line .content { flex: 1; min-width: 0; }
+  .diff-line.add { background: rgba(48,209,88,0.10); color: #1a6b30; }
+  .diff-line.add .sign { color: #1a8d3e; }
+  .diff-line.del { background: rgba(255,69,58,0.08); color: #a82820; }
+  .diff-line.del .sign { color: #c33028; }
+  .diff-line.ctx { color: var(--text-secondary); }
+  .diff-hunk {
+    background: rgba(0,113,227,0.06); color: var(--apple-blue);
+    padding: 4px 12px; font-size: 10.5px; font-weight: 600;
+    border-top: 1px solid rgba(0,113,227,0.12);
+    border-bottom: 1px solid rgba(0,113,227,0.12);
+  }
+
+  /* ===== Span Drawer ===== */
+  #span-drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 380px;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border-left: 1px solid rgba(0,0,0,0.08);
+    box-shadow: -16px 0 40px rgba(0,0,0,0.08);
+    transform: translateX(100%); transition: transform .3s cubic-bezier(0.34, 1.2, 0.64, 1);
+    z-index: 40; display: flex; flex-direction: column;
+  }
+  #span-drawer.open { transform: translateX(0); }
+</style>
+</head>
+<body class="h-screen flex flex-col">
+
+<!-- ===== Top Bar ===== -->
+<header class="glass-strong border-b border-black/5 flex-shrink-0">
+  <div class="px-6 h-14 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-4 min-w-0">
+      <a href="./sessions.html" class="flex items-center gap-1.5 text-[13px] text-[--text-secondary] hover:text-[--text-primary] flex-shrink-0">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        返回
+      </a>
+      <div class="w-px h-5 bg-black/10 flex-shrink-0"></div>
+      <div class="min-w-0" style="max-width:50vw">
+        <div class="text-[14px] font-semibold leading-tight truncate" title="帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用">帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用</div>
+        <div class="text-[11px] text-[--text-tertiary] mono leading-tight truncate" title="session: 3cfaea · trace: 3cfaea74-fd61-45b5-b67e-98c9b41938ae">session: 3cfaea · trace: 3cfaea74-fd61-45b5-b67e-98c9b41938ae</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[12px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+      <button class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 text-[12px] flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+        分享
+      </button>
+      <button id="ai-btn" class="px-3.5 h-8 rounded-lg bg-gradient-to-r from-[--apple-blue] to-[--apple-purple] text-white text-[12px] font-medium flex items-center gap-1.5 shadow-sm hover:shadow-md transition-shadow">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        AI 一键诊断
+      </button>
+    </div>
+  </div>
+
+</header>
+
+<!-- ===== Main Three-column ===== -->
+<div class="flex-1 flex overflow-hidden relative">
+
+  <!-- ====== Left: Conversation ====== -->
+  <aside id="chat-pane" class="flex-shrink-0 border-r border-black/5 flex flex-col transition-all duration-300" style="width: 380px; min-width: 280px;">
+    <div class="px-4 h-10 flex items-center justify-between border-b border-black/5 flex-shrink-0">
+      <div class="text-[12px] font-medium">对话流 <span class="text-[--text-tertiary] font-normal cursor-help" id="chat-trace-count" title="一次「用户提问 → Agent 完整回复」记为 1 轮">· -- 轮</span></div>
+      <div class="flex items-center gap-1">
+        <button id="chat-collapse-btn" class="text-[10.5px] text-[--text-tertiary] hover:text-[--text-primary] px-1.5 py-0.5 rounded hover:bg-black/5">折叠</button>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto scroll-y px-4 py-4 space-y-3.5" id="chat-stream">
+      <div class="text-[11px] text-[--text-tertiary] text-center">加载中…</div>
+    </div>
+  </aside>
+
+  <!-- Floating Expand Button (hidden by default) -->
+  <!-- 默认只展示图标，hover 时通过 group-hover 展示文字。通过 mt-12 避开顶部 Tab 栏遮挡 -->
+  <!-- 移除 data-bound 防止被全局交互脚本误认为是带有原生 tooltip 的组件 -->
+  <button id="chat-expand-float-btn" class="hidden absolute left-0 top-12 z-50 bg-white border border-l-0 border-black/10 shadow-sm rounded-r-lg p-2 text-[--text-secondary] hover:text-[--apple-blue] transition-all cursor-pointer flex items-center group no-tooltip">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+    <span class="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1 group-hover:pr-1 transition-all duration-300 ease-in-out text-[12px] font-medium">展开对话流</span>
+  </button>
+
+  <!-- Resize Handle -->
+  <div id="resize-handle" class="resize-handle"></div>
+
+  <!-- ====== Right: 5-Tab Analysis Panel ====== -->
+  <section class="flex-1 flex flex-col overflow-hidden">
+    <!-- Tab Bar -->
+    <div class="px-3 flex items-center gap-0 border-b border-black/5 flex-shrink-0">
+      <button class="main-tab active" data-tab="overview">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+        概览
+      </button>
+      <button class="main-tab" data-tab="path">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        执行分析
+      </button>
+      <button class="main-tab" data-tab="artifact">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        产物
+        <span class="tab-count">3</span>
+      </button>
+    </div>
+
+    <!-- ===== Tab Pane: 概览（PM 友好版：基础信息 → 健康度+关键数据 → 操作） ===== -->
+    <div class="tab-pane active flex-1 overflow-y-auto overflow-x-hidden scroll-y" data-pane="overview">
+      <div class="p-5 space-y-4">
+
+        <!-- L1. 基础信息条（身份信息：谁、什么时候、结果如何） -->
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="grid grid-cols-6 gap-x-4 text-[12px]">
+            <div class="min-w-0">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">Session ID</div>
+              <div class="mono text-[12px] truncate" id="info-session-id">--</div>
+            </div>
+            <div class="col-span-2 min-w-0">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">Trace ID</div>
+              <div class="mono text-[12px] truncate" id="info-trace-id" title="">--</div>
+            </div>
+            <div class="min-w-0">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">用户</div>
+              <div class="mono text-[12px] truncate" id="info-user">--</div>
+            </div>
+            <div>
+              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">开始时间</div>
+              <div class="mono text-[12px]" id="info-start">--</div>
+            </div>
+            <div id="info-status-cell" class="cursor-help" style="position:relative">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">会话状态</div>
+              <div class="text-[12px]" id="info-status"><span class="text-[--apple-green]">成功</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- L2. 关键数据卡（提到健康卡之前；hover 数字与 badge 可看判断口径） -->
+        <div class="glass rounded-xl p-4">
+          <div class="flex items-center gap-1.5 mb-3">
+            <div class="text-[11px] text-[--text-tertiary]">关键数据</div>
+            <span class="text-[10.5px] text-[--text-tertiary]">·</span>
+            <div class="text-[10.5px] text-[--text-tertiary]">本次会话的核心运行指标（hover 看判断口径）</div>
+          </div>
+          <div class="grid grid-cols-5 gap-x-4" id="kpi-grid">
+            <div class="kpi-cell cursor-help" data-kpi="duration" style="position:relative">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-1">总耗时</div>
+              <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-duration">--</div>
+              <div class="mt-1.5"><span class="kpi-badge" id="kpi-duration-sub">--</span></div>
+            </div>
+            <div class="kpi-cell cursor-help" data-kpi="turns" style="position:relative">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-1">执行步数</div>
+              <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-turns">--</div>
+              <div class="mt-1.5"><span class="kpi-badge" id="kpi-turns-sub">--</span></div>
+            </div>
+            <div class="kpi-cell cursor-help" data-kpi="tools" style="position:relative">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-1">工具调用</div>
+              <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-tools">--</div>
+              <div class="mt-1.5"><span class="kpi-badge" id="kpi-tools-sub">--</span></div>
+            </div>
+            <div class="kpi-cell cursor-help" data-kpi="tokens" style="position:relative">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-1">Token 用量</div>
+              <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-tokens">--</div>
+              <div class="mt-1.5"><span class="kpi-badge" id="kpi-tokens-sub">--</span></div>
+            </div>
+            <div class="kpi-cell cursor-help" data-kpi="cost" style="position:relative">
+              <div class="text-[10.5px] text-[--text-tertiary] mb-1">总成本</div>
+              <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-cost">--</div>
+              <div class="mt-1.5"><span class="kpi-badge" id="kpi-cost-sub">--</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- L3. 健康度大卡（合并了状态结论 + 评分 + 5 维 + 建议下一步） -->
+        <div class="glass rounded-xl p-5" id="health-card">
+          <!-- 顶部：状态图标 + 标题 + 大分数 -->
+          <div class="flex items-start gap-4">
+            <!-- 左：状态图标 -->
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" id="status-icon-wrap" style="background:rgba(52,199,89,0.12)">
+              <svg class="w-6 h-6" id="status-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--apple-green)"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <!-- 中：标题 + 描述 -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1 flex-wrap" id="status-chip-container">
+                <span class="text-[15px] font-semibold" id="status-title">本次会话整体表现良好</span>
+                <span class="chip" id="status-chip" style="background:rgba(52,199,89,0.1);color:var(--apple-green)">健康</span>
+              </div>
+              <div class="text-[12.5px] text-[--text-secondary] leading-relaxed" id="status-desc">
+                5 个维度均处于正常区间。
+              </div>
+            </div>
+            <!-- 右：大分数 -->
+            <div class="text-right flex-shrink-0">
+              <div class="flex items-baseline gap-1 leading-none justify-end">
+                <span class="text-[40px] font-semibold num-mono" id="health-score" style="color:var(--apple-green)">92</span>
+                <span class="text-[12px] text-[--text-tertiary]">/100</span>
+              </div>
+              <div class="mt-1 flex items-center gap-1 justify-end">
+                <span class="text-[10.5px] text-[--text-tertiary]" id="health-grade">健康</span>
+                <span class="text-[10.5px] text-[--text-tertiary] help cursor-help" style="position:relative" aria-label="健康度说明">
+                  <span class="tip" style="width:320px">
+                    <span class="tip-title">健康度评分如何计算</span>
+                    <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
+                    <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
+                    <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
+                    <div class="tip-row"><span>思考</span><span>执行步数（6 步最优）</span></div>
+                    <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
+                    <div class="tip-row"><span>编排</span><span>调度模式（连续重试 / 工具多样性）</span></div>
+                    <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
+                      <span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span>
+                    </div>
+                    <div style="margin-top:6px;color:rgba(255,255,255,0.7);font-size:10.5px">调用失败时硬封顶 50；异常标签取最低分维度。</div>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5 维迷你条 -->
+          <div class="grid grid-cols-5 gap-2 mt-4 pt-4 border-t border-black/5" id="health-bars"></div>
+
+          <!-- 建议下一步 -->
+          <div class="mt-4 pt-4 border-t border-black/5" id="health-suggest" style="display:none">
+            <div class="text-[12px] font-medium text-[--text-secondary] mb-2">建议下一步</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div id="health-suggest-col-dim">
+                <div class="text-[11px] text-[--text-tertiary] mb-1.5 flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[--apple-purple]"></span>维度诊断</div>
+                <ul class="text-[12px] text-[--text-secondary] space-y-2 leading-relaxed" id="health-suggest-list-dim"></ul>
+              </div>
+              <div id="health-suggest-col-kpi">
+                <div class="text-[11px] text-[--text-tertiary] mb-1.5 flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[--apple-cyan]"></span>指标超限</div>
+                <ul class="text-[12px] text-[--text-secondary] space-y-2 leading-relaxed" id="health-suggest-list-kpi"></ul>
+              </div>
+            </div>
+            <div id="health-suggest-list" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Tab Pane: 执行分析（精简版：只保留真数据 + 三轨评估） ===== -->
+    <div class="tab-pane flex-1 overflow-y-auto scroll-y" data-pane="path">
+      <!-- L1. 一句话摘要（瓶颈节点从真实 spans 自动算出） -->
+      <div class="mx-5 mt-4 mb-3 glass rounded-xl p-4">
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="chip bg-[--apple-green]/10 text-[--apple-green]"><span class="badge-dot bg-[--apple-green]"></span> 整体执行</span>
+          <span class="text-[12px] text-[--text-secondary]" id="exec-summary">本次共 N 个 span，耗时最长的是 [LLMCall]（X.Xs，占总耗时 Y%）。</span>
+        </div>
+      </div>
+
+      <!-- L2. 质量评估（三轨：规则自动 / LLM-as-Judge 人工触发 / 人工校准送审） -->
+      <div class="mx-5 mb-3 glass rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[12px] font-medium">质量评估</div>
+          <span class="text-[10.5px] text-[--text-tertiary]">规则自动 · LLM 按需触发 · 人工抽检</span>
+        </div>
+        <div class="grid grid-cols-3 gap-3 text-[12px]">
+          <div class="text-center py-3 rounded-lg bg-black/[0.04]" id="rule-eval-card">
+            <div class="text-[10.5px] text-[--text-tertiary]">规则评估</div>
+            <div class="text-[20px] font-semibold num-mono mt-1" id="rule-eval-summary">--/5</div>
+            <div class="space-y-1 mt-1.5 text-[11px] px-3 text-left hidden" id="rule-eval-list"></div>
+          </div>
+          <div class="text-center py-3 rounded-lg bg-black/[0.04]">
+            <div class="text-[10.5px] text-[--text-tertiary]">LLM-as-Judge</div>
+            <div class="text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1">未评估</div>
+            <button class="text-[10.5px] text-[--apple-blue] hover:underline mt-0.5" onclick="showToast('「立即评估」仅为原型展示，尚未实现交互')">立即评估</button>
+          </div>
+          <div class="text-center py-3 rounded-lg bg-black/[0.04]">
+            <div class="text-[10.5px] text-[--text-tertiary]">人工校准</div>
+            <div class="text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1">未评</div>
+            <button class="text-[10.5px] text-[--apple-blue] hover:underline mt-0.5" onclick="showToast('「点击送审」仅为原型展示，尚未实现交互')">点击送审</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- L3. DAG 甘特图详情（真实数据驱动） -->
+      <div class="mx-5 mb-3 glass rounded-xl overflow-hidden" id="gantt-card">
+        <div class="px-4 h-10 flex items-center justify-between border-b border-black/5 gap-4">
+          <!-- 左侧：标题 + 副标题 -->
+          <div class="flex items-center gap-3 flex-shrink min-w-[150px]">
+            <div class="text-[12px] font-medium whitespace-nowrap flex-shrink-0">DAG 甘特图详情</div>
+            <div class="relative group min-w-0">
+              <div class="text-[10.5px] text-[--text-tertiary] mono truncate" id="gantt-meta">总计 -- 个步骤 · 关键路径 -- 步 · 最大嵌套深度 -- 层</div>
+              <div class="absolute left-0 top-full mt-2 hidden group-hover:block z-[999] w-max max-w-[400px] p-2 bg-[rgba(28,28,30,0.92)] backdrop-blur-md text-white text-[11px] rounded-lg border border-white/10 shadow-xl pointer-events-none" id="gantt-meta-tooltip">
+                总计 -- 个步骤 · 关键路径 -- 步 · 最大嵌套深度 -- 层
+              </div>
+            </div>
+          </div>
+          <!-- 右侧：图例 + 缩放按钮 -->
+          <div class="flex items-center gap-3 flex-shrink-0">
+            <!-- 窄屏下隐藏图例文本，只保留图标，或者直接允许横向滚动/截断 -->
+            <div class="hidden sm:flex items-center gap-3 text-[10.5px] text-[--text-secondary]">
+              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-agent"></span></span> Agent</span>
+              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg></span> Tool</span>
+              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-purple)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></span> MCP</span>
+              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></span> Skill</span>
+              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-llm"></span></span> LLM</span>
+              <span class="flex items-center gap-1 whitespace-nowrap help"><span class="inline-block w-3 h-2 rounded border-2 border-[--apple-orange]"></span> 关键路径
+                <div class="tip">
+                  <div class="tip-title">🛤 关键路径 (Critical Path)</div>
+                  决定整个 Session 总耗时的最长串行依赖链。优化关键路径上的步骤能直接缩短端到端时延。
+                  <div class="tip-formula">CP = 拓扑排序最长链</div>
+                  <div class="tip-row"><span>占比高</span><span class="tip-warn">说明存在串行瓶颈</span></div>
+                  <div class="tip-row"><span>占比低</span><span class="tip-warn">说明存在大量排队等待</span></div>
+                </div>
+              </span>
+            </div>
+            <div class="seg flex-shrink-0">
+              <button>−</button><button class="active mono">100%</button><button>+</button>
+            </div>
+          </div>
+        </div>
+        <!-- Time axis -->
+        <div class="px-4 h-7 relative border-b border-black/5" style="margin-top: 16px;">
+          <div class="absolute inset-x-4 top-0 h-7" id="gantt-axis"></div>
+        </div>
+        <div id="gantt-body" class="overflow-y-auto scroll-y" style="max-height: 400px;">
+          <div class="px-5 py-6 text-[11px] text-[--text-tertiary] text-center">加载中…</div>
+        </div>
+      </div><!-- /DAG 甘特图卡 -->
+
+      <!-- L4. 原始日志（最详细，折叠） -->
+      <details class="mx-5 mb-5 glass rounded-xl overflow-hidden" id="raw-log-section">
+        <summary class="px-4 h-10 flex items-center justify-between text-[12px] font-medium cursor-pointer">
+          <div class="flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-[--text-tertiary] transition-transform duration-150" id="raw-log-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            原始日志
+            <span class="text-[10.5px] text-[--text-tertiary] font-normal mono" id="raw-log-meta">-- spans · 展开查看</span>
+          </div>
+          <span class="text-[10.5px] text-[--apple-blue] cursor-pointer" id="raw-log-download">下载 trace.json</span>
+        </summary>
+        <div class="px-4 py-3 border-t border-black/5 bg-black/[0.03] mono text-[10.5px] leading-relaxed text-[--text-secondary] max-h-64 overflow-y-auto scroll-y" id="raw-log-body">
+          <div class="text-[--text-tertiary]">加载中...</div>
+        </div>
+      </details>
+    </div><!-- /Tab Pane: 执行分析 -->
+
+    <!-- ===== Tab Pane: 产物 ===== -->
+    <div class="tab-pane flex-1 overflow-hidden" data-pane="artifact">
+      <div class="art-layout">
+        <!-- 左：文件列表 -->
+        <aside class="art-sidebar" id="art-sidebar">
+          <div class="art-sidebar-head">
+            <div class="text-[12px] font-medium" id="art-total-label">产物 · --</div>
+            <div class="text-[10.5px] text-[--text-tertiary] mt-0.5" id="art-stage-hint">环节维度待业务侧 tag 接入</div>
+          </div>
+          <div class="art-sidebar-list scroll-y" id="art-list">
+            <div class="text-[11px] text-[--text-tertiary] text-center py-6">加载中…</div>
+          </div>
+        </aside>
+
+        <!-- 右：详情区 -->
+        <div class="art-detail scroll-y" id="art-detail">
+          <div class="p-5 space-y-4" id="art-detail-inner">
+
+        <!-- 头部摘要 -->
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 mb-1">
+              <div class="text-[10.5px] text-[--text-tertiary] uppercase tracking-wide" id="art-head-meta">产物</div>
+              <span class="chip bg-black/5 text-[--text-secondary]" id="art-head-chip">—</span>
+            </div>
+            <div class="text-[18px] font-semibold leading-tight truncate" id="art-head-name" title="">—</div>
+            <div class="text-[11px] text-[--text-tertiary] mt-1" id="art-head-sub">—</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 text-[12px] flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              下载
+            </button>
+          </div>
+        </div>
+
+        <!-- 版本时间线 -->
+        <div class="glass rounded-xl p-4">
+          <div class="text-[11px] text-[--text-tertiary] mb-3 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            版本时间线
+          </div>
+          <div class="flex items-center gap-2 flex-wrap" id="art-versions">
+            <span class="text-[11px] text-[--text-tertiary]">—</span>
+          </div>
+          <!-- 当前版本元信息 -->
+          <div class="grid grid-cols-4 gap-3 mt-4 pt-3 border-t border-black/5 text-[11px]">
+            <div>
+              <div class="text-[--text-tertiary]">当前版本</div>
+              <div class="font-medium mt-0.5" id="ver-meta-name">—</div>
+            </div>
+            <div>
+              <div class="text-[--text-tertiary]">触发轮次</div>
+              <div class="font-medium mt-0.5" id="ver-meta-round">—</div>
+            </div>
+            <div>
+              <div class="text-[--text-tertiary]">变更行数</div>
+              <div class="font-medium mt-0.5"><span class="text-[--apple-green]" id="ver-meta-add">—</span> <span class="text-[--apple-red]" id="ver-meta-del"></span></div>
+            </div>
+            <div>
+              <div class="text-[--text-tertiary]">体积</div>
+              <div class="font-medium mt-0.5 mono" id="ver-meta-size">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 视图切换 + 内容 -->
+        <div class="glass rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+            <div class="seg-view" id="art-view-seg">
+              <button class="active" data-view="preview">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                预览
+              </button>
+              <button data-view="source">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                源码
+              </button>
+              <button data-view="diff">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                Diff（vs 上一版）
+              </button>
+            </div>
+            <div class="text-[10.5px] text-[--text-tertiary]" id="art-view-hint">点击预览可在新窗口打开 · 支持交互</div>
+          </div>
+
+          <!-- 预览视图 -->
+          <div id="art-pane-preview" class="art-pane">
+            <iframe class="artifact-frame" id="artifact-iframe" style="height: 560px;" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+
+          <!-- 源码视图 -->
+          <div id="art-pane-source" class="art-pane" style="display:none; position: relative;">
+            <button class="px-2.5 h-7 rounded-md bg-white/10 hover:bg-white/20 text-[11px] text-white/90 flex items-center gap-1.5 absolute top-3 right-4 transition-colors" onclick="const t=this; navigator.clipboard.writeText(document.getElementById('artifact-source').textContent); const o=t.innerHTML; t.innerHTML='<svg class=\'w-3 h-3\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\' stroke-width=\'2\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M5 13l4 4L19 7\'/></svg>已复制'; setTimeout(()=>t.innerHTML=o,2000)">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              复制源码
+            </button>
+            <pre class="code-view"><code id="artifact-source"></code></pre>
+          </div>
+
+          <!-- Diff 视图 -->
+          <div id="art-pane-diff" class="art-pane" style="display:none;">
+            <div class="diff-view" id="artifact-diff"></div>
+          </div>
+        </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+</div><!-- /Two-column main -->
+
+<!-- ====== Span Detail Drawer (浮动) ====== -->
+<aside id="span-drawer">
+  <!-- 头部：会在 openSpanDrawer 中重写 innerHTML -->
+  <div class="px-5 h-12 flex items-center justify-between border-b border-black/5 flex-shrink-0" id="span-drawer-head">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="shape-llm" id="span-drawer-shape"></span>
+      <div class="min-w-0">
+        <div class="text-[12.5px] font-medium truncate" id="span-drawer-title">Span 详情</div>
+        <div class="text-[10px] text-[--text-tertiary] mono truncate" id="span-drawer-sub">--</div>
+      </div>
+    </div>
+    <button onclick="document.getElementById('span-drawer').classList.remove('open')" class="w-7 h-7 rounded-lg hover:bg-black/5 flex items-center justify-center">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <!-- Tabs -->
+  <div class="px-5 h-9 flex items-center gap-1 border-b border-black/5 text-[12px]" id="span-drawer-tabs"></div>
+  <div class="flex-1 overflow-y-auto scroll-y" id="span-drawer-body">
+    <div class="px-5 py-8 text-[12px] text-[--text-tertiary] text-center">点击甘特图中任一 span 查看详情</div>
+  </div>
+</aside>
+
+<script>
+  // Tab 切换
+  document.querySelectorAll('.main-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.querySelector(`.tab-pane[data-pane="${target}"]`).classList.add('active');
+    });
+  });
+
+  // 点击 gantt-bar 打开 Span Drawer（动态绑定：使用事件委托，因为 bar 是 renderGantt 后才生成的）
+  document.addEventListener('click', (e) => {
+    const bar = e.target.closest('.gantt-bar');
+    if (!bar) return;
+    document.querySelectorAll('.gantt-bar').forEach(b => b.classList.remove('selected'));
+    bar.classList.add('selected');
+    const spanId = bar.dataset.spanId;
+    if (spanId && typeof openSpanDrawer === 'function') openSpanDrawer(spanId);
+  });
+
+  /* ===== Resizable Chat Pane (左右拖拽分隔条) ===== */
+  (function() {
+    const handle = document.getElementById('resize-handle');
+    const pane = document.getElementById('chat-pane');
+    if (!handle || !pane) return;
+    const MIN = 280;
+    const getMax = () => Math.min(640, Math.floor(window.innerWidth * 0.5));
+    let startX = 0, startW = 0, dragging = false;
+
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      startX = e.clientX;
+      startW = pane.getBoundingClientRect().width;
+      handle.classList.add('dragging');
+      document.body.classList.add('is-resizing');
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const delta = e.clientX - startX;
+      const w = Math.max(MIN, Math.min(getMax(), startW + delta));
+      pane.style.width = w + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove('dragging');
+      document.body.classList.remove('is-resizing');
+    });
+
+    // 双击重置为默认宽度
+    handle.addEventListener('dblclick', () => {
+      pane.style.width = '380px';
+    });
+
+    // 视口变化时确保宽度仍在合法范围
+    window.addEventListener('resize', () => {
+      const cur = pane.getBoundingClientRect().width;
+      const max = getMax();
+      if (cur > max) pane.style.width = max + 'px';
+      if (cur < MIN) pane.style.width = MIN + 'px';
+    });
+  })();
+
+  /* ===== Global Tooltip Portal: 防遮挡 / 防裁切 ===== */
+  function bindTooltip(host) {
+    const tip = host.querySelector(':scope > .tip');
+    if (!tip || host.dataset.tipBound) return;
+    host.dataset.tipBound = '1';
+    const place = () => {
+      const r = host.getBoundingClientRect();
+      const tipRect = tip.getBoundingClientRect();
+      const tw = tipRect.width || 280;
+      const th = tipRect.height || 120;
+      let left = r.left + r.width / 2 - tw / 2;
+      let top = r.top - th - 8;
+      if (top < 8) top = r.bottom + 8;
+      left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    };
+    host.addEventListener('mouseenter', () => {
+      document.body.appendChild(tip);
+      tip.classList.add('is-visible');
+      place();
+    });
+    host.addEventListener('mouseleave', () => {
+      tip.classList.remove('is-visible');
+    });
+    window.addEventListener('scroll', () => {
+      if (tip.classList.contains('is-visible')) place();
+    }, true);
+  }
+  document.querySelectorAll('.help').forEach(bindTooltip);
+
+  /* ===== Artifact: 真实数据驱动（左列表 + 右详情） ===== */
+  (function() {
+    // 工具：basename
+    function bname(p) { return String(p).split(/[\\/]/).pop(); }
+    function safeJSON(s) { try { return JSON.parse(s); } catch { return null; } }
+    function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    // 真实产物来源：从 window.SESSION._real.traces 收集所有 write/edit span
+    function collectArtifacts() {
+      const real = (window.SESSION && window.SESSION._real) || null;
+      if (!real || !real.traces) return [];
+      const list = [];
+      const readOutputs = new Map();
+      
+      real.traces.forEach((t, ti) => {
+        (t.spans || []).forEach(sp => {
+          // —— 收集 read_file 工具的输出，作为后续 replace 的基线 ——
+          if (sp.span_type === 'tool' && /read/i.test(sp.span_name || '')) {
+            const inp = safeJSON(sp.input);
+            const path = inp?.filePath || inp?.file_path || inp?.path || '';
+            const out = sp.output;
+            if (path && typeof out === 'string' && out.length > 0) {
+              readOutputs.set(path, out);
+            }
+          }
+          
+          // —— 来源 1：独立的 tool span（span_type === 'tool'）——
+          if (sp.span_type === 'tool') {
+            const name = sp.span_name || '';
+            const isRead = /read/i.test(name);
+            const isWrite = /write|create|edit|rewrite|save|update|append|insert|replace/i.test(name);
+            if (!isRead && !isWrite) return;
+            
+            const inp = safeJSON(sp.input);
+            if (!inp || typeof inp !== 'object') return;
+            const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
+            if (!path || typeof path !== 'string') return;
+            if (!/[\\/].+\.\w{1,8}$/.test(path)) return;
+            
+            let content = '';
+            let oldStr = '';
+            
+            if (isRead) {
+              content = typeof sp.output === 'string' ? sp.output : '';
+              if (!content) return;
+            } else {
+              if (typeof inp.content === 'string') content = inp.content;
+              else if (typeof inp.newString === 'string') content = inp.newString;
+              else if (typeof inp.new_string === 'string') content = inp.new_string;
+              else if (typeof inp.text === 'string') content = inp.text;
+              oldStr = inp.oldString || inp.old_string || '';
+            }
+            
+            list.push({
+              path, content, oldStr,
+              tool: name,
+              isRead,
+              isWrite,
+              kind: window.pathKind ? window.pathKind(name, path) : 'code',
+              roundIndex: ti + 1,
+              roundTotal: real.traces.length,
+              ts: sp.started_at_ms || (t.started_at_ms || 0),
+              durationMs: sp.duration_ms || 0,
+              statusOk: sp.status_code === 0,
+              spanId: sp.span_id,
+            });
+            return;
+          }
+          
+          // —— 来源 2：LLM span 的 output.toolCalls（无独立 tool span 的情况，如 13f025）——
+          if (sp.span_type !== 'model') return;
+          const out = safeJSON(sp.output);
+          const tcs = (((out || {}).choices || [])[0] || {}).message?.toolCalls
+                   || (((out || {}).choices || [])[0] || {}).message?.tool_calls
+                   || [];
+          tcs.forEach(tc => {
+            const name = tc.toolName || tc.function?.name || tc.name || '';
+            const isRead = /read/i.test(name);
+            const isWrite = /write|create|edit|rewrite|save|update|append|insert|replace/i.test(name);
+            if (!isRead && !isWrite) return;
+            
+            const argsStr = tc.arguments || tc.function?.arguments || '';
+            const inp = safeJSON(argsStr);
+            if (!inp || typeof inp !== 'object') return;
+            const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
+            if (!path || typeof path !== 'string') return;
+            if (!/[\\/].+\.\w{1,8}$/.test(path)) return;
+            
+            let content = '';
+            let oldStr = '';
+            
+            if (isRead) {
+              content = readOutputs.get(path) || '';
+              if (!content) return;
+            } else {
+              if (typeof inp.content === 'string') content = inp.content;
+              else if (typeof inp.newString === 'string') content = inp.newString;
+              else if (typeof inp.new_string === 'string') content = inp.new_string;
+              else if (typeof inp.text === 'string') content = inp.text;
+              oldStr = inp.oldString || inp.old_string || '';
+            }
+            
+            list.push({
+              path, content, oldStr,
+              tool: name,
+              isRead,
+              isWrite,
+              kind: window.pathKind ? window.pathKind(name, path) : 'code',
+              roundIndex: ti + 1,
+              roundTotal: real.traces.length,
+              ts: sp.started_at_ms || (t.started_at_ms || 0),
+              durationMs: sp.duration_ms || 0,
+              statusOk: true,
+              spanId: sp.span_id,
+            });
+          });
+        });
+      });
+      return list;
+    }
+
+    // 把同一 path 多次写入聚合成"多版本"
+    function buildFiles(arts) {
+      const map = new Map();
+      arts.forEach(a => {
+        const arr = map.get(a.path) || [];
+        arr.push(a);
+        map.set(a.path, arr);
+      });
+      const files = [];
+      map.forEach((arr, path) => {
+        arr.sort((a,b) => a.ts - b.ts);
+        
+        let currentContent = '';
+        const versions = [];
+        let writeCount = 0;
+        
+        arr.forEach((a, i) => {
+          let versionContent = currentContent;
+          let isFullContent = true;
+          
+          if (a.isRead) {
+            currentContent = a.content;
+            versionContent = a.content;
+          } else if (a.isWrite) {
+            if (/replace/i.test(a.tool)) {
+              if (currentContent && a.oldStr && a.content) {
+                const newContent = currentContent.replace(a.oldStr, a.content);
+                if (newContent !== currentContent) {
+                  currentContent = newContent;
+                  versionContent = currentContent;
+                } else {
+                  versionContent = a.content;
+                  isFullContent = false;
+                }
+              } else if (a.content) {
+                versionContent = a.content;
+                isFullContent = false;
+              }
+            } else {
+              if (a.content) {
+                currentContent = a.content;
+                versionContent = a.content;
+              }
+            }
+            writeCount++;
+          }
+          
+          if (versionContent) {
+            versions.push({
+              ...a,
+              content: versionContent,
+              isFullContent,
+              ver: `v${writeCount || (i + 1)}`,
+              isLatest: false,
+              prev: versions.length > 0 ? versions[versions.length - 1] : null,
+            });
+          }
+        });
+        
+        if (versions.length > 0) {
+          versions[versions.length - 1].isLatest = true;
+          files.push({
+            path,
+            name: bname(path),
+            kind: arr[0].kind,
+            versions,
+            latest: versions[versions.length - 1],
+            tools: [...new Set(arr.map(a => a.tool))],
+          });
+        }
+      });
+      return files;
+    }
+
+    // 类别 → 中文 + 图标
+    const KIND_META = {
+      page:        { label: '标注页面',      icon: '🌐', order: 1, isKey: true },
+      send_schema: { label: '送标数据结构',  icon: '📤', order: 2, isKey: true },
+      recv_schema: { label: '取标数据结构 / Mock', icon: '📥', order: 3, isKey: true },
+      config:      { label: '业务配置',      icon: '⚙️', order: 4, isKey: true },
+      style:       { label: '样式',          icon: '🎨', order: 10, isKey: false },
+      code:        { label: '代码',          icon: '⌨', order: 11, isKey: false },
+      data:        { label: '数据',          icon: '📊', order: 12, isKey: false },
+      doc:         { label: '文档',          icon: '📄', order: 13, isKey: false },
+      img:         { label: '图片',          icon: '🖼', order: 14, isKey: false },
+    };
+
+    let FILES = [];
+    let currentPath = null;
+    let currentVer = null;
+    let currentView = 'preview';
+
+    function render() {
+      renderSidebar();
+      renderDetail();
+    }
+
+    function renderSidebar() {
+      const list = document.getElementById('art-list');
+      const totalLabel = document.getElementById('art-total-label');
+      if (!FILES.length) {
+        list.innerHTML = '<div class="text-[11px] text-[--text-tertiary] text-center py-6">本会话无产物文件</div>';
+        totalLabel.textContent = '产物 · 0';
+        return;
+      }
+      // 重建前先快照各分组的 open 状态，避免重渲染后折叠丢失"被选中的文件"视觉
+      const prevOpen = {};
+      list.querySelectorAll('details.art-group').forEach(d => {
+        prevOpen[d.dataset.group] = d.open;
+      });
+      // 按 kind order 分组
+      const groups = {};
+      FILES.forEach(f => {
+        const meta = KIND_META[f.kind] || KIND_META.code;
+        const key = meta.isKey ? f.kind : '__weak';
+        groups[key] = groups[key] || { label: meta.label, icon: meta.icon, items: [], order: meta.order, isKey: meta.isKey };
+        groups[key].items.push(f);
+      });
+      // 弱化合并
+      if (groups['__weak']) {
+        groups['__weak'].label = '代码 / 中间文件';
+        groups['__weak'].icon = '📁';
+      }
+      // 当前选中的文件所属分组：强制展开
+      const activeFile = FILES.find(x => x.path === currentPath);
+      const activeGroupKey = activeFile
+        ? ((KIND_META[activeFile.kind] || {}).isKey ? activeFile.kind : '__weak')
+        : null;
+      const arr = Object.entries(groups).sort((a,b) => a[1].order - b[1].order);
+      const keyCnt = FILES.filter(f => (KIND_META[f.kind] || {}).isKey).length;
+      totalLabel.textContent = `产物 · ${FILES.length} 个文件${keyCnt < FILES.length ? ` · 关键 ${keyCnt}` : ''}`;
+      const out = [];
+      arr.forEach(([k, g]) => {
+        // 优先级：用户上一次的开合状态 > 选中分组强制展开 > 默认（关键展开 / 弱化折叠）
+        let isOpen;
+        if (k in prevOpen) isOpen = prevOpen[k];
+        else if (k === activeGroupKey) isOpen = true;
+        else isOpen = g.isKey;
+        // 但只要选中文件在该分组，就必须展开（覆盖之前用户折叠的状态）
+        if (k === activeGroupKey) isOpen = true;
+        out.push(`
+          <details class="art-group" ${isOpen ? 'open' : ''} data-group="${k}">
+            <summary>
+              <span class="art-group-icon">${g.icon}</span>
+              <span class="art-group-label">${escapeHtml(g.label)}</span>
+              <span class="art-group-count">${g.items.length}</span>
+            </summary>
+            <div class="art-group-items">
+              ${g.items.map(f => {
+                const isActive = f.path === currentPath;
+                const verLabel = `v${f.versions.length}`;
+                const verCount = f.versions.length > 1 ? ` · ${f.versions.length} 版` : '';
+                return `
+                  <div class="art-item ${isActive ? 'active' : ''}" data-path="${escapeHtml(f.path)}" title="${escapeHtml(f.path)}">
+                    <div class="art-item-name">${escapeHtml(f.name)}</div>
+                    <div class="art-item-meta">${verLabel}${verCount} · ${humanSize(f.latest.content.length)}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </details>
+        `);
+      });
+      list.innerHTML = out.join('');
+      // 绑定点击
+      list.querySelectorAll('.art-item').forEach(el => {
+        el.addEventListener('click', () => {
+          currentPath = el.dataset.path;
+          const f = FILES.find(x => x.path === currentPath);
+          currentVer = f.latest.ver;
+          render();
+        });
+      });
+    }
+
+    function humanSize(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024*1024) return `${(bytes/1024).toFixed(1)} KB`;
+      return `${(bytes/1024/1024).toFixed(2)} MB`;
+    }
+
+    function renderDetail() {
+      const f = FILES.find(x => x.path === currentPath);
+      const detail = document.getElementById('art-detail-inner');
+      if (!f) {
+        detail.style.display = 'none';
+        // 展示空态
+        let empty = document.getElementById('art-detail-empty');
+        if (!empty) {
+          empty = document.createElement('div');
+          empty.id = 'art-detail-empty';
+          empty.className = 'flex items-center justify-center h-full text-[12px] text-[--text-tertiary]';
+          empty.textContent = '请从左侧选择一个产物文件';
+          document.getElementById('art-detail').appendChild(empty);
+        }
+        return;
+      }
+      const empty = document.getElementById('art-detail-empty');
+      if (empty) empty.remove();
+      detail.style.display = '';
+
+      const v = f.versions.find(x => x.ver === currentVer) || f.latest;
+      const meta = KIND_META[f.kind] || KIND_META.code;
+
+      // 头部
+      document.getElementById('art-head-meta').textContent = `${meta.label} · ${f.versions.length} 个版本`;
+      document.getElementById('art-head-chip').textContent = (f.path.split('.').pop() || '').toUpperCase();
+      const headName = document.getElementById('art-head-name');
+      headName.textContent = f.name;
+      headName.title = f.path;
+      const tools = f.tools.join(' / ');
+      document.getElementById('art-head-sub').textContent = `路径: ${f.path} · 工具: ${tools}`;
+
+      // 版本时间线
+      const verBox = document.getElementById('art-versions');
+      if (f.versions.length === 0) {
+        verBox.innerHTML = '<span class="text-[11px] text-[--text-tertiary]">—</span>';
+      } else {
+        verBox.innerHTML = f.versions.map((vv, i) => {
+          const arrow = i > 0 ? '<span class="ver-arrow">→</span>' : '';
+          const isActive = vv.ver === currentVer;
+          const latestBadge = vv.isLatest ? '<span class="chip bg-[--apple-green]/15 text-[--apple-green] text-[9.5px] py-0">最新</span>' : '';
+          return `${arrow}<div class="ver-chip ${isActive ? 'active' : ''}" data-ver="${vv.ver}" title="轮 ${vv.roundIndex} · ${new Date(vv.ts).toTimeString().slice(0,8)}">
+              <span class="ver-dot"></span>
+              ${vv.ver}
+              <span class="text-[--text-tertiary] text-[10.5px]">轮 ${vv.roundIndex}</span>
+              ${latestBadge}
+            </div>`;
+        }).join('');
+        // 绑定版本切换
+        verBox.querySelectorAll('.ver-chip').forEach(c => {
+          c.addEventListener('click', () => {
+            currentVer = c.dataset.ver;
+            render();
+          });
+        });
+      }
+
+      // 元信息
+      document.getElementById('ver-meta-name').textContent = `${v.ver}${v.isLatest ? ' · 最新' : ''}`;
+      document.getElementById('ver-meta-round').textContent = `轮 ${v.roundIndex} / ${v.roundTotal}`;
+      // 行级 add/del 估算
+      const newLines = (v.content || '').split('\n').length;
+      const oldLines = (v.oldStr || (v.prev ? v.prev.content : '') || '').split('\n').length;
+      const add = Math.max(0, newLines - oldLines);
+      const del = Math.max(0, oldLines - newLines);
+      document.getElementById('ver-meta-add').textContent = add ? `+${add}` : '+0';
+      document.getElementById('ver-meta-del').textContent = del ? `-${del}` : '-0';
+      document.getElementById('ver-meta-size').textContent = humanSize((v.content || '').length);
+
+      // 视图切换：仅"标注页面"类型支持预览
+      const isPage = f.kind === 'page';
+      const isHtml = /\.(html|htm)$/i.test(f.path);
+      const isTsxLike = /\.(tsx|jsx|vue)$/i.test(f.path);
+      const isPreviewable = isPage && (isHtml || isTsxLike);
+      const seg = document.getElementById('art-view-seg');
+      const previewBtn = seg.querySelector('button[data-view="preview"]');
+      if (isPreviewable) {
+        previewBtn.style.display = '';
+      } else {
+        previewBtn.style.display = 'none';
+        if (currentView === 'preview') currentView = 'source';
+      }
+      seg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.view === currentView));
+      ['preview', 'source', 'diff'].forEach(name => {
+        const pane = document.getElementById('art-pane-' + name);
+        if (pane) pane.style.display = (name === currentView) ? '' : 'none';
+      });
+
+      const hint = document.getElementById('art-view-hint');
+
+      if (currentView === 'preview') {
+        const pane = document.getElementById('art-pane-preview');
+        
+        let htmlContent = v.content || '';
+        const ext = (f.path.split('.').pop() || '').toLowerCase();
+        const isCodeFile = ['tsx', 'jsx', 'js', 'ts'].includes(ext);
+        const isFragment = isCodeFile && v.isFullContent === false;
+        
+        if (isFragment) {
+          pane.innerHTML = [
+            '<div style="padding: 32px 24px; max-width: 520px; margin: 0 auto; color: var(--text-secondary); font-size: 13px; line-height: 1.7;">',
+            '  <div style="text-align: center;">',
+            '    <div style="font-size: 28px; margin-bottom: 12px;">🧩</div>',
+            '    <div style="font-weight: 500; color: var(--text-primary); margin-bottom: 6px; font-size: 14px;">本版仅为代码片段，无法整体预览</div>',
+            '    <div style="font-size: 12px; color: var(--text-tertiary);">该版本由 <code style="background:#f5f5f7;padding:1px 5px;border-radius:3px;font-size:11px;">replace</code> 工具产生 patch，无法独立渲染。</div>',
+            '  </div>',
+            '  <div style="margin-top: 20px; padding: 12px 14px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; font-size: 12px; color: #9a3412; line-height: 1.65;">',
+            '    <div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;"><span>⚠️</span><span>Trace 数据不完整说明</span></div>',
+            '    <div style="color: #7c2d12;">',
+            '      对话本身没有缺失轮次，但当前会话的 OTel trace 中 <b>未记录工具执行结果</b>（缺少 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">tool span</code> 的 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">output</code>）。',
+            '      所以 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">read_file</code> 读到的原文件内容、以及 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">replace</code> 落盘后的最终文件，都无法从 trace 反推。',
+            '      <div style="margin-top: 6px;">→ 根治需 <b>trace 采集端补齐 tool span 的 output 字段</b>。</div>',
+            '    </div>',
+            '  </div>',
+            '  <div style="margin-top: 12px; text-align: center; font-size: 12px; color: var(--text-tertiary);">',
+            '    可切换到 <b>「源码」</b> 或 <b>「Diff」</b> 查看本次 patch 的具体改动。',
+            '  </div>',
+            '</div>'
+          ].join('\n');
+          hint.textContent = '片段产物 · Trace 不完整';
+          return;
+        }
+        
+        pane.innerHTML = '<iframe class="artifact-frame" id="artifact-iframe" style="height: 560px;" sandbox="allow-scripts allow-same-origin"></iframe>';
+        
+        if (isCodeFile && !htmlContent.includes('<html')) {
+          // —— 1. 查找同会话内的样式文件（如 index.css），整体注入 ——
+          const cssFiles = FILES.filter(x => /\.css$/i.test(x.path));
+          let injectedCss = '';
+          cssFiles.forEach(cf => {
+            const c = cf.latest.content || '';
+            // 移除 @tailwind / @layer 等 PostCSS 指令，保留原生 CSS
+            const cleaned = c
+              .replace(/@tailwind\s+[a-z]+\s*;?/gi, '')
+              .replace(/@apply\s+[^;]+;/g, '')
+              .replace(/@layer\s+\w+\s*\{([\s\S]*?)\n\}/g, '$1');
+            injectedCss += '\n/* === ' + cf.path + ' === */\n' + cleaned;
+          });
+          
+          // —— 2. 源码处理 ——
+          let processedCode = htmlContent;
+          
+          // 收集 import 标识符
+          const importedIds = new Set();
+          processedCode.replace(/import\s+(\w+)/gm, (_, id) => { importedIds.add(id); return _; });
+          processedCode.replace(/import\s+\{([^}]+)\}/gm, (_, ids) => {
+            ids.split(',').forEach(s => {
+              const name = s.replace(/\s+as\s+(\w+)/, ' $1').trim().split(/\s+/).pop();
+              if (name && /^\w+$/.test(name)) importedIds.add(name);
+            });
+            return _;
+          });
+          ['React', 'useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useContext', 'createContext', 'Fragment'].forEach(k => importedIds.delete(k));
+          
+          // 移除 import 语句
+          processedCode = processedCode.replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?/gm, '');
+          processedCode = processedCode.replace(/import\s+['"][^'"]+['"];?/gm, '');
+          processedCode = processedCode.replace(/export\s+default\s+function\s+(\w+)/g, 'function $1');
+          processedCode = processedCode.replace(/export\s+default\s+(\w+)\s*;?/g, 'window.__DEFAULT_EXPORT__ = $1;');
+          processedCode = processedCode.replace(/export\s+default\s+/g, 'window.__DEFAULT_EXPORT__ = ');
+          processedCode = processedCode.replace(/export\s+(const|let|var|function|class|interface|type)\s/g, '$1 ');
+          
+          // —— 3. 智能 mock：useAppContext 返回真实可用的 React state ——
+          const knownHOCs = ['observer', 'memo', 'forwardRef', 'connect', 'withRouter', 'withStyles', 'inject', 'styled'];
+          let mockDecls = '';
+          importedIds.forEach(id => {
+            if (knownHOCs.includes(id)) {
+              mockDecls += 'var ' + id + ' = function(c){return c;};\n';
+            } else if (id === 'useAppContext') {
+              // 关键：提供真实 state + updateForm，使表单可交互
+              mockDecls += [
+                'var __APP_STATE__ = {',
+                '  matchTitle: "QBA 联赛标注台",',
+                '  leagueRound: "常规赛第 18 轮",',
+                '  scoreLine: "88 : 86",',
+                '  gameClock: "Q4 02:18",',
+                '  homeTeam: "昆仑星航",',
+                '  awayTeam: "湾区猎鹰",',
+                '  content: "终场前 2 分 18 秒，主队 13 号突破上篮命中，裁判同时响哨判定防守犯规。请判断该回合记录是否准确。"',
+                '};',
+                'function useAppContext() {',
+                '  var _f = React.useState({ answer: "", confidence: "", comment: "" });',
+                '  var form = _f[0], setForm = _f[1];',
+                '  return {',
+                '    ctx: { state: __APP_STATE__, form: form },',
+                '    updateForm: function(patch){ setForm(function(prev){ return Object.assign({}, prev, patch); }); }',
+                '  };',
+                '}'
+              ].join('\n') + '\n';
+            } else if (/^use[A-Z]/.test(id)) {
+              mockDecls += 'var ' + id + ' = function(){ return new Proxy({}, { get: function(t,k){ if(k===Symbol.iterator) return function*(){}; return new Proxy(function(){return null;}, { get: function(){ return function(){return null;} }, apply: function(){return null;} }); } }); };\n';
+            } else if (/^[A-Z]/.test(id)) {
+              mockDecls += 'var ' + id + ' = function(p){return React.createElement("div",{className:"border border-dashed border-gray-300 rounded px-2 py-1 my-1 text-xs text-gray-400 inline-block"},React.createElement("span",null,"[' + id + ']"),p&&p.children);};\n';
+            } else {
+              mockDecls += 'var ' + id + ' = function(){return {};};\n';
+            }
+          });
+          processedCode = mockDecls + processedCode;
+          
+          if (!processedCode.includes('__DEFAULT_EXPORT__')) {
+            const fnMatch = processedCode.match(/function\s+(\w+)\s*\(/);
+            if (fnMatch) processedCode += '\nwindow.__DEFAULT_EXPORT__ = ' + fnMatch[1] + ';';
+          }
+          
+          const safeCodeJson = JSON.stringify(processedCode).replace(/<\//g, '<\\/');
+          const safeCssJson = JSON.stringify(injectedCss).replace(/<\//g, '<\\/');
+          
+          const hasCss = injectedCss.trim().length > 0;
+          const banner = hasCss
+            ? '<div style="background:#f0f9ff;border-bottom:1px solid #bae6fd;padding:6px 14px;font-size:11px;color:#0369a1;">沙箱预览 · 已注入同会话样式（' + cssFiles.length + ' 个 CSS）· 表单可交互</div>'
+            : '<div style="background:#fffbe6;border-bottom:1px solid #ffe58f;padding:6px 14px;font-size:11px;color:#8c6e00;">沙箱预览 · 外部依赖已 Mock · 仅供参考</div>';
+          
+          htmlContent = [
+            '<!DOCTYPE html><html><head><meta charset="utf-8">',
+            '<script src="https://unpkg.com/react@18/umd/react.development.js"></' + 'script>',
+            '<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></' + 'script>',
+            '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></' + 'script>',
+            '<script src="https://cdn.tailwindcss.com"></' + 'script>',
+            '<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}</style>',
+            '<style id="__injected_css__"></style>',
+            '</head><body>',
+            banner,
+            '<div id="root"></div>',
+            '<script>window.__SOURCE_CODE__ = ' + safeCodeJson + ';window.__INJECTED_CSS__ = ' + safeCssJson + ';</' + 'script>',
+            '<script>',
+            'window.onload = function() {',
+            '  try {',
+            '    document.getElementById("__injected_css__").textContent = window.__INJECTED_CSS__ || "";',
+            '    var code = "const { useState, useEffect, useRef, useMemo, useCallback, useContext, createContext, Fragment } = React;\\n"',
+            '      + window.__SOURCE_CODE__;',
+            '    var transformed = Babel.transform(code, { presets: ["react", "typescript"], filename: "App.tsx" });',
+            '    var fn = new Function(transformed.code);',
+            '    fn();',
+            '    var App = window.__DEFAULT_EXPORT__;',
+            '    if (App) {',
+            '      function EBClass(props){ React.Component.call(this, props); this.state = {error:null}; }',
+            '      EBClass.prototype = Object.create(React.Component.prototype);',
+            '      EBClass.prototype.constructor = EBClass;',
+            '      EBClass.prototype.render = function(){ if(this.state&&this.state.error) return React.createElement("div",{style:{color:"#cf1322",padding:"16px",fontSize:"12px",fontFamily:"monospace",whiteSpace:"pre-wrap",background:"#fff2f0",border:"1px solid #ffccc7",borderRadius:"8px",margin:"8px"}},"组件渲染异常：\\n" + this.state.error.message); return this.props.children; };',
+            '      EBClass.getDerivedStateFromError = function(e){ return {error:e}; };',
+            '      var root = ReactDOM.createRoot(document.getElementById("root"));',
+            '      root.render(React.createElement(EBClass, null, React.createElement(App)));',
+            '    } else {',
+            '      document.getElementById("root").innerHTML = "<div style=\\"color:#666;padding:16px\\">已执行（无默认导出组件）</div>";',
+            '    }',
+            '  } catch(e) {',
+            '    document.getElementById("root").innerHTML = "<div style=\\"color:#cf1322;padding:16px;font-family:monospace;font-size:12px;white-space:pre-wrap;background:#fff2f0;border:1px solid #ffccc7;border-radius:8px;margin:8px\\">预览渲染失败：\\n" + e.message; ',
+            '    console.error(e);',
+            '  }',
+            '};',
+            '</' + 'script>',
+            '</body></html>'
+          ].join('\n');
+        }
+
+        document.getElementById('artifact-iframe').srcdoc = htmlContent;
+        hint.textContent = isHtml ? '产物预览 · iframe 沙箱' : '沙箱预览 · 已注入同会话样式';
+      } else if (currentView === 'source') {
+        const lines = (v.content || '').split('\n');
+        const html = lines.map((l, i) => `<span class="ln">${i + 1}</span>${escapeHtml(l)}`).join('\n');
+        document.getElementById('artifact-source').innerHTML = html;
+        hint.textContent = `${lines.length} 行 · ${humanSize((v.content||'').length)}`;
+      } else {
+        renderDiff(v);
+        hint.textContent = v.prev ? `${v.prev.ver || '上一版'} → ${v.ver} · 行级对比` : (v.oldStr ? `本版 patch 对比` : '初版无前序版本可对比');
+      }
+    }
+
+    function renderDiff(v) {
+      const diffEl = document.getElementById('artifact-diff');
+      let oldText, newText;
+      if (v.oldStr) {
+        // edit/patch 工具：直接对比 oldString → newString
+        oldText = v.oldStr;
+        newText = v.content;
+      } else if (v.prev) {
+        oldText = v.prev.content || '';
+        newText = v.content || '';
+      } else {
+        diffEl.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-tertiary); font-size: 12px;">初版，没有上一版可对比。</div>';
+        return;
+      }
+      diffEl.innerHTML = renderLineDiff(oldText.split('\n'), newText.split('\n'), `${v.prev?.ver || 'prev'}`, v.ver);
+    }
+
+    function renderLineDiff(a, b, oldLabel, newLabel) {
+      const m = a.length, n = b.length;
+      // 大文件保护
+      if (m * n > 2_000_000) {
+        return `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px;">文件过大（${m} × ${n} 行），跳过 diff 渲染</div>`;
+      }
+      const dp = Array.from({length: m + 1}, () => new Uint16Array(n + 1));
+      for (let i = m - 1; i >= 0; i--) {
+        for (let j = n - 1; j >= 0; j--) {
+          dp[i][j] = a[i] === b[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
+        }
+      }
+      const ops = [];
+      let i = 0, j = 0, ai = 1, bi = 1;
+      while (i < m && j < n) {
+        if (a[i] === b[j]) { ops.push({ t: 'ctx', a: ai, b: bi, line: a[i] }); i++; j++; ai++; bi++; }
+        else if (dp[i+1][j] >= dp[i][j+1]) { ops.push({ t: 'del', a: ai, line: a[i] }); i++; ai++; }
+        else { ops.push({ t: 'add', b: bi, line: b[j] }); j++; bi++; }
+      }
+      while (i < m) { ops.push({ t: 'del', a: ai, line: a[i] }); i++; ai++; }
+      while (j < n) { ops.push({ t: 'add', b: bi, line: b[j] }); j++; bi++; }
+      const CTX = 2;
+      const keep = new Array(ops.length).fill(false);
+      ops.forEach((op, k) => { if (op.t !== 'ctx') for (let x = Math.max(0, k - CTX); x <= Math.min(ops.length - 1, k + CTX); x++) keep[x] = true; });
+      let html = '';
+      let inHunk = false;
+      ops.forEach((op, k) => {
+        if (keep[k]) {
+          if (!inHunk) { inHunk = true; html += `<div class="diff-hunk">@@ ${oldLabel} → ${newLabel} @@</div>`; }
+          if (op.t === 'add') html += `<div class="diff-line add"><span class="ln">${op.b}</span><span class="sign">+</span><span class="content">${escapeHtml(op.line)}</span></div>`;
+          else if (op.t === 'del') html += `<div class="diff-line del"><span class="ln">${op.a}</span><span class="sign">-</span><span class="content">${escapeHtml(op.line)}</span></div>`;
+          else html += `<div class="diff-line ctx"><span class="ln">${op.a}</span><span class="sign"> </span><span class="content">${escapeHtml(op.line)}</span></div>`;
+        } else { inHunk = false; }
+      });
+      return html || '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px;">本版与上一版完全一致</div>';
+    }
+
+    // 视图切换
+    document.querySelectorAll('#art-view-seg button').forEach(btn => {
+      btn.addEventListener('click', () => { 
+        if (btn.dataset.view === 'preview') window.__userClickedPreview__ = true;
+        currentView = btn.dataset.view; 
+        render(); 
+      });
+    });
+
+    // 对话流文档卡跳转 → 切 tab + 选中文件 + 切版本
+    window.openArtifactTab = function(path, version) {
+      document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      const tabBtn = document.querySelector('.main-tab[data-tab="artifact"]');
+      const pane = document.querySelector('.tab-pane[data-pane="artifact"]');
+      if (tabBtn) tabBtn.classList.add('active');
+      if (pane) pane.classList.add('active');
+      currentPath = path;
+      const f = FILES.find(x => x.path === path);
+      if (f) {
+        currentVer = f.versions[Math.min(version - 1, f.versions.length - 1)]?.ver || f.latest.ver;
+      }
+      render();
+    };
+
+    // 等真实数据加载完毕（renderChatStream 后会有 SESSION._real）
+    function init() {
+      const arts = collectArtifacts();
+      FILES = buildFiles(arts);
+      // 同步「产物」tab 后的徽标为真实文件数
+      const tabCntEl = document.querySelector('.main-tab[data-tab="artifact"] .tab-count');
+      if (tabCntEl) {
+        if (FILES.length) {
+          tabCntEl.textContent = FILES.length;
+          tabCntEl.style.display = '';
+        } else {
+          tabCntEl.style.display = 'none';
+        }
+      }
+      if (FILES.length) {
+        // 默认选关键产物的第一个，否则任意第一个
+        const firstKey = FILES.find(f => (KIND_META[f.kind] || {}).isKey);
+        const first = firstKey || FILES[0];
+        currentPath = first.path;
+        currentVer = first.latest.ver;
+      }
+      render();
+    }
+
+    // 数据可能延迟加载，轮询直到 SESSION._real 就绪
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries++;
+      if (window.SESSION && window.SESSION._real) { clearInterval(timer); init(); }
+      else if (tries > 40) { clearInterval(timer); init(); /* 降级：空态 */ }
+    }, 100);
+  })();
+
+  /* 旧的 mock 三版本（V01/V02/V03 + VERSIONS 字典 + render/renderDiff/renderLineDiff/goArtifact）
+     已被上方"Artifact: 真实数据驱动（左列表 + 右详情）"IIFE 完全替代，此处不再保留。 */
+
+  /* ===== 补充：全局兜底的 Click 反馈 (用于未实现交互的按钮) ===== */
+  (function() {
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(100px); opacity: 0; background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 99999; transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); pointer-events: none;';
+    document.body.appendChild(toast);
+    let timer;
+    window.showToast = function(msg) {
+      toast.textContent = msg;
+      toast.style.transform = 'translateX(-50%) translateY(0)';
+      toast.style.opacity = '1';
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        toast.style.transform = 'translateX(-50%) translateY(100px)';
+        toast.style.opacity = '0';
+      }, 2000);
+    };
+
+    document.querySelectorAll('button, .ver-chip, .gantt-bar, .artifact-card').forEach(el => {
+      // 避免重复绑定
+      if (el.dataset.bound) return;
+      el.dataset.bound = "true";
+      el.addEventListener('click', (e) => {
+        // 如果这个元素有特定的 id 或类名说明已经有特定功能了，不提示
+        const ignoreList = ['main-tab', 'ver-chip', 'gantt-bar', 'chat-collapse-btn', 'chat-expand-float-btn'];
+        const isHandled = ignoreList.some(cls => el.classList.contains(cls) || el.id === cls);
+        if (!isHandled && !el.closest('#art-view-seg') && !el.onclick) {
+          const text = (el.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 10);
+          showToast(`「${text}」仅为原型展示，尚未实现交互`);
+        }
+      });
+    });
+  })();
+</script>
+
+<script>
+  // 根据列表页传入的 ?id= 切换详情页头部展示
+  // 数据源优先级：① fetch ./data/sessions.json (真实 fornax 数据) → ② 回退到内置 mock
+  (async function () {
+    const FALLBACK_MOCK = {
+      '3cfaea': { title: '帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用', score: 92, color: 'green', chip: '健康', user: 'laipanhao.666', trace: '3cfaea74-fd61-45b5-b67e-98c9b41938ae' },
+      'a8f3c2': { title: '专家众测评估模板生成 · database 查询超时', score: 42, color: 'red', chip: 'MCP 重试风暴', user: 'liuyifei', trace: 'a8f3c2b1-6f10-4d2c-9d77-2a14e2c3b71d' },
+      'b1d782': { title: '技术博客撰写 · web_research 重试 41%', score: 58, color: 'orange', chip: 'Skill 重试过高', user: 'zhangsan', trace: 'b1d78219-5c40-4eaa-91d8-5c79f1bc4221' },
+      'c9e441': { title: '代码重构辅助 · 慢思考 ROI 持续为负', score: 64, color: 'purple', chip: '慢思考无效', user: 'wangwu', trace: 'c9e44103-30a2-49c1-a6f4-7cb59fd4baa2' },
+      'd3a812': { title: '多文档检索 · 长上下文 OOM 重跑', score: 71, color: 'cyan', chip: '显存 OOM 重跑', user: 'chenliu', trace: 'd3a81244-29c8-4f0a-bb12-90e5c7d62a14' },
+      'e7c193': { title: '数据透视分析 · 健康完成', score: 88, color: 'green', chip: '健康', user: 'maliu', trace: 'e7c19330-1a21-44b6-85e7-43b1c9fa2099' },
+      'f5b209': { title: '日报自动生成 · 排队等 GPU 1.4s', score: 74, color: 'orange', chip: '排队过久', user: 'yangmin', trace: 'f5b20911-4d18-4f3f-8a73-b2ddf90c8316' },
+      'a2c094': { title: '行为死循环 · 路由 Agent 卡顿 (已拦截)', score: 81, color: 'purple', chip: '行为死循环', user: 'huachen', trace: 'a2c09478-22bb-4119-9f23-9a4bd7f1e504' }
+    };
+
+    async function loadRealData() {
+      try {
+        const r = await fetch('./data/sessions.json', { cache: 'no-store' });
+        if (!r.ok) return null;
+        const d = await r.json();
+        const map = {};
+        for (const s of d.sessions || []) {
+          map[s.id] = s;
+        }
+        return map;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id');
+    if (!id) return;
+
+    const real = await loadRealData();
+    let s;
+    if (real && real[id]) {
+      // 真实数据：将后端字段映射到前端展示字段
+      const r = real[id];
+      s = {
+        title: r.title || ('Session ' + id),
+        score: r.score ?? 80,
+        color: r.color || 'green',
+        chip: r.chip || '健康',
+        user: r.user || 'anonymous',
+        trace: r.trace,
+        // 真实数据扩展
+        _real: r
+      };
+    } else if (FALLBACK_MOCK[id]) {
+      s = FALLBACK_MOCK[id];
+    } else {
+      return;
+    }
+
+    // 标题：完整文案让 CSS truncate 自适应，hover 看 title 全文
+    const titleEl = document.querySelector('header .text-\\[14px\\].font-semibold');
+    if (titleEl) {
+      titleEl.textContent = s.title;
+      titleEl.setAttribute('title', s.title);
+    }
+    // 副标题 session/trace
+    const subEl = document.querySelector('header .text-\\[11px\\].mono');
+    if (subEl) {
+      const text = 'session: ' + id + ' · trace: ' + s.trace;
+      subEl.textContent = text;
+      subEl.setAttribute('title', text);
+    }
+    // 分数圆
+    const scoreEl = document.querySelector('header .absolute.inset-1.rounded-full');
+    if (scoreEl) {
+      scoreEl.textContent = s.score;
+      scoreEl.classList.remove('bg-[--apple-green]', 'bg-[--apple-red]', 'bg-[--apple-orange]', 'bg-[--apple-purple]', 'bg-[--apple-cyan]');
+      scoreEl.classList.add('bg-[--apple-' + s.color + ']');
+      const ring = scoreEl.previousElementSibling;
+      if (ring) {
+        ring.classList.remove('bg-[--apple-green]/15', 'bg-[--apple-red]/15', 'bg-[--apple-orange]/15', 'bg-[--apple-purple]/15', 'bg-[--apple-cyan]/15');
+        ring.classList.add('bg-[--apple-' + s.color + ']/15');
+      }
+    }
+    // 状态 chip
+    const chipEl = document.querySelector('header .chip');
+    if (chipEl) {
+      chipEl.className = 'chip bg-[--apple-' + s.color + ']/10 text-[--apple-' + s.color + ']';
+      chipEl.textContent = s.chip;
+    }
+
+    // 元数据：基础信息条（顶部平铺）
+    const setText0 = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setText0('info-session-id', id);
+    const traceEl = document.getElementById('info-trace-id');
+    if (traceEl) { traceEl.textContent = s.trace || '--'; traceEl.title = s.trace || ''; }
+    setText0('info-user', s.user || '--');
+
+    // 健康度卡片 + 5 维问题标签（仅真实数据）
+    if (s._real && s._real.radar) {
+      const r = s._real.radar;
+      const f = s._real.features || {};
+      const colorVar = '--apple-' + s.color;
+      const score = s.score;
+      const chip = s.chip;
+
+      // 顶部分级文字（健康/注意/亚健康/严重）
+      const grade = score >= 85 ? '健康'
+                  : score >= 70 ? '注意'
+                  : score >= 50 ? '亚健康'
+                  : '严重';
+      const gradeEl = document.getElementById('health-grade');
+      if (gradeEl) {
+        gradeEl.textContent = grade;
+        gradeEl.style.color = 'var(' + colorVar + ')';
+      }
+      // 大数字
+      const scoreEl2 = document.getElementById('health-score');
+      if (scoreEl2) {
+        scoreEl2.style.color = 'var(' + colorVar + ')';
+        scoreEl2.textContent = score;
+      }
+
+      // 一句话结论（按 chip 输出 PM 友好的解读）
+      const durSec = Math.round((s._real.duration_ms || 0) / 1000);
+      // 执行步数（Step）= 一次「思考 → 调用工具 → 观察」循环 = 一次 LLMCall。
+      // 取所有 trace 下 span_type==='model' 的 span 总数，比 traces.length 更精确（一个 trace 可能含多个 LLMCall）。
+      const allModelSpansN = (s._real.traces || []).reduce((sum, t) => sum + (t.spans || []).filter(sp => sp.span_type === 'model').length, 0);
+      const turnsN = allModelSpansN > 0 ? allModelSpansN : (s._real.traces?.length || s._real.turns || 0);
+      const avgK = Math.round((f.avg_tokens_per_turn || 0) / 1000);
+      
+      // 修正：如果后端传过来的 chip 是“过度思考”，但实际上步数很少（<=9），说明 mock 数据不一致
+      // 我们在前端做一个兼容：把它改成“思考过简”或者“健康”
+      let currentChip = s.chip || '健康';
+      if (currentChip === '过度思考' && turnsN <= 9) {
+        currentChip = turnsN < 3 ? '思考过简' : '慢思考无效';
+      }
+
+      const summaryByChip = {
+        '健康': '5 个维度均处于正常区间，本次会话整体表现良好。',
+        'trace 失败': '本次任务执行失败（调用未完成），请优先排查失败原因。',
+        '关键路径过长': `用户等待 ${durSec} 秒，主要耗时来自计算环节（不是排队），建议优化耗时最长的步骤。`,
+        '排队过久': `用户等待 ${durSec} 秒，主要耗时来自等待资源（GPU/队列），建议扩容或调度优化。`,
+        'MCP 重试风暴': '同一个 MCP 工具被反复调用，可能是该工具不稳定，建议联系工具负责人排查。',
+        'Skill 重试过高': '某 Skill 调用失败率偏高，可能是最近升级引入的回归，建议回滚或修复。',
+        '行为死循环': 'Agent 反复调用同一个工具未达成目标，疑似陷入循环，建议增加最大重试次数限制。',
+        '工具失败': '工具调用失败但未触发重试，建议检查失败工具的参数与权限。',
+        '过度思考': `Agent 执行了 ${turnsN} 步（建议 ≤ 9 步，每步为一次「思考 → 调用工具 → 观察」循环），可能存在路径冗余，建议优化提示词或加强终止判断。`,
+        '思考过简': `Agent 仅执行 ${turnsN} 步，可能未充分推理就给出答案，建议复核结果质量。`,
+        '慢思考无效': '执行步数符合预期但效果一般，建议接入 AI 评委评估每一步的有效性。',
+        '长上下文超限': `每轮平均消耗 ${avgK}k Token（阈值 76k），上下文过载会拖慢响应并增加成本，建议清理历史或分段处理。`,
+        '显存 OOM 重跑': '执行过程中出现显存不足导致重跑，建议升级实例或降低并发。',
+        '串行瓶颈': '步骤几乎全程串行，建议梳理依赖关系，将无依赖步骤改为并行执行。',
+      };
+
+      // L1. 状态主题（应用到健康度卡的左侧图标 + chip）
+      const statusTitleByChip = {
+        '健康': '本次会话整体表现良好',
+        'trace 失败': '本次任务执行失败',
+        '关键路径过长': '响应耗时偏长',
+        '排队过久': '等待资源耗时偏长',
+        'MCP 重试风暴': '检测到 MCP 工具反复重试',
+        'Skill 重试过高': '检测到 Skill 重试率偏高',
+        '行为死循环': '检测到行为死循环',
+        '工具失败': '检测到工具调用失败',
+        '过度思考': 'Agent 执行步数偏多',
+        '思考过简': 'Agent 执行步数偏少',
+        '慢思考无效': '思考有效性偏低',
+        '长上下文超限': 'Token 用量超出健康阈值',
+        '显存 OOM 重跑': '出现显存不足重跑',
+        '串行瓶颈': '步骤并行度偏低',
+      };
+      const statusTheme = score >= 85
+        ? { iconBg: 'rgba(52,199,89,0.12)', iconColor: 'var(--apple-green)',
+            iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>' }
+        : score >= 70
+        ? { iconBg: 'rgba(255,149,0,0.12)', iconColor: 'var(--apple-orange)',
+            iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/>' }
+        : score >= 50
+        ? { iconBg: 'rgba(175,82,222,0.12)', iconColor: 'var(--apple-purple)',
+            iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>' }
+        : { iconBg: 'rgba(255,59,48,0.12)', iconColor: 'var(--apple-red)',
+            iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>' };
+      const iconWrap = document.getElementById('status-icon-wrap');
+      if (iconWrap) iconWrap.style.background = statusTheme.iconBg;
+      const iconEl = document.getElementById('status-icon');
+      if (iconEl) {
+        iconEl.style.color = statusTheme.iconColor;
+        iconEl.innerHTML = statusTheme.iconPath;
+      }
+      
+      // 基于前端真实 turnsN 重新校准 rules（避免后端 mock 按旧口径 turns 字段产生的矛盾标签）
+      const rulesRaw = (s._real && s._real.rules) || s.rules || [];
+      const rulesAdjusted = rulesRaw.map(r => {
+        if (!r) return r;
+        // 「执行步数合理」规则：阈值 3 ≤ turnsN ≤ 9
+        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
+          if (turnsN >= 3 && turnsN <= 9) {
+            return { ...r, name: '执行步数合理', passed: true, detail: `${turnsN} 步（处于 3-9 黄金区）` };
+          } else if (turnsN > 9) {
+            return { ...r, name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: `${turnsN} 步（建议 3-9）` };
+          } else {
+            return { ...r, name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: `${turnsN} 步（建议 3-9）` };
+          }
+        }
+        return r;
+      });
+      const failedRules = rulesAdjusted.filter(r => r && r.passed === false);
+      
+      // 统一总结语气：以分数带为主轴，failedRules 仅作为附加 chip / 描述，不再左右标题
+      // ≥85 健康 / 70-84 良好 / 50-69 一般 / <50 较差
+      const summaryByBand = score >= 85
+        ? { title: '本次会话整体健康', emptyDesc: '5 个维度均处于健康区间，本次会话整体表现良好。', hasIssueDesc: '整体表现良好，仅以下细节可优化：' }
+        : score >= 70
+        ? { title: '本次会话整体良好', emptyDesc: '主要维度表现良好，存在少量可优化项。', hasIssueDesc: '整体良好，存在以下可优化项：' }
+        : score >= 50
+        ? { title: '本次会话存在异常', emptyDesc: '部分维度低于健康阈值，需关注。', hasIssueDesc: '存在以下异常，需关注：' }
+        : { title: '本次会话存在严重异常', emptyDesc: '多项核心维度低于安全线，建议立即排查。', hasIssueDesc: '存在以下严重异常，建议立即排查：' };
+
+      const titleEl = document.getElementById('status-title');
+      if (titleEl) titleEl.textContent = summaryByBand.title;
+
+      const chipContainer = document.getElementById('status-chip-container');
+      if (chipContainer) {
+        // 先保留 title 元素，清空后面的 chips
+        const titleNode = chipContainer.querySelector('#status-title');
+        chipContainer.innerHTML = '';
+        if (titleNode) chipContainer.appendChild(titleNode);
+
+        if (failedRules.length > 0) {
+          failedRules.forEach(r => {
+            const label = r.failed_label || r.name;
+            const chipHtml = `<span class="chip" style="background:color-mix(in srgb, ${statusTheme.iconColor} 12%, transparent);color:${statusTheme.iconColor}">${escapeHTML(label)}</span>`;
+            chipContainer.insertAdjacentHTML('beforeend', chipHtml);
+          });
+        } else {
+          chipContainer.insertAdjacentHTML('beforeend', `<span class="chip" style="background:color-mix(in srgb, ${statusTheme.iconColor} 12%, transparent);color:${statusTheme.iconColor}">健康</span>`);
+        }
+      }
+
+      const descEl = document.getElementById('status-desc');
+      if (descEl) {
+        if (failedRules.length > 0) {
+          const reasons = failedRules.map(r => r.detail || r.failed_label || r.name).join('；');
+          descEl.textContent = summaryByBand.hasIssueDesc + reasons + '。';
+        } else {
+          descEl.textContent = summaryByBand.emptyDesc;
+        }
+      }
+
+      // 思考维度：基于真实的 turnsN 重新计算（避免后端 mock 数据中 turns 字段口径不一致）
+      const thinkingScoreReal = Math.max(0, Math.min(100, 100 - Math.abs(turnsN - 6) * 5));
+      r.thinking = thinkingScoreReal;
+
+      // 5 维迷你条（带独立 hover 说明，PM 友好）
+      const dimList = [
+        { key: 'response',      label: '响应', q: '用户等了多久',          formula: '耗时 ≤ 60s 满分；每超 60s 扣分，最多扣 70；调用失败直接 0' },
+        { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
+        { key: 'thinking',      label: '思考', q: 'Agent 想了几步，合不合适', formula: '100 − |实际步数 − 6| × 5（6 步为黄金区）' },
+        { key: 'resource',      label: '资源', q: '单轮 Token 用得多不多',   formula: '单轮平均 ≤ 76k 满分；超出后线性扣分，128k 时扣到 60' },
+        { key: 'orchestration', label: '编排', q: 'Agent 调度工具是否高效',  formula: '100 − 串行重试惩罚（同名工具连续 ≥3/5/7 次扣 10/20/30） + 调度多样性奖励（unique/total ≥0.6/0.4 +20/+10）' },
+      ];
+      const ratingOf = (v) => v >= 85 ? { text: '优秀', c: '--apple-green' }
+                            : v >= 70 ? { text: '良好', c: '--apple-orange' }
+                            : v >= 50 ? { text: '一般', c: '--apple-purple' }
+                            :          { text: '较差', c: '--apple-red' };
+      const dimReasonOf = (key, v) => {
+        if (v >= 85) return '本维度表现良好';
+        if (key === 'response')      return `耗时 ${durSec}s，超过 60s SLA`;
+        if (key === 'stability')     return `工具失败 ${f.tool_failures || 0} 次（成功率 ${(100 - (f.tool_fail_rate||0)).toFixed(0)}%）`;
+        if (key === 'thinking')      return `${turnsN} 步 ${turnsN > 6 ? '（偏多）' : '（偏少）'}`;
+        if (key === 'resource')      return `单轮均值 ${avgK}k Token，超出 76k 阈值`;
+        if (key === 'orchestration') {
+          const parts = [];
+          if (f.has_loop) parts.push('存在死循环');
+          if ((f.max_serial_run || 0) >= 3) parts.push(`同名工具连续 ${f.max_serial_run} 次`);
+          const div = (f.tool_calls || 0) > 0 ? (f.unique_tools / f.tool_calls) : 0;
+          if (f.tool_calls && div < 0.4) parts.push(`仅 ${f.unique_tools}/${f.tool_calls} 种工具`);
+          return parts.length ? parts.join('；') : '调度模式有改进空间';
+        }
+        return '';
+      };
+      const barsEl = document.getElementById('health-bars');
+      if (barsEl) {
+        barsEl.innerHTML = dimList.map(d => {
+          const v = r[d.key] ?? 0;
+          const rt = ratingOf(v);
+          return `<div class="text-center dim-bar cursor-help" style="position:relative">
+            <div class="text-[11px] text-[--text-secondary] mb-1.5">${d.label}</div>
+            <div class="h-1 rounded-full bg-black/5 overflow-hidden">
+              <div class="h-full rounded-full" style="width:${v}%;background:var(${rt.c})"></div>
+            </div>
+            <div class="text-[13px] font-semibold num-mono mt-1.5" style="color:var(${rt.c})">${v}</div>
+            <span class="tip" style="width:260px">
+              <span class="tip-title">${d.label} · ${d.q}</span>
+              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:var(${rt.c})">${v} 分（${rt.text}）</b></div>
+              <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${dimReasonOf(d.key, v)}</div>
+              <div class="tip-formula" style="margin-top:8px">${d.formula}</div>
+            </span>
+          </div>`;
+        }).join('');
+        // 给新生成的迷你条绑定 tooltip 行为
+        barsEl.querySelectorAll('.dim-bar').forEach(bindTooltip);
+      }
+
+      // 收集所有问题（5 维 < 85 + 5 个 KPI 非 good），统一渲染到「建议下一步」
+      const issues = [];
+      // 维度 → 建议（闭包以便引用 durSec / turnsN / avgK / f）
+      const dimActionsOf = {
+        response: () => [
+          '打开「执行分析」Tab，定位耗时最长的 span',
+          durSec > 120 ? '排查是否存在排队/冷启动；必要时扩容或预热' : '将耗时 Top 1 的步骤纳入优化清单',
+        ],
+        stability: () => [
+          '查看失败工具的 span，确认入参与依赖服务',
+          (f.tool_failures || 0) >= 3 ? '联系该工具负责人核实稳定性' : '为高失败率工具增加最大调用次数限制',
+        ],
+        thinking: () => turnsN > 9
+          ? ['抽查最后几步是否冗余或重复试探', '调整提示词，明确终止条件，缩短链路']
+          : turnsN < 3
+            ? ['复核回答质量是否充分（可能未充分推理）', '若需深入分析，调整提示词鼓励多步推理']
+            : ['标记该 session 为待 AI 评委复核', '抽查每一步的有效性'],
+        resource: () => [
+          '检查上下文是否含大段无关历史，可清理或截断',
+          '考虑分段处理或切换支持更长上下文的模型',
+        ],
+        orchestration: () => {
+          const acts = [];
+          if (f.has_loop) acts.push('检查死循环段落，加入终止条件防止无限重试');
+          if ((f.max_serial_run || 0) >= 3) acts.push(`定位连续 ${f.max_serial_run} 次同名工具调用，检查是否可合并或换工具`);
+          const div = (f.tool_calls || 0) > 0 ? (f.unique_tools / f.tool_calls) : 0;
+          if (f.tool_calls && div < 0.4) acts.push('提示词中鼓励调度更多种类的工具，避免重复使用同一招');
+          if (!acts.length) acts.push('梳理工作流依赖图，识别可并行节点');
+          return acts.slice(0, 2);
+        },
+      };
+      dimList.forEach(d => {
+        const v = r[d.key] ?? 0;
+        if (v >= 85) return;
+        issues.push({
+          severity: v < 70 ? 'bad' : 'warn',
+          tag: '维度',
+          title: `${d.label} ${v} 分 · ${ratingOf(v).text}`,
+          reason: dimReasonOf(d.key, v),
+          actions: dimActionsOf[d.key] ? dimActionsOf[d.key]() : [],
+        });
+      });
+
+      // KPI 卡（关键数据）：每个指标按"自身阈值"独立判定颜色 + 提供 hover 口径说明
+      const fmtDur = (sec) => sec >= 60 ? `${(sec/60).toFixed(1)}m` : `${sec}s`;
+      const fmtTokens = (n) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(2)}M`
+                              : n >= 1000 ? `${(n/1000).toFixed(1)}k` : `${n}`;
+      const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+
+      // 把 KPI 单元格写入：值 + badge（按自身阈值判定 good/warn/bad）+ hover 口径
+      function setKpi(kpiKey, valueId, badgeId, value, badgeText, level, tipTitle, tipFormula, tipReason) {
+        setText(valueId, value);
+        const badge = document.getElementById(badgeId);
+        if (badge) {
+          badge.textContent = badgeText;
+          badge.className = 'kpi-badge' + (level ? ' is-' + level : '');
+        }
+        // 找到外层 .kpi-cell，注入 / 复用 .tip
+        const cell = document.querySelector(`.kpi-cell[data-kpi="${kpiKey}"]`);
+        if (!cell) return;
+        let tip = cell.querySelector(':scope > .tip');
+        if (!tip) {
+          tip = document.createElement('span');
+          tip.className = 'tip';
+          tip.style.width = '280px';
+          cell.appendChild(tip);
+        }
+        const colorVar = level === 'good' ? '--apple-green' : level === 'warn' ? '--apple-orange' : '--apple-red';
+        tip.innerHTML = `
+          <span class="tip-title">${tipTitle}</span>
+          <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次取值 <b style="color:var(${colorVar})">${value}</b> · 判定 <b style="color:var(${colorVar})">${badgeText}</b></div>
+          <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${tipReason}</div>
+          <div class="tip-formula" style="margin-top:8px">${tipFormula}</div>
+        `;
+        // 覆盖之前的 binding（重算时强制刷新内容）
+        delete cell.dataset.tipBound;
+        bindTooltip(cell);
+      }
+
+      // 把 KPI 异常也收入 issues（KPI 列表统一归类为 "指标"）
+      const pushKpiIssue = (lv, title, reason, actions) => {
+        if (lv === 'good') return;
+        issues.push({ severity: lv, tag: '指标', title, reason, actions });
+      };
+
+      // 总耗时（独立阈值：≤60s good / ≤120s warn / >120s bad）
+      {
+        const lv = durSec <= 60 ? 'good' : durSec <= 120 ? 'warn' : 'bad';
+        const txt = durSec <= 60 ? '在 SLA 内' : durSec <= 120 ? `超出 SLA · ${durSec}s` : `严重超时 · ${durSec}s`;
+        const reason = durSec > 60
+          ? `本次共耗时 ${durSec} 秒，已超出 60s SLA ${durSec - 60}s`
+          : `本次共耗时 ${durSec} 秒，在 SLA 范围内`;
+        setKpi('duration', 'kpi-duration', 'kpi-duration-sub',
+          fmtDur(durSec), txt, lv,
+          '总耗时如何判断？',
+          '阈值：≤60s 良好 / 60–120s 警告 / >120s 严重',
+          reason);
+        pushKpiIssue(lv, `总耗时 ${fmtDur(durSec)} · ${txt}`, reason, [
+          '打开「执行分析」Tab，定位耗时 Top 1 的 span',
+          lv === 'bad' ? '排查是否存在排队/冷启动；必要时扩容或预热' : '评估能否将串行步骤改为并行',
+        ]);
+      }
+
+      // 执行步数（每一步 = 一次「思考 → 调用工具 → 观察」循环；黄金区 3-9 步）
+      {
+        const lv = (turnsN >= 3 && turnsN <= 9) ? 'good' : (turnsN > 12 || turnsN < 2) ? 'bad' : 'warn';
+        const txt = turnsN === 6 ? '黄金区 6 步'
+                  : turnsN > 9 ? `偏多 · 建议 ≤9`
+                  : turnsN < 3 ? `偏少 · 建议 ≥3`
+                  : '可接受';
+        const reason = turnsN > 9 ? `Agent 执行了 ${turnsN} 步（>9），可能存在路径冗余或重复试探`
+          : turnsN < 3 ? `Agent 仅执行 ${turnsN} 步，可能未充分推理`
+          : `Agent 执行 ${turnsN} 步，处于合理区间`;
+        setKpi('turns', 'kpi-turns', 'kpi-turns-sub',
+          `${turnsN} 步`, txt, lv,
+          '执行步数如何判断？',
+          '口径：1 步 = 一次 LLMCall（一次「思考 → 决策 → 调用工具 / 给出答复」）。即便模型未输出可见文本，只产出 tool_calls，也算一次完整决策；阈值：3–9 步 良好（6 步黄金）/ 10–12 或 2 警告 / >12 或 <2 严重',
+          reason);
+        pushKpiIssue(lv, `执行步数 ${turnsN} 步 · ${txt}`, reason,
+          turnsN > 9
+            ? ['抽查最后几步是否冗余或重复', '调整提示词，明确终止条件']
+            : ['复核回答质量是否充分（可能未充分推理）', '若需深入分析，调整提示词鼓励多步推理']);
+      }
+
+      // 工具调用（独立判定：无重试 → good；重试 ≤ 总数 20% → warn；> 20% → bad）
+      const toolCalls = f.tool_calls || 0;
+      const toolRetries = f.tool_retries || 0;
+      {
+        const ratio = toolCalls > 0 ? toolRetries / toolCalls : 0;
+        const lv = toolRetries === 0 ? 'good' : ratio <= 0.2 ? 'warn' : 'bad';
+        const txt = toolRetries === 0 ? '无重试' : `含 ${toolRetries} 次重试`;
+        const reason = toolRetries === 0
+          ? `工具调用全部一次成功，无重试`
+          : `共 ${toolCalls} 次调用，其中 ${toolRetries} 次重试（占比 ${(ratio*100).toFixed(0)}%）`;
+        setKpi('tools', 'kpi-tools', 'kpi-tools-sub',
+          `${toolCalls} 次`, txt, lv,
+          '工具调用如何判断？',
+          '阈值：无重试 良好 / 重试占比 ≤20% 警告 / >20% 严重',
+          reason);
+        pushKpiIssue(lv, `工具调用 ${toolCalls} 次 · ${txt}`, reason, [
+          '查看「执行分析」中重试次数最多的工具 span',
+          lv === 'bad' ? '联系该工具负责人核实稳定性，必要时回滚' : '确认入参与依赖服务，必要时增加最大重试限制',
+        ]);
+      }
+
+      // Token 用量（按单轮均值判定：≤76k good / ≤128k warn / >128k bad）
+      const totalTok = (s._real.traces || []).reduce((sum, t) => sum + (Number(t.input_tokens)||0) + (Number(t.output_tokens)||0), 0);
+      {
+        const lv = avgK <= 76 ? 'good' : avgK <= 128 ? 'warn' : 'bad';
+        const txt = avgK <= 76 ? `单轮均值 ${avgK}k` : `单轮均值 ${avgK}k · 偏高`;
+        const reason = avgK > 76
+          ? `单轮平均 ${avgK}k Token，超出 76k 阈值，上下文偏长会拖慢响应并增加成本`
+          : `共 ${fmtTokens(totalTok)} Token，单轮均值 ${avgK}k，处于健康区间`;
+        setKpi('tokens', 'kpi-tokens', 'kpi-tokens-sub',
+          fmtTokens(totalTok), txt, lv,
+          'Token 用量如何判断？',
+          '阈值：单轮均值 ≤76k 良好 / 76–128k 警告 / >128k 严重',
+          reason);
+        pushKpiIssue(lv, `Token 用量 ${fmtTokens(totalTok)} · ${txt}`, reason, [
+          '检查上下文是否含大段无关历史可清理或截断',
+          lv === 'bad' ? '考虑分段处理或切换支持更长上下文的模型' : '评估能否压缩 system prompt 或工具回执',
+        ]);
+      }
+
+      // 总成本（Fornax 暂未提供 cost 字段，按 Claude-3.5 Sonnet 单价估算：input $3/M, output $15/M）
+      const totalIn = (s._real.traces || []).reduce((sum, t) => sum + (Number(t.input_tokens)||0), 0);
+      const totalOut = (s._real.traces || []).reduce((sum, t) => sum + (Number(t.output_tokens)||0), 0);
+      const costUSD = (totalIn / 1e6) * 3 + (totalOut / 1e6) * 15;
+      const costStr = costUSD < 0.01 ? `$${costUSD.toFixed(4)}` : `$${costUSD.toFixed(2)}`;
+      {
+        const lv = costUSD <= 0.5 ? 'good' : costUSD <= 1.5 ? 'warn' : 'bad';
+        const txt = lv === 'good' ? '正常区间' : lv === 'warn' ? '偏高 · 关注预算' : '严重超支';
+        const reason = `输入 ${fmtTokens(totalIn)} × $3/M + 输出 ${fmtTokens(totalOut)} × $15/M = ${costStr}`;
+        setKpi('cost', 'kpi-cost', 'kpi-cost-sub',
+          costStr, txt, lv,
+          '总成本如何判断？',
+          '阈值：≤$0.5 良好 / $0.5–$1.5 警告 / >$1.5 严重（按 Claude-3.5 Sonnet 单价估算：input $3/M、output $15/M）',
+          reason);
+        pushKpiIssue(lv, `总成本 ${costStr} · ${txt}`, reason, [
+          '复核 Token 用量与执行步数，定位主要成本来源',
+          lv === 'bad' ? '评估能否切换更廉价的模型完成本类任务' : '设置预算告警，避免单 session 失控',
+        ]);
+      }
+
+      // ===== 统一渲染「建议下一步」=====
+      const sugBox = document.getElementById('health-suggest');
+      const sugListDim = document.getElementById('health-suggest-list-dim');
+      const sugListKpi = document.getElementById('health-suggest-list-kpi');
+      const colDim = document.getElementById('health-suggest-col-dim');
+      const colKpi = document.getElementById('health-suggest-col-kpi');
+      const sugListFull = document.getElementById('health-suggest-list');
+
+      if (sugBox && sugListDim && sugListKpi) {
+        if (issues.length === 0) {
+          sugBox.style.display = '';
+          colDim.style.display = 'none';
+          colKpi.style.display = 'none';
+          sugListFull.style.display = '';
+          sugListFull.innerHTML = `<div class="text-[12px] text-[--apple-green] flex items-center gap-1.5 p-2.5 rounded-lg bg-[--apple-green]/10">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            5 维 + 5 项关键数据均处于健康区间，无需特别关注。
+          </div>`;
+        } else {
+          // 排序：bad 在前，warn 在后
+          issues.sort((a, b) => (a.severity === 'bad' ? 0 : 1) - (b.severity === 'bad' ? 0 : 1));
+          sugBox.style.display = '';
+          sugListFull.style.display = 'none';
+
+          const renderItem = (it) => {
+            const cVar = it.severity === 'bad' ? '--apple-red' : '--apple-orange';
+            const sevTxt = it.severity === 'bad' ? '严重' : '警告';
+            return `<li class="rounded-lg p-2.5" style="background:color-mix(in srgb, var(${cVar}) 5%, transparent);border-left:2px solid var(${cVar})">
+              <div class="flex items-center gap-1.5 mb-1">
+                <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(${cVar}) 14%, transparent);color:var(${cVar})">${sevTxt}</span>
+                <span class="text-[12px] font-medium text-[--text-primary]">${it.title}</span>
+              </div>
+              <div class="text-[11.5px] text-[--text-secondary] mb-1.5 leading-relaxed">${it.reason}</div>
+              <ul class="text-[11.5px] text-[--text-secondary] space-y-0.5 leading-relaxed">
+                ${it.actions.map(a => `<li class="flex gap-1.5"><span class="text-[--text-tertiary]">→</span><span>${a}</span></li>`).join('')}
+              </ul>
+            </li>`;
+          };
+
+          const dims = issues.filter(i => i.tag === '维度');
+          const kpis = issues.filter(i => i.tag === '指标');
+
+          if (dims.length > 0) {
+            colDim.style.display = '';
+            sugListDim.innerHTML = dims.map(renderItem).join('');
+          } else {
+            colDim.style.display = 'none';
+          }
+
+          if (kpis.length > 0) {
+            colKpi.style.display = '';
+            sugListKpi.innerHTML = kpis.map(renderItem).join('');
+          } else {
+            colKpi.style.display = 'none';
+          }
+
+          const gridBox = colDim.parentElement;
+          if (dims.length === 0 || kpis.length === 0) {
+            gridBox.className = "grid grid-cols-1 gap-4";
+          } else {
+            gridBox.className = "grid grid-cols-2 gap-4";
+          }
+        }
+      }
+
+      // 状态指示 → 写入顶部基础信息条
+      // 三态判定：
+      //   - 失败：trace 根 span 异常退出（has_root_fail）
+      //   - 部分失败：根 span 成功，但中间存在 model/tool span 失败（执行过程中出现错误，被框架内部捕获/重试后最终走通）
+      //   - 成功：所有 model/tool span 全部 status_code === 0
+      const isFail = f.has_root_fail;
+      const allSpansForStatus = (s._real.traces || []).flatMap(t => t.spans || []);
+      const failedModelSpans = allSpansForStatus.filter(sp => sp.span_type === 'model' && sp.status_code !== 0).length;
+      const failedToolSpans  = allSpansForStatus.filter(sp => sp.span_type === 'tool'  && sp.status_code !== 0).length;
+      const hasInnerFail = failedModelSpans + failedToolSpans > 0;
+      const statusInfoEl = document.getElementById('info-status');
+      const statusCellEl = document.getElementById('info-status-cell');
+      if (statusInfoEl && statusCellEl) {
+        let statusLabel, statusColor, tipTitle, tipDetail;
+        if (isFail) {
+          statusLabel = '失败'; statusColor = '--apple-red';
+          tipTitle = '会话状态如何判断？';
+          tipDetail = 'trace 根 span 异常退出，任务未能完成';
+        } else if (hasInnerFail) {
+          statusLabel = '部分失败'; statusColor = '--apple-orange';
+          const parts = [];
+          if (failedModelSpans) parts.push(`${failedModelSpans} 次模型调用失败`);
+          if (failedToolSpans)  parts.push(`${failedToolSpans} 次工具调用失败`);
+          tipTitle = '会话状态如何判断？';
+          tipDetail = `根 span 成功结束，但执行过程中存在 ${parts.join(' · ')}（被框架内部捕获 / 重试后最终走通）`;
+        } else {
+          statusLabel = '成功'; statusColor = '--apple-green';
+          tipTitle = '会话状态如何判断？';
+          tipDetail = '所有模型 / 工具调用均成功';
+        }
+        statusInfoEl.innerHTML = `<span class="text-[var(${statusColor})]">${statusLabel}</span>`;
+        let tip = statusCellEl.querySelector(':scope > .tip');
+        if (!tip) {
+          tip = document.createElement('span');
+          tip.className = 'tip';
+          tip.style.width = '280px';
+          statusCellEl.appendChild(tip);
+        }
+        tip.innerHTML = `<span class="tip-title">${tipTitle}</span><div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次状态 <b style="color:var(${statusColor})">${statusLabel}</b></div><div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${tipDetail}</div><div class="tip-formula" style="margin-top:8px">口径：综合根 span 与中间所有 model / tool span 判定</div>`;
+        delete statusCellEl.dataset.tipBound;
+        bindTooltip(statusCellEl);
+      }
+      const startTime = (s._real.traces || [])[0]?.started_at;
+      const startMsFallback = (s._real.traces || [])[0]?.started_at_ms;
+      const startD = startTime ? new Date(startTime) : (startMsFallback ? new Date(startMsFallback) : null);
+      if (startD) {
+        const startStr = startD.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        setText0('info-start', startStr);
+      }
+
+      // 执行分析 · 一句话摘要（从真实 spans 算瓶颈）
+      const summaryEl = document.getElementById('exec-summary');
+      if (summaryEl) {
+        const allSpans = (s._real.traces || []).flatMap(t => t.spans || []);
+        const totalMs = s._real.duration_ms || 0;
+        // 把技术术语 NeekoTurn 翻译成「对话轮次 N」，便于 PM/标注员理解；保留原 span_name 在 hover 中
+        const turnSpans = allSpans.filter(sp => sp.span_name === 'NeekoTurn').sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+        const turnIndexMap = new Map(turnSpans.map((sp, i) => [sp.span_id, i + 1]));
+        const friendlyName = (sp) => {
+          if (sp.span_name === 'NeekoTurn') {
+            const idx = turnIndexMap.get(sp.span_id) || '';
+            return `对话轮次 ${idx}`.trim();
+          }
+          if (sp.span_type === 'model') return '大模型调用';
+          if (sp.span_type === 'tool')  return `工具调用·${sp.span_name || ''}`;
+          return sp.span_name || '步骤';
+        };
+        if (allSpans.length && totalMs) {
+          const top = allSpans.reduce((a, b) => (b.duration_ms || 0) > (a.duration_ms || 0) ? b : a, allSpans[0]);
+          const sec = (top.duration_ms / 1000).toFixed(1);
+          const pct = Math.round((top.duration_ms / totalMs) * 100);
+          const topLabel = friendlyName(top);
+          const topRaw = top.span_name || '';
+          const isTopTurn = top.span_name === 'NeekoTurn';
+          
+          // 关键路径分析预留（用假数据作为当前 session 的展示，后续可根据 OTel 数据计算）
+          const cpTimeStr = '10.8s'; 
+          const cpPctStr = '87%';
+          const cpAdvice = parseInt(cpPctStr) > 80 ? '存在明显串行瓶颈，建议排查大模型思考或重试策略。' : '关键路径占比较低，可能存在排队等待或并行度浪费。';
+          
+          // 使用项目统一的 .tip 自定义气泡（bindTooltip 接管），避免浏览器原生 title 体验差
+          summaryEl.innerHTML = `本次共 ${allSpans.length} 个<span class="help cursor-help border-b border-dashed border-[--text-tertiary]/60" style="position:relative">步骤（span）<span class="tip" style="width:280px"><span class="tip-title">什么是 span？</span><div style="margin:6px 0 4px">span = 一次执行步骤的最小单元，对应 OpenTelemetry 的链路追踪基本单位。</div><div class="tip-row"><span>类型</span><span>LLM 调用 / 工具调用 / 对话轮次容器</span></div><div class="tip-row"><span>本次</span><span>${allSpans.length} 个 spans</span></div></span></span>，耗时最长的是 <span class="help cursor-help border-b border-dashed border-[--text-tertiary]/60" style="position:relative">${escapeHTML(topLabel)}<span class="tip" style="width:300px"><span class="tip-title">瓶颈节点</span><div class="tip-row"><span>span_name</span><span style="font-family:var(--mono)">${escapeHTML(topRaw)}</span></div><div class="tip-row"><span>类型</span><span>${escapeHTML(top.span_type || '-')}</span></div><div class="tip-row"><span>耗时</span><span>${sec}s</span></div><div class="tip-row"><span>占比</span><span>${pct}%</span></div>${isTopTurn ? '<div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12);font-size:10.5px;color:rgba(255,255,255,0.7)">NeekoTurn = Agent 框架内一次完整推理循环，对应一个对话轮次。</div>' : ''}</span></span>（${sec}s，占总耗时 ${pct}%）。关键路径耗时 <span class="help cursor-help border-b border-dashed border-[--text-tertiary]/60" style="position:relative">${cpTimeStr}<span class="tip" style="width:300px"><span class="tip-title">🛤 关键路径长度 / 占比</span><div style="margin:6px 0 4px">DAG 上最长串行依赖链的耗时。"${cpTimeStr} / ${cpPctStr}"表示关键路径占总时延的 ${cpPctStr}。</div><div class="tip-formula">CP = 拓扑排序最长链 / E2E</div><div class="tip-row mt-2"><span class="text-[--text-tertiary]">占比高 (&gt;80%)</span><span class="text-[--apple-orange]">串行瓶颈</span></div><div class="tip-row"><span class="text-[--text-tertiary]">占比低 (&lt;50%)</span><span class="text-[--apple-orange]">排队等待</span></div></span></span>（占总时延 ${cpPctStr}），<span class="text-[--apple-orange]">${cpAdvice}</span>`;
+          // 绑定项目自定义气泡
+          summaryEl.querySelectorAll('.help').forEach(h => bindTooltip(h));
+        } else {
+          summaryEl.textContent = `本次共 ${allSpans.length} 个 span。`;
+        }
+      }
+
+      // 原始日志 · 基于真实 spans 渲染（OTel 风格）
+      renderRawLog(s);
+
+      // 质量评估 · 规则评估列表
+      const rules = (s._real && s._real.rules) || s.rules || [];
+      const ruleListEl = document.getElementById('rule-eval-list');
+      const ruleSumEl = document.getElementById('rule-eval-summary');
+      if (ruleListEl && rules.length) {
+        ruleListEl.classList.remove('hidden');
+        const passed = rules.filter(r => r.passed).length;
+        const total = rules.length;
+        if (ruleSumEl) {
+          ruleSumEl.textContent = `${passed}/${total}`;
+          ruleSumEl.style.color = passed === total ? 'var(--apple-green)' : 'var(--apple-red)';
+        }
+        ruleListEl.innerHTML = rules.map(r => `
+          <div class="flex items-start gap-1.5">
+            <span style="color:${r.passed ? 'var(--apple-green)' : 'var(--apple-red)'};font-weight:600;flex-shrink:0;line-height:1.3">${r.passed ? '✓' : '✗'}</span>
+            <div class="flex-1 min-w-0 relative group">
+              <div class="text-[--text-primary]" style="line-height:1.3">${r.name}</div>
+              <div class="text-[10px] text-[--text-tertiary] truncate">${r.detail}</div>
+              <div class="absolute left-1/2 -translate-x-1/2 top-full mt-2 hidden group-hover:block z-[999] w-max max-w-[240px] p-2 bg-[rgba(28,28,30,0.92)] backdrop-blur-md text-white text-[11px] rounded-lg border border-white/10 shadow-xl pointer-events-none whitespace-normal text-left">
+                ${r.detail}
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // ===== 左侧对话流：从真实 spans 渲染 =====
+      renderChatStream(s._real);
+      // 渲染完成后挂载折叠交互
+      setupChatCollapse();
+      // ===== 中间：DAG 甘特图（从真实 spans 渲染） =====
+      renderGantt(s._real);
+      // 暴露真实数据给产物 tab IIFE 读取
+      window.SESSION = Object.assign(window.SESSION || {}, { _real: s._real });
+    }
+
+    // 文档标题
+    document.title = s.title.slice(0, 24) + ' · Session 详情';
+  })();
+
+  // 工具：安全提取 JSON 字段
+  function safeJSON(str) {
+    try { return JSON.parse(str); } catch { return null; }
+  }
+  function fmtSec(ms) {
+    if (!ms) return '0s';
+    const s = ms / 1000;
+    return s < 1 ? `${ms}ms` : s < 60 ? `${s.toFixed(1)}s` : `${(s/60).toFixed(1)}m`;
+  }
+  function fmtTime(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    return d.toTimeString().slice(0, 8);
+  }
+  function escapeHTML(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // 基于真实 spans 渲染 OTel 风格的原始日志
+  function renderRawLog(s) {
+    const body = document.getElementById('raw-log-body');
+    const meta = document.getElementById('raw-log-meta');
+    const dl   = document.getElementById('raw-log-download');
+    if (!body || !s._real) return;
+
+    const allSpans = (s._real.traces || []).flatMap(t => t.spans || []);
+    if (!allSpans.length) {
+      body.innerHTML = '<div class="text-[--text-tertiary]">无 trace 数据</div>';
+      if (meta) meta.textContent = '0 spans';
+      return;
+    }
+    if (meta) meta.textContent = `${allSpans.length} spans · ${(s._real.traces || []).length} traces`;
+
+    // 把每个 span 拆成 span_start / span_end 两条事件，按时间排序
+    const events = [];
+    allSpans.forEach(sp => {
+      const startMs = Number(sp.started_at_ms) || 0;
+      const dur     = Number(sp.duration_ms) || 0;
+      const endMs   = startMs + dur;
+      const tags = safeJSON(sp.tags) || safeJSON(sp.custom_tags) || {};
+      // 提取关键字段供日志展示
+      const detail = [];
+      if (sp.span_type === 'model') {
+        const inp = safeJSON(sp.input);
+        const out = safeJSON(sp.output);
+        const model = inp?.model || tags.model || tags['gen_ai.request.model'];
+        if (model) detail.push(`model=${model}`);
+        const inTok  = out?.usage?.prompt_tokens || out?.usage?.input_tokens;
+        const outTok = out?.usage?.completion_tokens || out?.usage?.output_tokens;
+        if (inTok != null && outTok != null) detail.push(`tokens=${inTok}→${outTok}`);
+      } else if (sp.span_type === 'tool') {
+        if (sp.span_name) detail.push(`name=${sp.span_name}`);
+      }
+      const spanLabel = sp.span_type === 'model' ? 'LLMCall'
+                      : sp.span_type === 'tool'  ? 'ToolCall'
+                      : (sp.span_name || 'Span');
+
+      events.push({
+        ts: startMs,
+        kind: 'start',
+        line: `[${fmtMicro(startMs)}] span_start span=${spanLabel}${detail.length ? ' ' + detail.join(' ') : ''}`,
+        type: sp.span_type,
+        status: sp.status_code,
+      });
+      const endDetail = [`dur=${dur}ms`];
+      if (sp.status_code != null && sp.status_code !== 0) {
+        endDetail.push(`status=error(${sp.status_code})`);
+      } else {
+        endDetail.push('status=success');
+      }
+      events.push({
+        ts: endMs,
+        kind: 'end',
+        line: `[${fmtMicro(endMs)}] span_end   span=${spanLabel} ${endDetail.join(' ')}`,
+        type: sp.span_type,
+        status: sp.status_code,
+      });
+    });
+    events.sort((a, b) => a.ts - b.ts);
+
+    // 构造彩色行：start 蓝、end 灰、error 红、tool 紫
+    const html = events.map(e => {
+      let color = 'var(--text-secondary)';
+      if (e.status && e.status !== 0) color = 'var(--apple-red)';
+      else if (e.kind === 'start' && e.type === 'model') color = 'var(--apple-blue)';
+      else if (e.kind === 'start' && e.type === 'tool')  color = 'var(--apple-purple)';
+      else if (e.kind === 'end') color = 'var(--text-tertiary)';
+      return `<div style="color:${color}">${escapeHTML(e.line)}</div>`;
+    }).join('');
+    body.innerHTML = html;
+
+    // 下载按钮：导出真实 trace 完整 JSON
+    if (dl && !dl.dataset.bound) {
+      dl.dataset.bound = '1';
+      dl.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const json = JSON.stringify(s._real, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `trace_${s.id || 'session'}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
+    }
+  }
+  // 时间戳格式化为 HH:MM:SS.mmm（毫秒精度）
+  function fmtMicro(ms) {
+    if (!ms) return '00:00:00.000';
+    const d = new Date(ms);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const ml = String(d.getMilliseconds()).padStart(3, '0');
+    return `${hh}:${mm}:${ss}.${ml}`;
+  }
+
+  // ===== 左侧对话流 折叠/展开 交互 =====
+  function setupChatCollapse() {
+    const collapseBtn = document.getElementById('chat-collapse-btn');
+    const expandFloatBtn = document.getElementById('chat-expand-float-btn');
+    const chatPane = document.getElementById('chat-pane');
+    const resizeHandle = document.getElementById('resize-handle');
+    if (!collapseBtn || !chatPane) return;
+    
+    // 折叠：隐藏整个左侧面板和拖拽条，显示悬浮展开按钮
+    collapseBtn.addEventListener('click', () => {
+      chatPane.classList.add('hidden');
+      if (resizeHandle) resizeHandle.classList.add('hidden');
+      if (expandFloatBtn) expandFloatBtn.classList.remove('hidden');
+    });
+
+    // 展开：恢复左侧面板和拖拽条，隐藏悬浮展开按钮
+    if (expandFloatBtn) {
+      expandFloatBtn.addEventListener('click', () => {
+        chatPane.classList.remove('hidden');
+        if (resizeHandle) resizeHandle.classList.remove('hidden');
+        expandFloatBtn.classList.add('hidden');
+      });
+    }
+  }
+
+  // 尝试将字符串解析为 JSON 后 pretty-print；失败则原文返回
+  function prettifyMaybeJSON(s) {
+    if (!s || typeof s !== 'string') return s || '';
+    const t = s.trim();
+    if (!(t.startsWith('{') || t.startsWith('['))) return s;
+    try { return JSON.stringify(JSON.parse(t), null, 2); } catch { return s; }
+  }
+  // 渲染长文本块：超过阈值则折叠 + 展开
+  function renderCollapsible(content, opts = {}) {
+    const { threshold = 240, maxH = 220, label = '展开' } = opts;
+    const text = String(content ?? '');
+    if (!text) return '';
+    const safe = escapeHTML(text);
+    if (text.length <= threshold) {
+      return `<pre class="code-blk">${safe}</pre>`;
+    }
+    const id = 'cb_' + Math.random().toString(36).slice(2, 9);
+    const lines = text.split('\n').length;
+    const meta = `${text.length} 字符 · ${lines} 行`;
+    return `
+      <div class="code-collapse" data-id="${id}">
+        <pre class="code-blk collapsed" id="${id}" style="max-height:${maxH}px">${safe}</pre>
+        <div class="code-toggle">
+          <button class="code-toggle-btn" onclick="toggleCollapse('${id}', this)">${label} ↓</button>
+          <span class="code-meta">${meta}</span>
+        </div>
+      </div>`;
+  }
+  // eslint-disable-next-line no-unused-vars
+  function toggleCollapse(id, btn) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const expanded = el.classList.toggle('collapsed') === false;
+    el.style.maxHeight = expanded ? 'none' : '220px';
+    btn.textContent = expanded ? '收起 ↑' : '展开 ↓';
+  }
+  window.toggleCollapse = toggleCollapse;
+
+  // 点击对话流产物卡 → 切到产物 tab + 高亮对应文件
+  function openArtifactTab(path, version) {
+    const tabBtn = document.querySelector('.main-tab[data-tab="artifact"]');
+    if (tabBtn) tabBtn.click();
+    // 滚动并闪烁产物 tab 中对应文件（如果存在 data-artifact-path 属性）
+    setTimeout(() => {
+      const target = document.querySelector(`[data-artifact-path="${path.replace(/"/g, '\\"')}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('artifact-flash');
+        setTimeout(() => target.classList.remove('artifact-flash'), 1600);
+      }
+    }, 50);
+  }
+  window.openArtifactTab = openArtifactTab;
+
+  // 从一个 LLM span 的 input.messages 中找最后一个 role=user 的 content
+  function extractUserPrompt(span) {
+    const inp = safeJSON(span.input);
+    if (!inp || !inp.messages) return '';
+    const userMsgs = inp.messages.filter(m => m.role === 'user');
+    const last = userMsgs[userMsgs.length - 1];
+    if (!last) return '';
+    let c = last.content;
+    if (Array.isArray(c)) {
+      c = c.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n');
+    }
+    return c || '';
+  }
+
+  // 从一个 LLM span 的 output 中提取 assistant 文本 + 工具调用列表 + 思考(reasoning)
+  function extractAssistantOutput(span) {
+    const out = safeJSON(span.output);
+    if (!out) return { text: '', reasoning: '', tool_calls: [] };
+    const choice = (out.choices || [])[0] || {};
+    const msg = choice.message || {};
+    let text = '';
+    if (typeof msg.content === 'string') text = msg.content;
+    else if (Array.isArray(msg.content)) text = msg.content.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n');
+    let reasoning = '';
+    if (typeof msg.reasoning === 'string') reasoning = msg.reasoning;
+    else if (typeof msg.reasoning_content === 'string') reasoning = msg.reasoning_content;
+    // 模型常把最终回复包在 <summary>...</summary> 或 <answer>...</answer> 等 XML 标签里，
+    // 这里统一剥离这些"包装标签"，仅保留正文，避免 UI 上字面显示标签
+    text = stripWrapperTags(text);
+    reasoning = stripWrapperTags(reasoning);
+    const tcs = (msg.toolCalls || msg.tool_calls || []).map(tc => ({
+      name: tc.toolName || tc.function?.name || tc.name || 'tool',
+      args: tc.arguments || tc.function?.arguments || '',
+      id: tc.toolCallId || tc.id,
+    }));
+    return { text, reasoning, tool_calls: tcs };
+  }
+
+  // 剥离 LLM 常见的"包装标签"：<summary>、<answer>、<final>、<response>、<output>
+  // 仅当整段文本恰好被同一个标签包裹时才剥离，避免误伤正文中真正的 XML 内容
+  function stripWrapperTags(s) {
+    if (!s || typeof s !== 'string') return s;
+    let t = s.trim();
+    const wrappers = ['summary', 'answer', 'final', 'response', 'output', 'reply'];
+    // 反复剥离，处理嵌套（如 <answer><summary>...</summary></answer>）
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const tag of wrappers) {
+        const re = new RegExp(`^<${tag}[^>]*>([\\s\\S]*)<\\/${tag}>$`, 'i');
+        const m = t.match(re);
+        if (m) { t = m[1].trim(); changed = true; }
+      }
+    }
+    return t;
+  }
+
+  // 识别工具类别：mcp / skill / 内置（read/write/edit/grep/glob/run）
+  function classifyTool(name) {
+    const n = (name || '').toLowerCase();
+    if (n.startsWith('mcp')) return { kind: 'mcp', icon: '⚡', label: 'MCP' };
+    if (n.includes('skill')) return { kind: 'skill', icon: '✦', label: 'Skill' };
+    return { kind: 'tool', icon: '⌘', label: '工具' };
+  }
+
+  // 从工具调用 args 中尝试抽取产物路径/文件（仅写入类工具）
+  function extractArtifact(toolName, argsStr) {
+    const lower = (toolName || '').toLowerCase();
+    // 只把"写入类"工具计为产物（read/glob/grep/search 全部排除）
+    const isWrite = /write|create|edit|rewrite|save|update|append|insert|replace/.test(lower);
+    if (!isWrite) return null;
+    const obj = safeJSON(argsStr);
+    if (!obj) return null;
+    const candidates = ['file_path', 'filePath', 'path', 'output_path', 'outputPath', 'target_path', 'doc_url', 'docUrl', 'url'];
+    for (const k of candidates) {
+      if (obj[k] && typeof obj[k] === 'string') return { kind: pathKind(toolName, obj[k]), path: String(obj[k]) };
+    }
+    // 兜底：找第一个像路径的字段
+    for (const v of Object.values(obj)) {
+      if (typeof v === 'string' && /[\\/].+\.\w{1,8}$/.test(v)) {
+        return { kind: pathKind(toolName, v), path: v };
+      }
+    }
+    return null;
+  }
+  function pathKind(toolName, p) {
+    const ext = String(p).split('.').pop().toLowerCase();
+    const name = String(p).toLowerCase();
+    // 关键产物识别（基于真实数据：Vite React 模板 → tsx 页面、ts mock、json schema、html）
+    // 1. 标注页面：HTML / 主入口 tsx / pages 目录
+    if (ext === 'html') return 'page';
+    if (/(^|\/)app\.tsx$/.test(name)) return 'page';
+    if (/\/pages\/[^/]+\.tsx$/.test(name)) return 'page';
+    // 2. 送标数据结构：types/ 目录 + Schema/Input 命名 + .ts/.json
+    if (/\/types\/.+\.(ts|json)$/.test(name) && !/test|spec/.test(name)) return 'send_schema';
+    if (/(send|input).*schema|schema.*(send|input)/.test(name) && /\.(ts|json|ya?ml)$/.test(name)) return 'send_schema';
+    // 3. 取标数据结构 / mock：mock/ 目录 + dict.json + recv/output 命名
+    if (/\/mock\/.+\.(ts|json)$/.test(name)) return 'recv_schema';
+    if (/\.dict\.json$/.test(name)) return 'recv_schema';
+    if (/(recv|output|result).*schema|schema.*(recv|output|result)/.test(name) && /\.(ts|json|ya?ml)$/.test(name)) return 'recv_schema';
+    // 4. 业务配置（次关键）
+    if (/businessstate|\/config\//.test(name) && /\.(ts|json)$/.test(name)) return 'config';
+    // 弱化类（代码 / 文档 / 数据 / 图）
+    if (['md','txt','rst','doc','docx','pdf'].includes(ext)) return 'doc';
+    if (['css','scss','less','sass'].includes(ext)) return 'style';
+    if (['ts','tsx','js','jsx','mjs','py','sh','go','java','rs'].includes(ext)) return 'code';
+    if (['json','yaml','yml','toml','xml','csv'].includes(ext)) return 'data';
+    if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) return 'img';
+    return 'code';
+  }
+  // 是否为「关键产物」：用户重点关注，需用文档卡突出展示
+  function isKeyArtifact(kind) {
+    return kind === 'page' || kind === 'send_schema' || kind === 'recv_schema' || kind === 'config';
+  }
+  function artifactTitle(kind) {
+    return ({
+      page: '标注页面',
+      send_schema: '送标数据结构',
+      recv_schema: '取标数据结构 / Mock',
+      config: '业务配置',
+    })[kind] || '文件';
+  }
+  // ===== Span 详情抽屉：基于真实 span 渲染（简洁优先，突出重点） =====
+  function openSpanDrawer(spanId) {
+    const real = (window.SESSION && window.SESSION._real) || null;
+    if (!real) return;
+    let sp = null;
+    for (const t of (real.traces || [])) {
+      sp = (t.spans || []).find(x => x.span_id === spanId);
+      if (sp) break;
+    }
+    if (!sp) return;
+
+    const tags = sp.custom_tags || {};
+    const failed = sp.status_code !== 0 && sp.status_code !== undefined && sp.status_code !== null;
+    const isLLM = sp.span_type === 'model';
+    const isTool = sp.span_type === 'tool';
+    const isMCP = !!tags.mcp_server_name;
+    const isSkill = !!tags.skill_name;
+
+    const kind = isMCP ? { shape: 'shape-mcp', label: 'MCP' }
+              : isSkill ? { shape: 'shape-skill', label: 'Skill' }
+              : isLLM ? { shape: 'shape-llm', label: 'LLM' }
+              : isTool ? { shape: 'shape-tool', label: 'Tool' }
+              : { shape: 'shape-agent', label: 'Agent' };
+
+    // 占总时长 %
+    const allSpans = (real.traces || []).flatMap(t => t.spans || []);
+    const t0 = allSpans.reduce((m, x) => Math.min(m, Number(x.started_at_ms) || Infinity), Infinity);
+    const tEnd = allSpans.reduce((m, x) => Math.max(m, (Number(x.started_at_ms) || 0) + (Number(x.duration_ms) || 0)), 0);
+    const totalMs = Math.max(1, tEnd - t0);
+    const pct = ((Number(sp.duration_ms) || 0) / totalMs * 100).toFixed(1);
+
+    const fmtDur = (ms) => {
+      if (!ms) return '0s';
+      if (ms < 1000) return `${ms}ms`;
+      const s = ms / 1000;
+      if (s < 60) return `${s.toFixed(2)}s`;
+      const m = Math.floor(s / 60), r = s - m * 60;
+      return `${m}m${r.toFixed(0)}s`;
+    };
+
+    // ----- 头部 -----
+    const titleText = (isLLM && tags.model_name) ? tags.model_name
+                    : (isTool ? sp.span_name : (sp.span_name || '(span)'));
+    document.getElementById('span-drawer-shape').className = kind.shape;
+    document.getElementById('span-drawer-title').textContent = `${kind.label} · ${titleText}`;
+    document.getElementById('span-drawer-sub').textContent = sp.span_id;
+
+    // ----- 关键参数（按类型只渲染最关键的 2-3 项） -----
+    let keyMetricsHtml = '';
+    if (isLLM) {
+      const inT = tags.input_tokens || tags.prompt_tokens || tags.tokens_in || '-';
+      const outT = tags.output_tokens || tags.completion_tokens || tags.tokens_out || '-';
+      const cost = tags.cost_usd ?? tags.cost ?? null;
+      keyMetricsHtml = `
+        <div class="group relative inline-block z-10">
+          <div class="text-[10.5px] text-[--text-tertiary] cursor-help border-b border-dashed border-[--text-tertiary]/50 w-max pb-[1px]">词元（Tokens）</div>
+          <div class="text-[13px] font-medium num-mono mt-0.5">${inT} → ${outT}</div>
+          <div class="pointer-events-none absolute top-full left-1/2 z-50 mt-1 -translate-x-1/2 whitespace-nowrap rounded bg-black/80 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 shadow-sm backdrop-blur-sm">
+            输入 → 输出
+          </div>
+        </div>
+        ${cost !== null ? `<div><div class="text-[10.5px] text-[--text-tertiary]">成本</div><div class="text-[13px] font-medium num-mono mt-0.5">$${Number(cost).toFixed(4)}</div></div>` : ''}
+      `;
+    } else if (isTool || isMCP || isSkill) {
+      const retry = tags.retry_count ?? tags.retries ?? 0;
+      keyMetricsHtml = `<div><div class="text-[10.5px] text-[--text-tertiary]">重试</div><div class="text-[13px] font-medium num-mono mt-0.5">${retry}</div></div>`;
+    }
+
+    // ----- Tabs -----
+    const tabs = ['Input', 'Output'];
+    if (failed) tabs.unshift('Error');
+    tabs.push('Metadata');
+    document.getElementById('span-drawer-tabs').innerHTML = tabs.map((t, i) => `
+      <button class="span-tab px-2.5 py-1 rounded-md ${i === 0 ? 'bg-black/5 font-medium' : 'hover:bg-black/5 text-[--text-secondary]'} ${t === 'Error' ? 'text-[--apple-red]' : ''}" data-tab="${t}">${t}</button>
+    `).join('');
+
+    // ----- Tab 内容（默认显示第一个） -----
+    const renderTab = (tabName) => {
+      const inputObj = sp.input ?? sp.attributes?.input ?? tags.input ?? null;
+      const outputObj = sp.output ?? sp.attributes?.output ?? tags.output ?? null;
+      const errMsg = sp.status_message || tags.error || tags.error_message || '';
+      const fmt = (v) => {
+        if (v === null || v === undefined) return '<span class="text-[--text-tertiary]">（无数据）</span>';
+        const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+        return `
+          <div class="relative group">
+            <pre class="bg-black/[0.04] rounded-lg p-3 mono text-[11px] leading-relaxed max-h-[420px] overflow-y-auto overflow-x-hidden whitespace-pre-wrap syntax-json">${syntaxHighlight(s)}</pre>
+            <button onclick="copyToClipboard(this)" data-content="${escapeHTML(s).replace(/"/g, '&quot;')}" class="absolute top-2 right-2 p-1.5 rounded-md bg-white/80 hover:bg-white text-[--text-secondary] hover:text-[--text-primary] shadow-sm opacity-0 group-hover:opacity-100 transition-opacity" title="复制">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </button>
+          </div>
+        `;
+      };
+      const syntaxHighlight = (json) => {
+        if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+        return escapeHTML(json)
+          .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+            let cls = 'text-[--apple-orange]';
+            if (/^"/.test(match)) {
+              if (/:$/.test(match)) {
+                cls = 'text-[--apple-blue] font-medium';
+                match = match.slice(0, -1) + '<span class="text-[--text-tertiary] font-normal">:</span>';
+              } else {
+                cls = 'text-[--apple-green]';
+              }
+            } else if (/true|false/.test(match)) {
+              cls = 'text-[--apple-purple]';
+            } else if (/null/.test(match)) {
+              cls = 'text-[--text-tertiary]';
+            }
+            return `<span class="${cls}">${match}</span>`;
+          })
+          .replace(/[{}\[\]]/g, (m) => `<span class="text-[--text-tertiary]">${m}</span>`);
+      };
+      if (tabName === 'Input') return fmt(inputObj);
+      if (tabName === 'Output') return fmt(outputObj);
+      if (tabName === 'Error') {
+        return `<div class="bg-[--apple-red]/[0.06] border border-[--apple-red]/20 rounded-lg p-3 text-[12px] mono leading-relaxed">
+          <div class="text-[--apple-red] font-semibold mb-1">status_code = ${sp.status_code}</div>
+          <div class="text-[--text-primary]/80 whitespace-pre-wrap">${escapeHTML(errMsg || '(无错误信息)')}</div>
+        </div>`;
+      }
+      // Metadata
+      const meta = { span_type: sp.span_type, parent_id: sp.parent_id, started_at_ms: sp.started_at_ms, duration_ms: sp.duration_ms, status_code: sp.status_code, ...tags };
+      return fmt(meta);
+    };
+
+    // ----- 主体 -----
+    const statusColor = failed ? '--apple-red' : '--apple-green';
+    const statusText = failed ? 'Failed' : 'Success';
+    const body = document.getElementById('span-drawer-body');
+    body.innerHTML = `
+      <div class="px-5 py-4 grid grid-cols-3 gap-3 border-b border-black/5">
+        <div>
+          <div class="text-[10.5px] text-[--text-tertiary]">耗时</div>
+          <div class="text-[18px] font-semibold num-mono text-[--text-primary]">${escapeHTML(fmtDur(sp.duration_ms || 0))}</div>
+          <div class="text-[10.5px] text-[--text-tertiary] mt-0.5">占 ${pct}%</div>
+        </div>
+        <div>
+          <div class="text-[10.5px] text-[--text-tertiary]">状态</div>
+          <div class="text-[14px] font-semibold text-[var(${statusColor})] flex items-center gap-1.5 mt-0.5">
+            <span class="badge-dot" style="background:var(${statusColor})"></span> ${statusText}
+          </div>
+        </div>
+        ${keyMetricsHtml}
+      </div>
+      <div class="px-5 py-4 border-b border-black/5" id="span-tab-content">${renderTab(failed ? 'Error' : 'Input')}</div>
+      <div class="p-5">
+        <button class="w-full px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[--apple-blue] to-[--apple-purple] text-white text-[13px] font-medium flex items-center justify-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          AI 分析此 Span
+        </button>
+      </div>
+    `;
+
+    // Tab 切换
+    document.querySelectorAll('.span-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.span-tab').forEach(b => {
+          b.classList.remove('bg-black/5', 'font-medium');
+          b.classList.add('text-[--text-secondary]', 'hover:bg-black/5');
+        });
+        btn.classList.add('bg-black/5', 'font-medium');
+        btn.classList.remove('text-[--text-secondary]');
+        document.getElementById('span-tab-content').innerHTML = renderTab(btn.dataset.tab);
+      });
+    });
+
+    document.getElementById('span-drawer').classList.add('open');
+  }
+  window.openSpanDrawer = openSpanDrawer;
+
+  function basename(p) {
+    return String(p).split(/[\\/]/).pop();
+  }
+
+  // 复制到剪贴板功能
+  function copyToClipboard(btn) {
+    const content = btn.getAttribute('data-content');
+    if (!content) return;
+    
+    // 恢复被转义的实体
+    const unescaped = content
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+      
+    navigator.clipboard.writeText(unescaped).then(() => {
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = `<svg class="w-3.5 h-3.5 text-[--apple-green]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
+      setTimeout(() => {
+        btn.innerHTML = originalHtml;
+      }, 2000);
+    }).catch(err => {
+      console.error('复制失败:', err);
+    });
+  }
+
+  // ===== DAG 甘特图：基于真实 spans 渲染 =====
+  function renderGantt(real) {
+    const card = document.getElementById('gantt-card');
+    const body = document.getElementById('gantt-body');
+    const axisEl = document.getElementById('gantt-axis');
+    const metaEl = document.getElementById('gantt-meta');
+    if (!card || !body || !axisEl) return;
+    if (!real || !real.traces || !real.traces.length) {
+      body.innerHTML = '<div class="px-5 py-6 text-[11px] text-[--text-tertiary] text-center">暂无 span 数据</div>';
+      return;
+    }
+
+    // 1) 收集所有 spans，并附带 trace 边界（用于跨 trace 计时）
+    const allSpans = [];
+    real.traces.forEach((t, ti) => {
+      (t.spans || []).forEach(sp => {
+        allSpans.push({
+          ...sp,
+          _trace_idx: ti,
+          _trace_id: t.trace_id,
+          started_at_ms: Number(sp.started_at_ms) || 0,
+          duration_ms: Number(sp.duration_ms) || 0,
+        });
+      });
+    });
+    if (!allSpans.length) {
+      body.innerHTML = '<div class="px-5 py-6 text-[11px] text-[--text-tertiary] text-center">暂无 span 数据</div>';
+      return;
+    }
+
+    // 2) 构建 parent → children 映射，找出每条 trace 的 root span（parent_id == "0"）
+    const idMap = new Map();
+    allSpans.forEach(sp => idMap.set(sp.span_id, sp));
+    const childrenMap = new Map();
+    const rawRoots = [];
+    allSpans.forEach(sp => {
+      const pid = sp.parent_id;
+      if (!pid || pid === '0' || !idMap.has(pid)) {
+        rawRoots.push(sp);
+      } else {
+        if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+        childrenMap.get(pid).push(sp);
+      }
+    });
+    rawRoots.sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+
+    // 2.5) 修正：孤立的 LLMCall（无 NeekoTurn 父）应挂到时间上最近的前一个 NeekoTurn 下
+    //      避免「大模型」与「思考循环」并排成为顶层节点、无法被折叠
+    const roots = [];
+    let lastTurn = null;
+    rawRoots.forEach(sp => {
+      const isTurn = sp.span_name === 'NeekoTurn';
+      const isModel = sp.span_type === 'model';
+      if (isTurn) {
+        roots.push(sp);
+        lastTurn = sp;
+      } else if (isModel && lastTurn) {
+        if (!childrenMap.has(lastTurn.span_id)) childrenMap.set(lastTurn.span_id, []);
+        childrenMap.get(lastTurn.span_id).push(sp);
+      } else {
+        roots.push(sp);
+      }
+    });
+    // 子 spans 按起始时间排序
+    childrenMap.forEach(arr => arr.sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0)));
+
+    // 3) 强制消除根节点之间的空闲时间（让 Root 首尾相连）
+    if (roots.length > 0) {
+      // 子树结束时间 = max(自身结束, 所有子孙结束)
+      function subtreeEnd(node) {
+        let e = (node.started_at_ms || 0) + (node.duration_ms || 0);
+        const kids = childrenMap.get(node.span_id) || [];
+        kids.forEach(k => { e = Math.max(e, subtreeEnd(k)); });
+        return e;
+      }
+      let currentStart = roots[0].started_at_ms || 0;
+      roots.forEach(r => {
+        const shift = currentStart - (r.started_at_ms || 0);
+        function applyShift(node) {
+          node.started_at_ms = (node.started_at_ms || 0) + shift;
+          const kids = childrenMap.get(node.span_id) || [];
+          kids.forEach(applyShift);
+        }
+        if (shift !== 0) {
+          applyShift(r);
+        }
+        currentStart = subtreeEnd(r);
+      });
+    }
+
+    // 4) 计算时间轴：以最早 started_at_ms 为 0 点
+    const t0 = allSpans.reduce((m, sp) => Math.min(m, sp.started_at_ms || Infinity), Infinity);
+    const tEnd = allSpans.reduce((m, sp) => Math.max(m, (sp.started_at_ms || 0) + (sp.duration_ms || 0)), 0);
+    const totalMs = Math.max(1, tEnd - t0);
+
+    // 4) 关键路径：每个 span 在其兄弟中选「duration 最长」的链路标记 critical
+    const critical = new Set();
+    function markCritical(node) {
+      if (!node) return;
+      critical.add(node.span_id);
+      const kids = childrenMap.get(node.span_id) || [];
+      if (!kids.length) return;
+      const top = kids.reduce((a, b) => (b.duration_ms || 0) > (a.duration_ms || 0) ? b : a, kids[0]);
+      markCritical(top);
+    }
+    roots.forEach(markCritical);
+
+    // 5) DFS 输出顺序 + 深度
+    const flat = []; // [{span, depth, rootIdx}]
+    let rootCounter = 0;
+    function dfs(node, depth, rootIdx) {
+      flat.push({ span: node, depth, rootIdx });
+      const kids = childrenMap.get(node.span_id) || [];
+      kids.forEach(k => dfs(k, depth + 1, rootIdx));
+    }
+    roots.forEach(r => {
+      rootCounter++;
+      dfs(r, 0, rootCounter);
+    });
+
+    const maxDepth = flat.reduce((m, f) => Math.max(m, f.depth), 0);
+
+    // 6) 渲染时间轴刻度（5 等分）
+    const fmtAxis = (ms) => {
+      const s = ms / 1000;
+      if (s < 60) return `${s.toFixed(1)}s`;
+      const m = Math.floor(s / 60), r = s - m * 60;
+      return `${m}m${r.toFixed(0)}s`;
+    };
+    axisEl.innerHTML = [0, 25, 50, 75, 100].map(p => `
+      <div class="axis-label" style="left:${p}%">${escapeHTML(fmtAxis(totalMs * p / 100))}</div>
+      <div class="axis-tick" style="left:${p}%"></div>
+    `).join('');
+
+    // 7) 渲染甘特行
+    const typeMap = (sp) => {
+      const tags = sp.custom_tags || {};
+      const t = sp.span_type;
+      if (tags.mcp_server_name) return { kind: 'mcp', shape: 'shape-mcp', bar: 'bar-mcp', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-purple)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>' };
+      if (tags.skill_name)      return { kind: 'skill', shape: 'shape-skill', bar: 'bar-skill', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>' };
+      if (t === 'model')        return { kind: 'llm', shape: 'shape-llm', bar: 'bar-llm', icon: '<span class="shape-llm"></span>' };
+      if (t === 'tool')         return { kind: 'tool', shape: 'shape-tool', bar: 'bar-tool', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>' };
+      // 其余视为 agent / 调度容器
+      return { kind: 'agent', shape: 'shape-agent', bar: 'bar-agent', icon: '<span class="shape-agent"></span>' };
+    };
+    const labelOf = (sp, rootIdx) => {
+      const t = sp.span_type;
+      if (t === 'model') return '大模型';
+      if (t === 'tool')  return `工具: ${sp.span_name || ''}`;
+      if (sp.span_name === 'NeekoTurn') return `对话轮次 ${rootIdx || ''}`.trim();
+      return sp.span_name || '(span)';
+    };
+    const fmtDur = (ms) => {
+      if (!ms) return '0s';
+      if (ms < 1000) return `${ms}ms`;
+      const s = ms / 1000;
+      if (s < 60) return `${s.toFixed(1)}s`;
+      const m = Math.floor(s / 60), r = s - m * 60;
+      return `${m}m${r.toFixed(0)}s`;
+    };
+
+    // 反查每个 span 真实的「挂载父节点」（孤立 LLM 已被挂到 NeekoTurn 下）
+    const realParentMap = new Map();
+    childrenMap.forEach((kids, pid) => {
+      kids.forEach(k => realParentMap.set(k.span_id, pid));
+    });
+
+    const html = flat.map(({ span: sp, depth, rootIdx }) => {
+      const tm = typeMap(sp);
+      const offsetMs = (sp.started_at_ms || 0) - t0;
+      const left = Math.max(0, Math.min(100, offsetMs / totalMs * 100));
+      // 为了能够显示非常短的 span，改为计算像素宽度，通过 CSS calc 来限制最小宽度
+      // width = calc(MAX(2px, X%)) 避免极小的百分比渲染不出来，同时保留真实比例。如果占比过小，最小保证可见即可。
+      // 但是行内样式写起来麻烦，直接在百分比上保底。
+      // 截图里之所以都是相同宽度，因为原来的 0.4% 保底在某些时候依然太大（如果 totalMs 小）。
+      // 应该按真实比例：
+      const trueWidthPct = Math.max(0, Math.min(100 - left, (sp.duration_ms || 0) / totalMs * 100));
+      const widthCss = `max(2px, ${trueWidthPct.toFixed(3)}%)`;
+
+      const isCritical = critical.has(sp.span_id);
+      const failed = sp.status_code !== 0 && sp.status_code !== undefined && sp.status_code !== null;
+      const indent = 12 + depth * 20; // px
+      const barLabel = (sp.span_type === 'model' && (sp.custom_tags || {}).model_name)
+        ? (sp.custom_tags.model_name)
+        : (sp.span_name || '');
+      
+      const hasKids = (childrenMap.get(sp.span_id) || []).length > 0;
+      // 关键：用 DFS 的 depth 判定根（而不是原始 parent_id），这样孤立 LLM 被挂到 Turn 下时 depth=1 会被默认隐藏
+      const isRoot = depth === 0;
+      // 默认将根节点折叠
+      const collapsedClass = isRoot && hasKids ? 'is-collapsed' : '';
+      const hiddenClass = !isRoot ? 'is-hidden' : ''; // 初始状态隐藏子节点
+      // data-parent-id 用「挂载后」的真实父节点 id（用于折叠/展开事件）
+      const mountedParentId = realParentMap.get(sp.span_id) || '';
+      
+      const spLabel = labelOf(sp, rootIdx);
+
+      return `
+        <div class="gantt-row flex items-stretch border-b border-black/5 h-9 ${hiddenClass}" data-row-id="${escapeHTML(sp.span_id)}" data-parent-id="${escapeHTML(mountedParentId)}">
+          <div class="w-[260px] flex-shrink-0 pr-3 flex items-center gap-1.5 text-[12px]" style="padding-left:${indent}px">
+            ${hasKids ? `<span class="gantt-toggle ${collapsedClass}" data-toggle="${escapeHTML(sp.span_id)}"><svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></span>` : `<span class="w-[18px] flex-shrink-0"></span>`}
+            <span class="flex items-center justify-center w-[14px] h-[14px] flex-shrink-0">${tm.icon}</span>
+            <span class="font-medium truncate ml-1" title="${escapeHTML(spLabel)}${failed ? ' · 失败' : ''}">${escapeHTML(spLabel)}</span>
+            ${failed ? '<span class="text-[10px] text-[--apple-red] flex-shrink-0">✕</span>' : ''}
+            <span class="mono text-[10px] text-[--text-tertiary] ml-auto flex-shrink-0">${escapeHTML(fmtDur(sp.duration_ms || 0))}</span>
+          </div>
+          <div class="flex-1 relative px-5">
+            <div class="gantt-bar ${tm.bar} ${isCritical ? 'bar-critical' : ''}"
+                 style="left:${left.toFixed(2)}%; width:${widthCss}"
+                 data-span-id="${escapeHTML(sp.span_id)}"
+                 title="${escapeHTML(spLabel)} · ${escapeHTML(fmtDur(sp.duration_ms || 0))}${failed ? ' · 失败' : ''}">
+              <span class="gantt-bar-text">${escapeHTML(barLabel)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    body.innerHTML = html;
+    const metaStr = `总计 ${flat.length} 个步骤 · 关键路径 ${critical.size} 步 · 最大嵌套深度 ${maxDepth + 1} 层`;
+    if (metaEl) metaEl.textContent = metaStr;
+    const tooltipEl = document.getElementById('gantt-meta-tooltip');
+    if (tooltipEl) tooltipEl.textContent = metaStr;
+
+    // 绑定展开/折叠事件
+    const toggles = body.querySelectorAll('.gantt-toggle');
+    toggles.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 阻止触发气泡选中
+        const spanId = btn.getAttribute('data-toggle');
+        const isCollapsed = btn.classList.toggle('is-collapsed');
+        
+        // 递归寻找所有子孙节点并控制显示隐藏
+        const toggleChildren = (pid, hide) => {
+          const children = body.querySelectorAll(`[data-parent-id="${pid}"]`);
+          children.forEach(child => {
+            if (hide) {
+              child.classList.add('is-hidden');
+            } else {
+              child.classList.remove('is-hidden');
+            }
+            // 如果子节点自己也是个折叠的父节点，展开时只恢复它自己的可见性，不恢复它的子节点
+            // 除非它本身没有被折叠
+            const childToggle = child.querySelector('.gantt-toggle');
+            if (childToggle && !childToggle.classList.contains('is-collapsed') && !hide) {
+               toggleChildren(child.getAttribute('data-row-id'), hide);
+            } else if (hide) {
+               toggleChildren(child.getAttribute('data-row-id'), hide);
+            }
+          });
+        };
+        
+        toggleChildren(spanId, isCollapsed);
+      });
+    });
+  }
+
+  function renderChatStream(real) {
+    const stream = document.getElementById('chat-stream');
+    const cnt = document.getElementById('chat-trace-count');
+    if (!stream || !real) return;
+    const traces = (real.traces || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+    if (!traces.length) { 
+      if (cnt) cnt.textContent = `· 0 轮`;
+      stream.innerHTML = '<div class="text-[11px] text-[--text-tertiary] text-center">无对话数据</div>'; 
+      return; 
+    }
+
+    // ===== 第 1 步：按 user prompt 分组（同一 prompt 下连续 trace 合并为一个 agent 气泡）=====
+    const groups = []; // [{ userPrompt, traces:[trace,...] }]
+    let curPrompt = null;
+    let lastTraceTime = 0;
+    
+    traces.forEach(t => {
+      const spans = (t.spans || []);
+      const firstLLM = spans.find(s => s.span_type === 'model');
+      const up = firstLLM ? extractUserPrompt(firstLLM) : '';
+      const startTime = Number(t.started_at_ms) || 0;
+      
+      // 判断是否开启新的一轮气泡：
+      // 1. 如果没有当前气泡 -> 开启新组
+      // 2. 如果距离上一次 trace 超过了 10 秒空闲（说明真的是用户再次输入了） -> 开启新组
+      // 3. 否则，即使 user prompt 因为框架注入 observation 发生了变化，也强制合并到同一个大循环里
+      const isNewTurn = groups.length === 0 || (startTime - lastTraceTime > 10000 && up && up !== curPrompt);
+      
+      if (isNewTurn) {
+        groups.push({ userPrompt: up || curPrompt || '（继续执行）', traces: [t] });
+        if (up) curPrompt = up;
+      } else {
+        groups[groups.length - 1].traces.push(t);
+      }
+      
+      lastTraceTime = (Number(t.started_at_ms) || 0) + (Number(t.duration_ms) || 0);
+    });
+
+    if (cnt) cnt.textContent = `· ${groups.length} 轮`;
+
+    // 全局执行步数（Step）：以所有 trace 下 model span 总数为准，与概览/KPI 口径一致
+    const totalSteps = traces.reduce((sum, t) => sum + (t.spans || []).filter(s => s.span_type === 'model').length, 0);
+    let globalStepIdx = 0;
+
+    const html = [];
+    // 全局产物登记：同一 path 多次出现 → 计版本（v1, v2, v3...）
+    const artifactVersions = new Map();
+
+    groups.forEach(grp => {
+      // user 气泡（如果该组有 prompt）
+      if (grp.userPrompt) {
+        html.push(`
+          <div class="flex justify-end">
+            <div class="msg-user max-w-[88%] rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">${escapeHTML(grp.userPrompt)}</div>
+          </div>
+        `);
+      }
+
+      // 该组顶部时间戳
+      const grpStartMs = grp.traces[0]?.started_at_ms;
+      if (grpStartMs) {
+        html.push(`<div class="text-[10px] text-[--text-tertiary] text-center pt-1">${escapeHTML(fmtTime(grpStartMs))}</div>`);
+      }
+
+      // 收集该组所有 trace 的 parts → 拼成一个 agent 气泡
+      const parts = [];
+      const modelsUsed = new Set();
+      let totalLLMms = 0;
+      const artifacts = [];
+
+      grp.traces.forEach((t, ti) => {
+        const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+        const toolSpans = spans.filter(s => s.span_type === 'tool');
+        let toolCursor = 0;
+        let isFirstSpanInTrace = true;
+
+        spans.forEach(sp => {
+          if (sp.span_type !== 'model') return;
+          // 每次 LLMCall = 一步（执行步数 Step 的全局编号）
+          globalStepIdx++;
+          const sepStyle = (ti === 0 && isFirstSpanInTrace) ? ' style="margin-top:4px"' : '';
+          parts.push(`<div class="agent-turn-sep"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
+          isFirstSpanInTrace = false;
+
+          const { text, reasoning, tool_calls } = extractAssistantOutput(sp);
+          const modelName = (sp.custom_tags || {}).model_name || 'LLM';
+          modelsUsed.add(modelName);
+          totalLLMms += sp.duration_ms || 0;
+
+          if (reasoning) {
+            parts.push(`
+              <details class="thought-inline">
+                <summary>🧠 思考 · ${reasoning.length} 字</summary>
+                <div class="thought-body">${escapeHTML(reasoning)}</div>
+              </details>
+            `);
+          }
+          if (text) {
+            parts.push(`<div class="agent-text whitespace-pre-wrap">${escapeHTML(text)}</div>`);
+          }
+          // 隐式决策：这一步 LLM 没有输出文本/思考，直接产出 tool_calls。
+          // 按定义「1 步 = 一次 LLMCall = 思考→调用工具→观察」，这一步的"思考"虽不可见但确实存在，
+          // 用一行极简 meta 让用户感知到"是大模型在驱动这次工具调用"，而不是工具凭空出现。
+          if (!text && !reasoning && tool_calls.length) {
+            const llmDur = fmtSec(sp.duration_ms || 0);
+            parts.push(`<div class="step-implicit" title="模型在 ${llmDur} 内未输出可见文本，直接决策调用 ${tool_calls.length} 个工具">⚡ 直接调用工具 · ${llmDur}</div>`);
+          }
+          
+          // 如果没有任何输出，补一个状态提示，避免完全留空
+          if (!text && !reasoning && !tool_calls.length) {
+            if (sp.status_code !== 0) {
+              const errMsg = (sp.custom_tags || {}).error_message || (sp.custom_tags || {}).error || '模型调用失败';
+              parts.push(`<div class="agent-text whitespace-pre-wrap break-all text-[--apple-red] italic text-[11.5px]">❌ ${escapeHTML(errMsg)}</div>`);
+            } else {
+              parts.push(`<div class="agent-text whitespace-pre-wrap text-[--text-tertiary] italic text-[11.5px]">（模型未返回任何内容）</div>`);
+            }
+          }
+
+          tool_calls.forEach(tc => {
+            const cls = classifyTool(tc.name);
+            const exec = toolSpans[toolCursor++];
+            const ok = exec ? exec.status_code === 0 : true;
+            const execDur = exec ? fmtSec(exec.duration_ms) : '';
+            const art = extractArtifact(tc.name, tc.args);
+            if (art) artifacts.push({ ...art, tool: tc.name });
+            parts.push(`
+              <div class="tool-line ${ok ? '' : 'fail'}">
+                <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
+                <span class="tool-line-label">${cls.label}: <span class="tool-line-name">${escapeHTML(tc.name)}</span></span>
+                ${execDur ? `<span class="tool-line-dur">${execDur}</span>` : ''}
+                ${ok ? '' : '<span class="tool-line-status fail">失败</span>'}
+              </div>
+            `);
+          });
+        });
+
+        // 兜底：未匹配到 LLM toolCall 的 tool span
+        if (toolCursor < toolSpans.length) {
+          for (let i = toolCursor; i < toolSpans.length; i++) {
+            const exec = toolSpans[i];
+            const cls = classifyTool(exec.span_name);
+            const ok = exec.status_code === 0;
+            parts.push(`
+              <div class="tool-line ${ok ? '' : 'fail'}">
+                <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
+                <span class="tool-line-label">${cls.label}: <span class="tool-line-name">${escapeHTML(exec.span_name)}</span></span>
+                <span class="tool-line-dur">${fmtSec(exec.duration_ms)}</span>
+                ${ok ? '' : '<span class="tool-line-status fail">失败</span>'}
+              </div>
+            `);
+          }
+        }
+      });
+
+      // 输出该组的合并 agent 气泡
+      if (parts.length) {
+        const modelLabel = [...modelsUsed].join(' / ') || 'LLM';
+        // 该组实际执行的步数 = 该组下 model span 数量（不是 trace 数量，trace 只是物理切分）
+        const grpSteps = grp.traces.reduce((sum, t) => sum + (t.spans || []).filter(s => s.span_type === 'model').length, 0);
+        const turnsLabel = grpSteps > 1 ? ` · ${grpSteps} 步` : '';
+        html.push(`
+          <div class="msg-agent max-w-[92%] text-[12.5px] leading-relaxed py-1">
+            <div class="flex items-center gap-1.5 text-[10.5px] text-[--text-tertiary] mb-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-[--apple-blue]"></span>
+              <span title="模型 · LLM 累计耗时${grpSteps > 1 ? ` · 执行 ${grpSteps} 步（每步 = 一次「思考 → 调用工具 → 观察」循环）` : ''}">${escapeHTML(modelLabel)} · ${fmtSec(totalLLMms)}${turnsLabel}</span>
+            </div>
+            ${parts.join('')}
+          </div>
+        `);
+      }
+
+      // 产物（按组输出）
+      if (artifacts.length) {
+        const keyOnes = artifacts.filter(a => isKeyArtifact(a.kind));
+        const weakOnes = artifacts.filter(a => !isKeyArtifact(a.kind));
+        keyOnes.forEach(a => {
+          const v = (artifactVersions.get(a.path) || 0) + 1;
+          artifactVersions.set(a.path, v);
+          const isLatest = true;
+          const iconMap = { page: '🌐', send_schema: '📤', recv_schema: '📥', config: '⚙️' };
+          const labelMap = { page: 'PAGE', send_schema: 'SEND', recv_schema: 'RECV', config: 'CONFIG' };
+          html.push(`
+            <div class="artifact-card" onclick="openArtifactTab('${escapeHTML(a.path)}', ${v})">
+              <div class="artifact-icon kind-${a.kind}">${iconMap[a.kind] || '📄'}</div>
+              <div class="artifact-meta">
+                <div class="artifact-name">${escapeHTML(basename(a.path))}</div>
+                <div class="artifact-sub">${labelMap[a.kind]} · ${escapeHTML(artifactTitle(a.kind))}</div>
+              </div>
+              <span class="artifact-version ${isLatest ? 'is-latest' : ''}">v${v}</span>
+            </div>
+          `);
+        });
+        if (weakOnes.length) {
+          const items = weakOnes.map(a => {
+            const v = (artifactVersions.get(a.path) || 0) + 1;
+            artifactVersions.set(a.path, v);
+            const iconMap = { doc: '📄', data: '📊', img: '🖼', code: '⌨', file: '📁' };
+            const safePath = escapeHTML(a.path).replace(/'/g, "\\'");
+            return `<div class="weak-artifact-item" title="${escapeHTML(a.path)}" onclick="openArtifactTab('${safePath}', ${v})"><span>${iconMap[a.kind] || '📁'}</span><span class="weak-artifact-name">${escapeHTML(basename(a.path))}</span></div>`;
+          }).join('');
+          html.push(`
+            <details class="weak-artifacts">
+              <summary>代码 / 中间文件 · ${weakOnes.length}</summary>
+              <div class="weak-artifacts-list">${items}</div>
+            </details>
+          `);
+        }
+      }
+    });
+
+    stream.innerHTML = html.join('');
+  }
+</script>
+
+</body>
+</html>
