@@ -14,5 +14,6 @@ go build -o output/bin/server ./cmd/server/
 
 # 拷贝启动脚本到产物目录
 cp -r bin output/
+chmod +x output/bin/bootstrap.sh
 
 echo "Build success. Output is in output/bin/"
