@@ -6,11 +6,16 @@ set -e
 export GO111MODULE=on
 export GOPROXY=https://goproxy.cn,direct
 
-echo "Building agentic_trace_server..."
+# 禁用 CGO，编译纯静态二进制，避免 GLIBC 版本不兼容问题
+export CGO_ENABLED=0
+export GOOS=linux
+export GOARCH=amd64
+
+echo "Building agentic_trace_server (static binary, CGO disabled)..."
 mkdir -p output/bin
 
-# 编译为二进制
-go build -o output/bin/server ./cmd/server/
+# 编译为静态二进制 (-ldflags '-s -w' 减小体积)
+go build -ldflags '-s -w -extldflags "-static"' -o output/bin/server ./cmd/server/
 
 # 拷贝启动脚本到产物目录
 cp -r bin output/
