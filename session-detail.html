@@ -682,7 +682,7 @@
       <button class="main-tab" data-tab="artifact">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         产物
-        <span class="tab-count">3</span>
+        <span class="tab-count">--</span>
       </button>
     </div>
 
@@ -1163,6 +1163,7 @@
       if (!real || !real.traces) return [];
       const list = [];
       const readOutputs = new Map();
+      const toolSpanWrites = new Set();
       
       real.traces.forEach((t, ti) => {
         (t.spans || []).forEach(sp => {
@@ -1216,6 +1217,10 @@
               statusOk: sp.status_code === 0,
               spanId: sp.span_id,
             });
+            if (isWrite) {
+              const normName = name.replace(/^Tool:/i, '').replace(/_file$/i, '').replace(/_content$/i, '');
+              toolSpanWrites.add(path + '::' + normName);
+            }
             return;
           }
           
@@ -1237,6 +1242,7 @@
             const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
             if (!path || typeof path !== 'string') return;
             if (!/[\\/].+\.\w{1,8}$/.test(path)) return;
+            if (isWrite && toolSpanWrites.has(path + '::' + name.replace(/^Tool:/i, '').replace(/_file$/i, '').replace(/_content$/i, ''))) return;
             
             let content = '';
             let oldStr = '';
@@ -1288,42 +1294,43 @@
         let writeCount = 0;
         
         arr.forEach((a, i) => {
-          let versionContent = currentContent;
-          let isFullContent = true;
-          
           if (a.isRead) {
             currentContent = a.content;
-            versionContent = a.content;
-          } else if (a.isWrite) {
-            if (/replace/i.test(a.tool)) {
-              if (currentContent && a.oldStr && a.content) {
-                const newContent = currentContent.replace(a.oldStr, a.content);
-                if (newContent !== currentContent) {
-                  currentContent = newContent;
-                  versionContent = currentContent;
-                } else {
-                  versionContent = a.content;
-                  isFullContent = false;
-                }
-              } else if (a.content) {
+            return;
+          }
+          if (!a.isWrite) return;
+
+          let versionContent = currentContent;
+          let isFullContent = true;
+          writeCount++;
+
+          if (/replace|edit/i.test(a.tool) || (a.oldStr && a.tool && !/write/i.test(a.tool))) {
+            if (currentContent && a.oldStr && a.content) {
+              const newContent = currentContent.replace(a.oldStr, a.content);
+              if (newContent !== currentContent) {
+                currentContent = newContent;
+                versionContent = currentContent;
+              } else {
                 versionContent = a.content;
                 isFullContent = false;
               }
-            } else {
-              if (a.content) {
-                currentContent = a.content;
-                versionContent = a.content;
-              }
+            } else if (a.content) {
+              versionContent = a.content;
+              isFullContent = false;
             }
-            writeCount++;
+          } else {
+            if (a.content) {
+              currentContent = a.content;
+              versionContent = a.content;
+            }
           }
-          
+
           if (versionContent) {
             versions.push({
               ...a,
               content: versionContent,
               isFullContent,
-              ver: `v${writeCount || (i + 1)}`,
+              ver: `v${writeCount}`,
               isLatest: false,
               prev: versions.length > 0 ? versions[versions.length - 1] : null,
             });
@@ -1783,7 +1790,6 @@
       });
     });
 
-    // 对话流文档卡跳转 → 切 tab + 选中文件 + 切版本
     window.openArtifactTab = function(path, version) {
       document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -1797,6 +1803,14 @@
         currentVer = f.versions[Math.min(version - 1, f.versions.length - 1)]?.ver || f.latest.ver;
       }
       render();
+      setTimeout(() => {
+        const target = document.querySelector(`[data-artifact-path="${path.replace(/"/g, '\\"')}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('artifact-flash');
+          setTimeout(() => target.classList.remove('artifact-flash'), 1600);
+        }
+      }, 50);
     };
 
     // 等真实数据加载完毕（renderChatStream 后会有 SESSION._real）
@@ -2735,22 +2749,6 @@
   }
   window.toggleCollapse = toggleCollapse;
 
-  // 点击对话流产物卡 → 切到产物 tab + 高亮对应文件
-  function openArtifactTab(path, version) {
-    const tabBtn = document.querySelector('.main-tab[data-tab="artifact"]');
-    if (tabBtn) tabBtn.click();
-    // 滚动并闪烁产物 tab 中对应文件（如果存在 data-artifact-path 属性）
-    setTimeout(() => {
-      const target = document.querySelector(`[data-artifact-path="${path.replace(/"/g, '\\"')}"]`);
-      if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        target.classList.add('artifact-flash');
-        setTimeout(() => target.classList.remove('artifact-flash'), 1600);
-      }
-    }, 50);
-  }
-  window.openArtifactTab = openArtifactTab;
-
   // 从一个 LLM span 的 input.messages 中找最后一个 role=user 的 content
   function extractUserPrompt(span) {
     const inp = safeJSON(span.input);
@@ -3465,12 +3463,14 @@
           });
         });
 
-        // 兜底：未匹配到 LLM toolCall 的 tool span
         if (toolCursor < toolSpans.length) {
           for (let i = toolCursor; i < toolSpans.length; i++) {
             const exec = toolSpans[i];
             const cls = classifyTool(exec.span_name);
             const ok = exec.status_code === 0;
+            const execInp = safeJSON(exec.input);
+            const execArt = execInp ? extractArtifact(exec.span_name, JSON.stringify(execInp)) : null;
+            if (execArt) artifacts.push({ ...execArt, tool: exec.span_name });
             parts.push(`
               <div class="tool-line ${ok ? '' : 'fail'}">
                 <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
