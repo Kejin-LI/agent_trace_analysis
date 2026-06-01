@@ -615,7 +615,7 @@
 <header class="glass-strong border-b border-black/5 flex-shrink-0">
   <div class="px-6 h-14 flex items-center justify-between gap-4">
     <div class="flex items-center gap-4 min-w-0">
-      <a href="./sessions.html" class="flex items-center gap-1.5 text-[13px] text-[--text-secondary] hover:text-[--text-primary] flex-shrink-0">
+      <a href="/sessions" class="flex items-center gap-1.5 text-[13px] text-[--text-secondary] hover:text-[--text-primary] flex-shrink-0">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
         返回
       </a>
@@ -626,7 +626,7 @@
       </div>
     </div>
     <div class="flex items-center gap-2">
-      <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[12px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+      <a href="/docs" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[12px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
       <button class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 text-[12px] flex items-center gap-1.5">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
         分享
@@ -784,7 +784,7 @@
                     <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
                     <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
                     <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
-                    <div class="tip-row"><span>思考</span><span>执行步数（6 步最优）</span></div>
+                    <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转）</span></div>
                     <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
                     <div class="tip-row"><span>编排</span><span>调度模式（连续重试 / 工具多样性）</span></div>
                     <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
@@ -2009,9 +2009,44 @@
       const allModelSpansN = (s._real.traces || []).reduce((sum, t) => sum + (t.spans || []).filter(sp => sp.span_type === 'model').length, 0);
       const turnsN = allModelSpansN > 0 ? allModelSpansN : (s._real.traces?.length || s._real.turns || 0);
       const avgK = Math.round((f.avg_tokens_per_turn || 0) / 1000);
-      
-      // 修正：如果后端传过来的 chip 是“过度思考”，但实际上步数很少（<=9），说明 mock 数据不一致
-      // 我们在前端做一个兼容：把它改成“思考过简”或者“健康”
+
+      const allSpansFlat = (s._real.traces || []).flatMap(t => t.spans || []);
+      const modelSpans = allSpansFlat.filter(sp => sp.span_type === 'model');
+      const toolSpans = allSpansFlat.filter(sp => sp.span_type === 'tool');
+      const hasFinalAnswer = modelSpans.some(sp => {
+        try {
+          const out = JSON.parse(sp.output || '{}');
+          const choices = out.choices || out.response?.choices || [];
+          return choices.some(c => c.message && c.message.content && c.message.content.trim().length > 0 && (!c.message.tool_calls || c.message.tool_calls.length === 0));
+        } catch(e) { return false; }
+      });
+      const truncatedByMax = s._real.terminated_by === 'max_steps_limit';
+      let noOpStreak = 0;
+      let curStreak = 0;
+      modelSpans.forEach(sp => {
+        let hasToolCall = false;
+        try {
+          const out = JSON.parse(sp.output || '{}');
+          const choices = out.choices || out.response?.choices || [];
+          hasToolCall = choices.some(c => c.message && c.message.tool_calls && c.message.tool_calls.length > 0);
+        } catch(e) {}
+        const hasContent = (sp.output || '').trim().length > 0;
+        if (!hasToolCall && !hasContent) { curStreak++; noOpStreak = Math.max(noOpStreak, curStreak); }
+        else { curStreak = 0; }
+      });
+      const toolCallMap = new Map();
+      toolSpans.forEach(sp => {
+        const key = (sp.span_name || '') + '::' + (sp.input || '').slice(0, 128);
+        toolCallMap.set(key, (toolCallMap.get(key) || 0) + 1);
+      });
+      const duplicateToolCalls = [...toolCallMap.values()].filter(v => v > 1).reduce((s, v) => s + v - 1, 0);
+      let maxConsecutiveFail = 0;
+      let curFailStreak = 0;
+      toolSpans.forEach(sp => {
+        if (sp.status_code !== 0) { curFailStreak++; maxConsecutiveFail = Math.max(maxConsecutiveFail, curFailStreak); }
+        else { curFailStreak = 0; }
+      });
+
       let currentChip = s.chip || '健康';
       if (currentChip === '过度思考' && turnsN <= 9) {
         currentChip = turnsN < 3 ? '思考过简' : '慢思考无效';
@@ -2026,7 +2061,7 @@
         'Skill 重试过高': '某 Skill 调用失败率偏高，可能是最近升级引入的回归，建议回滚或修复。',
         '行为死循环': 'Agent 反复调用同一个工具未达成目标，疑似陷入循环，建议增加最大重试次数限制。',
         '工具失败': '工具调用失败但未触发重试，建议检查失败工具的参数与权限。',
-        '过度思考': `Agent 执行了 ${turnsN} 步（建议 ≤ 9 步，每步为一次「思考 → 调用工具 → 观察」循环），可能存在路径冗余，建议优化提示词或加强终止判断。`,
+        '过度思考': `Agent 执行了 ${turnsN} 步，可能存在路径冗余，建议优化提示词或加强终止判断。`,
         '思考过简': `Agent 仅执行 ${turnsN} 步，可能未充分推理就给出答案，建议复核结果质量。`,
         '慢思考无效': '执行步数符合预期但效果一般，建议接入 AI 评委评估每一步的有效性。',
         '长上下文超限': `每轮平均消耗 ${avgK}k Token（阈值 76k），上下文过载会拖慢响应并增加成本，建议清理历史或分段处理。`,
@@ -2044,8 +2079,8 @@
         'Skill 重试过高': '检测到 Skill 重试率偏高',
         '行为死循环': '检测到行为死循环',
         '工具失败': '检测到工具调用失败',
-        '过度思考': 'Agent 执行步数偏多',
-        '思考过简': 'Agent 执行步数偏少',
+        '过度思考': 'Agent 轨迹存在冗余',
+        '思考过简': 'Agent 轨迹可能不充分',
         '慢思考无效': '思考有效性偏低',
         '长上下文超限': 'Token 用量超出健康阈值',
         '显存 OOM 重跑': '出现显存不足重跑',
@@ -2070,18 +2105,19 @@
         iconEl.innerHTML = statusTheme.iconPath;
       }
       
-      // 基于前端真实 turnsN 重新校准 rules（避免后端 mock 按旧口径 turns 字段产生的矛盾标签）
+      //       // 基于前端真实轨迹信号重新校准 rules（执行效率：轨迹级健康度）
       const rulesRaw = (s._real && s._real.rules) || s.rules || [];
       const rulesAdjusted = rulesRaw.map(r => {
         if (!r) return r;
-        // 「执行步数合理」规则：阈值 3 ≤ turnsN ≤ 9
-        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
-          if (turnsN >= 3 && turnsN <= 9) {
-            return { ...r, name: '执行步数合理', passed: true, detail: `${turnsN} 步（处于 3-9 黄金区）` };
-          } else if (turnsN > 9) {
-            return { ...r, name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: `${turnsN} 步（建议 3-9）` };
+        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少' || r.failed_label === '轨迹异常') {
+          const checks = [];
+          if (!hasFinalAnswer) checks.push('未产出最终答复');
+          if (truncatedByMax) checks.push('触达 max_steps 截断');
+          if (noOpStreak >= 3) checks.push(`连续 ${noOpStreak} 步空转`);
+          if (checks.length === 0) {
+            return { ...r, name: '执行效率健康', passed: true, detail: `${turnsN} 步，轨迹健康（已答复 / 无截断 / 无空转）` };
           } else {
-            return { ...r, name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: `${turnsN} 步（建议 3-9）` };
+            return { ...r, name: '执行效率健康', passed: false, failed_label: '轨迹异常', detail: `${turnsN} 步 · ${checks.join('、')}` };
           }
         }
         return r;
@@ -2129,15 +2165,20 @@
         }
       }
 
-      // 思考维度：基于真实的 turnsN 重新计算（避免后端 mock 数据中 turns 字段口径不一致）
-      const thinkingScoreReal = Math.max(0, Math.min(100, 100 - Math.abs(turnsN - 6) * 5));
+      // 思考维度：轨迹健康度（不评判步数多少，只检测轨迹是否走完、有无空转）
+      const thinkingScoreReal = Math.max(0, Math.min(100,
+        100
+        - (hasFinalAnswer ? 0 : 35)
+        - (truncatedByMax ? 25 : 0)
+        - Math.min(noOpStreak * 10, 30)
+      ));
       r.thinking = thinkingScoreReal;
 
       // 5 维迷你条（带独立 hover 说明，PM 友好）
       const dimList = [
         { key: 'response',      label: '响应', q: '用户等了多久',          formula: '耗时 ≤ 60s 满分；每超 60s 扣分，最多扣 70；调用失败直接 0' },
         { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
-        { key: 'thinking',      label: '思考', q: 'Agent 想了几步，合不合适', formula: '100 − |实际步数 − 6| × 5（6 步为黄金区）' },
+        { key: 'thinking',      label: '思考', q: '轨迹是否健康走完', formula: '100 − 无答复35 − 截断25 − 空转(每步10, 上限30)' },
         { key: 'resource',      label: '资源', q: '单轮 Token 用得多不多',   formula: '单轮平均 ≤ 76k 满分；超出后线性扣分，128k 时扣到 60' },
         { key: 'orchestration', label: '编排', q: 'Agent 调度工具是否高效',  formula: '100 − 串行重试惩罚（同名工具连续 ≥3/5/7 次扣 10/20/30） + 调度多样性奖励（unique/total ≥0.6/0.4 +20/+10）' },
       ];
@@ -2149,7 +2190,7 @@
         if (v >= 85) return '本维度表现良好';
         if (key === 'response')      return `耗时 ${durSec}s，超过 60s SLA`;
         if (key === 'stability')     return `工具失败 ${f.tool_failures || 0} 次（成功率 ${(100 - (f.tool_fail_rate||0)).toFixed(0)}%）`;
-        if (key === 'thinking')      return `${turnsN} 步 ${turnsN > 6 ? '（偏多）' : '（偏少）'}`;
+        if (key === 'thinking')      return !hasFinalAnswer ? '未产出最终答复' : truncatedByMax ? '被 max_steps 截断' : noOpStreak >= 3 ? `连续 ${noOpStreak} 步空转` : `${turnsN} 步，轨迹健康`;
         if (key === 'resource')      return `单轮均值 ${avgK}k Token，超出 76k 阈值`;
         if (key === 'orchestration') {
           const parts = [];
@@ -2196,11 +2237,13 @@
           '查看失败工具的 span，确认入参与依赖服务',
           (f.tool_failures || 0) >= 3 ? '联系该工具负责人核实稳定性' : '为高失败率工具增加最大调用次数限制',
         ],
-        thinking: () => turnsN > 9
-          ? ['抽查最后几步是否冗余或重复试探', '调整提示词，明确终止条件，缩短链路']
-          : turnsN < 3
-            ? ['复核回答质量是否充分（可能未充分推理）', '若需深入分析，调整提示词鼓励多步推理']
-            : ['标记该 session 为待 AI 评委复核', '抽查每一步的有效性'],
+        thinking: () => !hasFinalAnswer
+          ? ['检查 Agent 是否因异常提前终止', '调整提示词，明确要求产出最终答复']
+          : truncatedByMax
+            ? ['增加 max_steps 限制或优化 Agent 规划效率', '抽查最后几步是否冗余']
+            : noOpStreak >= 3
+              ? ['抽查空转步骤的推理内容', '调整提示词减少无效思考']
+              : ['轨迹健康，无需特别处理'],
         resource: () => [
           '检查上下文是否含大段无关历史，可清理或截断',
           '考虑分段处理或切换支持更长上下文的模型',
@@ -2287,44 +2330,70 @@
         ]);
       }
 
-      // 执行步数（每一步 = 一次「思考 → 调用工具 → 观察」循环；黄金区 3-9 步）
+      //       // 执行效率（轨迹级健康度：检测轨迹是否走完、有无空转/截断/无答复）
       {
-        const lv = (turnsN >= 3 && turnsN <= 9) ? 'good' : (turnsN > 12 || turnsN < 2) ? 'bad' : 'warn';
-        const txt = turnsN === 6 ? '黄金区 6 步'
-                  : turnsN > 9 ? `偏多 · 建议 ≤9`
-                  : turnsN < 3 ? `偏少 · 建议 ≥3`
-                  : '可接受';
-        const reason = turnsN > 9 ? `Agent 执行了 ${turnsN} 步（>9），可能存在路径冗余或重复试探`
-          : turnsN < 3 ? `Agent 仅执行 ${turnsN} 步，可能未充分推理`
-          : `Agent 执行 ${turnsN} 步，处于合理区间`;
+        const checks = [];
+        if (!hasFinalAnswer) checks.push('未产出最终答复');
+        if (truncatedByMax) checks.push('触达 max_steps 截断');
+        if (noOpStreak >= 3) checks.push(`连续 ${noOpStreak} 步空转`);
+        let lv, txt, reason;
+        if (checks.length === 0) {
+          lv = 'good';
+          txt = '正常完成';
+          reason = `Agent 执行 ${turnsN} 步，轨迹健康：已产出最终答复，无截断，无空转`;
+        } else if (checks.some(c => c.includes('未产出') || c.includes('截断'))) {
+          lv = 'bad';
+          txt = checks.join(' · ');
+          reason = `轨迹异常：${checks.join('、')}。Agent 执行 ${turnsN} 步后未能正常完成`;
+        } else {
+          lv = 'warn';
+          txt = checks.join(' · ');
+          reason = `轨迹存在异常：${checks.join('、')}，但已产出最终答复`;
+        }
         setKpi('turns', 'kpi-turns', 'kpi-turns-sub',
           `${turnsN} 步`, txt, lv,
-          '执行步数如何判断？',
-          '口径：1 步 = 一次 LLMCall（一次「思考 → 决策 → 调用工具 / 给出答复」）。即便模型未输出可见文本，只产出 tool_calls，也算一次完整决策；阈值：3–9 步 良好（6 步黄金）/ 10–12 或 2 警告 / >12 或 <2 严重',
+          '执行效率如何判断？',
+          '口径：检测轨迹是否走完（有无最终答复）、是否被 max_steps 截断、是否存在连续空转（≥3 步无工具调用也无输出）。正常完成 = 良好；截断/无答复 = 严重；空转 = 警告',
           reason);
-        pushKpiIssue(lv, `执行步数 ${turnsN} 步 · ${txt}`, reason,
-          turnsN > 9
-            ? ['抽查最后几步是否冗余或重复', '调整提示词，明确终止条件']
-            : ['复核回答质量是否充分（可能未充分推理）', '若需深入分析，调整提示词鼓励多步推理']);
+        pushKpiIssue(lv, `执行效率 ${turnsN} 步 · ${txt}`, reason,
+          !hasFinalAnswer
+            ? ['检查 Agent 是否因异常提前终止', '调整提示词，明确要求产出最终答复']
+            : truncatedByMax
+            ? ['增加 max_steps 限制或优化 Agent 规划效率', '抽查最后几步是否冗余']
+            : ['抽查空转步骤的推理内容', '调整提示词减少无效思考']);
       }
 
-      // 工具调用（独立判定：无重试 → good；重试 ≤ 总数 20% → warn；> 20% → bad）
+      //       // 工具调用（工具级质量：重试 + 重复调用 + 连续失败）
       const toolCalls = f.tool_calls || 0;
       const toolRetries = f.tool_retries || 0;
       {
         const ratio = toolCalls > 0 ? toolRetries / toolCalls : 0;
-        const lv = toolRetries === 0 ? 'good' : ratio <= 0.2 ? 'warn' : 'bad';
-        const txt = toolRetries === 0 ? '无重试' : `含 ${toolRetries} 次重试`;
-        const reason = toolRetries === 0
-          ? `工具调用全部一次成功，无重试`
-          : `共 ${toolCalls} 次调用，其中 ${toolRetries} 次重试（占比 ${(ratio*100).toFixed(0)}%）`;
+        const dupRate = toolCalls > 0 ? duplicateToolCalls / toolCalls : 0;
+        const checks = [];
+        if (toolRetries > 0) checks.push(`含 ${toolRetries} 次重试`);
+        if (duplicateToolCalls > 0) checks.push(`${duplicateToolCalls} 次重复调用`);
+        if (maxConsecutiveFail >= 3) checks.push(`连续失败 ${maxConsecutiveFail} 次`);
+        let lv, txt, reason;
+        if (checks.length === 0) {
+          lv = 'good';
+          txt = '无异常';
+          reason = `工具调用全部一次成功，无重试、无重复、无连续失败`;
+        } else if (ratio > 0.2 || maxConsecutiveFail >= 3) {
+          lv = 'bad';
+          txt = checks.join(' · ');
+          reason = `共 ${toolCalls} 次调用，${checks.join('，')}，工具质量异常`;
+        } else {
+          lv = 'warn';
+          txt = checks.join(' · ');
+          reason = `共 ${toolCalls} 次调用，${checks.join('，')}`;
+        }
         setKpi('tools', 'kpi-tools', 'kpi-tools-sub',
           `${toolCalls} 次`, txt, lv,
           '工具调用如何判断？',
-          '阈值：无重试 良好 / 重试占比 ≤20% 警告 / >20% 严重',
+          '口径：检测重试占比（>20% 严重）、重复调用（同工具+同参数出现≥2次）、连续失败（≥3次严重）。无异常 = 良好；重试≤20% = 警告；重试>20%或连续失败≥3 = 严重',
           reason);
         pushKpiIssue(lv, `工具调用 ${toolCalls} 次 · ${txt}`, reason, [
-          '查看「执行分析」中重试次数最多的工具 span',
+          '查看「执行分析」中重试/重复次数最多的工具 span',
           lv === 'bad' ? '联系该工具负责人核实稳定性，必要时回滚' : '确认入参与依赖服务，必要时增加最大重试限制',
         ]);
       }

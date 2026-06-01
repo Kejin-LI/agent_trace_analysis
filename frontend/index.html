@@ -210,7 +210,7 @@
   <div class="glass-strong border-b border-black/5">
     <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
       <div class="flex items-center gap-6">
-        <a href="./index.html" class="flex items-center gap-2">
+        <a href="/" class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -219,15 +219,15 @@
           <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
         </a>
         <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
-          <a href="./index.html" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">大盘</a>
-          <a href="./sessions.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">明细</a>
-          <a href="./clusters.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">异常</a>
+          <a href="/" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">大盘</a>
+          <a href="/sessions" class="px-3 py-1.5 rounded-md hover:bg-black/5">明细</a>
+          <a href="/clusters" class="px-3 py-1.5 rounded-md hover:bg-black/5">异常</a>
         </nav>
       </div>
       <div class="flex items-center gap-3 relative">
         <!-- 全局日期筛选器（共享组件 range-picker.js） -->
         <div id="global-range" class="relative"></div>
-        <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+        <a href="/docs" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
         <div class="px-3 h-8 rounded-lg bg-black/5 flex items-center gap-2 text-[13px]">
           <span class="badge-dot bg-[--apple-green]"></span>
           <span>agentic-rl-prod</span>
@@ -447,7 +447,7 @@
         <p class="text-[12px] text-[--text-secondary] mt-0.5">按健康度倒序优先排查 · 异常标签与 Session 列表口径一致</p>
       </div>
       <div class="flex items-center gap-2">
-        <a href="./sessions.html" class="text-[12px] text-[--apple-blue] hover:underline ml-1">查看全部 →</a>
+        <a href="/sessions" class="text-[12px] text-[--apple-blue] hover:underline ml-1">查看全部 →</a>
       </div>
     </div>
 
@@ -500,7 +500,7 @@
     </div>
     <div class="flex items-center justify-between px-6 py-3 border-t border-black/5 text-[12px] text-[--text-secondary]">
       <span id="risk-pg-info">—</span>
-      <a href="./sessions.html" class="text-[--apple-blue] hover:underline">前往 Session 列表 →</a>
+      <a href="/sessions" class="text-[--apple-blue] hover:underline">前往 Session 列表 →</a>
     </div>
   </section>
 
@@ -784,11 +784,11 @@
           </div>`;
       }
 
-      return `<tr class="hover:bg-white/40 cursor-pointer transition-colors" data-href="./session-detail.html?id=${encodeURIComponent(s.id)}">
+      return `<tr class="hover:bg-white/40 cursor-pointer transition-colors" data-href="/session-detail?id=${encodeURIComponent(s.id)}">
         <td class="px-5 py-3.5"><div class="w-7 h-7 rounded-full bg-[--apple-${color}]/15 flex items-center justify-center text-[10.5px] font-bold text-[--apple-${color}]">${score}</div></td>
         <td class="py-3.5">
           <div class="min-w-0">
-            <a href="./session-detail.html?id=${encodeURIComponent(s.id)}" class="text-[13px] font-medium hover:text-[--apple-blue] truncate block">${titleEsc}</a>
+            <a href="/session-detail?id=${encodeURIComponent(s.id)}" class="text-[13px] font-medium hover:text-[--apple-blue] truncate block">${titleEsc}</a>
             <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5 truncate">${escapeHtml(s.id)} · ${escapeHtml(s.user || 'anonymous')} · ${s.trace_count || 1} traces</div>
           </div>
         </td>
@@ -798,7 +798,7 @@
         <td class="py-3.5 text-right num-mono ${turnsClass}">${turnsN}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
-          <a href="./session-detail.html?id=${encodeURIComponent(s.id)}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">
+          <a href="/session-detail?id=${encodeURIComponent(s.id)}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">
             查看 <svg class="w-3 h-3 opacity-60 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
           </a>
         </td>

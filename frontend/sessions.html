@@ -191,7 +191,7 @@
   <div class="glass-strong border-b border-black/5">
     <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
       <div class="flex items-center gap-6">
-        <a href="./index.html" class="flex items-center gap-2">
+        <a href="/" class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -200,15 +200,15 @@
           <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
         </a>
         <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
-          <a href="./index.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
-          <a href="./sessions.html" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">明细</a>
-          <a href="./clusters.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">异常</a>
+          <a href="/" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
+          <a href="/sessions" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">明细</a>
+          <a href="/clusters" class="px-3 py-1.5 rounded-md hover:bg-black/5">异常</a>
         </nav>
       </div>
       <div class="flex items-center gap-3 relative">
         <!-- 全局日期筛选器（共享组件 range-picker.js） -->
         <div id="global-range" class="relative"></div>
-        <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+        <a href="/docs" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
         <div class="flex items-center gap-1.5 text-[12px] bg-black/5 rounded-lg px-2.5 h-8">
           <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
           agentic-rl-prod
@@ -483,7 +483,7 @@
           <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5">${s.id} · ${s.turns || 0} turns · ${s.trace_count || 1} traces</div>
         </div>`;
 
-      return `<tr class="row-hover cursor-pointer" data-href="./session-detail.html?id=${encodeURIComponent(s.id)}">
+      return `<tr class="row-hover cursor-pointer" data-href="/session-detail?id=${encodeURIComponent(s.id)}">
         <td class="px-5 py-3.5">${titleCellHtml}</td>
         <td class="py-3.5">
           <div class="flex items-center gap-2 min-w-0">
