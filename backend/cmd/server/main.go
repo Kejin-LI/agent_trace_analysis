@@ -9,6 +9,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var pageMap = map[string]string{
+	"/":              "index.html",
+	"/sessions":      "sessions.html",
+	"/session-detail":"session-detail.html",
+	"/clusters":      "clusters.html",
+	"/docs":          "docs.html",
+}
+
 func main() {
 	r := gin.Default()
 
@@ -26,7 +34,12 @@ func main() {
 
 	r.NoRoute(func(c *gin.Context) {
 		requestPath := c.Request.URL.Path
-		filePath := filepath.Join("./frontend", requestPath)
+		var filePath string
+		if mapped, ok := pageMap[requestPath]; ok {
+			filePath = filepath.Join("./frontend", mapped)
+		} else {
+			filePath = filepath.Join("./frontend", requestPath)
+		}
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			c.File(filePath)
 			return
