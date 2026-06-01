@@ -23,4 +23,7 @@ cd ..
 cp -r backend/bin output/
 chmod +x output/bin/bootstrap.sh
 
+# 拷贝前端文件到产物目录（TCE 部署后 Gin 静态文件托管需要）
+cp -r frontend output/
+
 echo "Build success. Output is in output/bin/"
