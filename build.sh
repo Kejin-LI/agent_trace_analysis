@@ -15,10 +15,12 @@ echo "Building agentic_trace_server (static binary, CGO disabled)..."
 mkdir -p output/bin
 
 # 编译为静态二进制 (-ldflags '-s -w' 减小体积)
-go build -ldflags '-s -w -extldflags "-static"' -o output/bin/server ./cmd/server/
+cd backend
+go build -ldflags '-s -w -extldflags "-static"' -o ../output/bin/server ./cmd/server/
+cd ..
 
 # 拷贝启动脚本到产物目录
-cp -r bin output/
+cp -r backend/bin output/
 chmod +x output/bin/bootstrap.sh
 
 echo "Build success. Output is in output/bin/"
