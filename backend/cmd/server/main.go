@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,13 +24,13 @@ func main() {
 		})
 	})
 
-	r.Static("/static", "./frontend/static")
-	r.StaticFile("/", "./frontend/index.html")
-	r.StaticFile("/sessions", "./frontend/sessions.html")
-	r.StaticFile("/session-detail", "./frontend/session-detail.html")
-	r.StaticFile("/clusters", "./frontend/clusters.html")
-	r.StaticFile("/docs", "./frontend/docs.html")
 	r.NoRoute(func(c *gin.Context) {
+		requestPath := c.Request.URL.Path
+		filePath := filepath.Join("./frontend", requestPath)
+		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+			c.File(filePath)
+			return
+		}
 		c.File("./frontend/index.html")
 	})
 
