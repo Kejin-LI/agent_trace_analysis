@@ -385,7 +385,7 @@
 
       <div class="callout callout-orange">
         <div class="callout-title">⚠️ 容易混淆</div>
-        <strong>"异常"不是 AI 自动聚类</strong>，而是按 <code>failed_label</code>（如「执行步数过多」「上下文超限」）做的简单归堆。它解决的不是"找新问题"，而是"已知问题谁在中招"。
+        <strong>"异常"不是 AI 自动聚类</strong>，而是按 <code>failed_label</code>（如「轨迹异常」「上下文超限」）做的简单归堆。它解决的不是"找新问题"，而是"已知问题谁在中招"。
       </div>
 
       <h3 id="ch1-3">1.3 你该先读哪一节</h3>
@@ -415,7 +415,7 @@
         <tbody>
           <tr><td><strong class="key-num">Session（会话）</strong></td><td>用户和 Agent 的<strong>一次完整对话</strong></td><td>一次 trace · 含一个根 span</td></tr>
           <tr><td><strong class="key-orange">Turn（对话轮次）</strong></td><td>用户问一句、Agent 答一句，算<strong>一轮</strong></td><td>同一个 session 下的一组 user→assistant 消息对</td></tr>
-          <tr><td><strong class="key-purple">Step（执行步数）</strong></td><td>Agent 内心活动一次：<strong>想 + 调工具</strong> 算一步</td><td>一次 LLM call 加它紧随的 tool calls</td></tr>
+          <tr><td><strong class="key-purple">Step（执行步数）</strong></td><td>Agent 内心活动一次：<strong>想 + 调工具</strong> 算一步（描述性指标，不评判好坏）</td><td>一次 LLM call 加它紧随的 tool calls</td></tr>
           <tr><td><strong>Span（步骤埋点）</strong></td><td>步骤里的<strong>每一个具体动作</strong></td><td>OpenTelemetry 链路上的最小单元</td></tr>
         </tbody>
       </table>
@@ -438,7 +438,7 @@
         <tbody>
           <tr><td><span class="dim dim-response">响应</span></td><td>用户等了多久</td><td>Agent <strong>慢</strong>，用户感知差</td><td>端到端耗时 ≤ 60s 满分</td></tr>
           <tr><td><span class="dim dim-stability">稳定</span></td><td>调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出</td></tr>
-          <tr><td><span class="dim dim-thinking">思考</span></td><td>步数合不合理</td><td>Agent <strong>想得太少或太多</strong></td><td>执行步数（黄金区 3-9 步）</td></tr>
+          <tr><td><span class="dim dim-thinking">思考</span></td><td>轨迹是否健康走完</td><td>Agent <strong>轨迹异常</strong>（无答复/截断/空转）</td><td>最终答复 + 截断检测 + 空转检测</td></tr>
           <tr><td><span class="dim dim-resource">资源</span></td><td>Token 用得省不省</td><td>Agent <strong>烧得多但产出少</strong></td><td>单轮 Token ≤ 76k 满分</td></tr>
           <tr><td><span class="dim dim-orch">编排</span></td><td>调度模式合不合理</td><td>Agent <strong>来回踩同一个坑</strong>（过程导向）</td><td>连续重试次数、工具多样性</td></tr>
         </tbody>
@@ -620,10 +620,9 @@
       <table class="doc-table">
         <thead><tr><th style="width:18%">指标</th><th style="width:24%">含义</th><th style="width:30%">口径</th><th>判定</th></tr></thead>
         <tbody>
-          <tr><td>执行步数</td><td>Agent 一次会话的思考循环数</td><td class="col-formula">trace_count<br>（兜底用 turns）</td><td>—</td></tr>
-          <tr><td>步数合理 黄金区</td><td>3-9 步</td><td class="col-formula">3 ≤ steps ≤ 9</td><td><span class="band-chip band-green">合理</span></td></tr>
-          <tr><td>执行步数过多</td><td>步数 &gt; 9，疑似进入循环</td><td class="col-formula">steps &gt; 9</td><td><span class="band-chip band-red">异常</span></td></tr>
-          <tr><td>执行步数过少</td><td>步数 &lt; 3，疑似过早结束</td><td class="col-formula">steps &lt; 3</td><td><span class="band-chip band-red">异常</span></td></tr>
+          <tr><td>执行效率</td><td>轨迹级健康度（是否走完、有无空转）</td><td class="col-formula">has_final_answer &amp;&amp; !truncated &amp;&amp; no_op_streak&lt;3</td><td>—</td></tr>
+          <tr><td>执行效率健康</td><td>轨迹健康</td><td class="col-formula">有最终答复 &amp;&amp; 未截断 &amp;&amp; 无连续空转</td><td><span class="band-chip band-green">健康</span></td></tr>
+          <tr><td>轨迹异常</td><td>无最终答复 / 被 max_steps 截断 / 连续空转≥3</td><td class="col-formula">!has_final_answer || truncated || no_op_streak≥3</td><td><span class="band-chip band-red">异常</span></td></tr>
         </tbody>
       </table>
 
@@ -633,7 +632,7 @@
         <tbody>
           <tr><td><span class="dim dim-response">响应</span></td><td>≤ 60s</td><td class="col-formula">100 × (1 − max(0, duration − 60s) / 60s)</td></tr>
           <tr><td><span class="dim dim-stability">稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
-          <tr><td><span class="dim dim-thinking">思考</span></td><td>6 步</td><td class="col-formula">距黄金区 3-9 越近得分越高</td></tr>
+          <tr><td><span class="dim dim-thinking">思考</span></td><td>100 分</td><td class="col-formula">100 − 无答复35 − 截断25 − 空转(每步10,上限30)</td></tr>
           <tr><td><span class="dim dim-resource">资源</span></td><td>≤ 76k token / 轮</td><td class="col-formula">100 × (1 − max(0, tokens − 76k) / 76k)</td></tr>
           <tr><td><span class="dim dim-orch">编排</span></td><td>低 max_serial_run + 高工具多样性</td><td class="col-formula">惩罚连续相同工具调用 (max_serial_run)<br>奖励 unique_tools / tool_calls</td></tr>
         </tbody>
@@ -643,8 +642,7 @@
       <table class="doc-table">
         <thead><tr><th style="width:24%">failed_label</th><th>触发条件</th><th>归属维度</th></tr></thead>
         <tbody>
-          <tr><td><strong>执行步数过多</strong></td><td>steps &gt; 9</td><td><span class="dim dim-thinking">思考</span></td></tr>
-          <tr><td><strong>执行步数过少</strong></td><td>steps &lt; 3</td><td><span class="dim dim-thinking">思考</span></td></tr>
+          <tr><td><strong>轨迹异常</strong></td><td>无答复/截断/空转</td><td><span class="dim dim-thinking">思考</span></td></tr>
           <tr><td><strong>上下文超限</strong></td><td>单次 LLM 调用 token 超出模型上下文窗口</td><td><span class="dim dim-resource">资源</span></td></tr>
           <tr><td><strong>执行失败</strong></td><td>根 span 异常退出 / 任务未完成</td><td><span class="dim dim-stability">稳定</span></td></tr>
           <tr><td><strong>出现死循环</strong></td><td>同一工具连续调用 max_serial_run ≥ 阈值</td><td><span class="dim dim-orch">编排</span></td></tr>
@@ -742,7 +740,7 @@
         <tbody>
           <tr><td>Session</td><td>一次完整对话</td><td>OTel root trace</td></tr>
           <tr><td>Turn</td><td>对话轮次</td><td>一组 user→assistant message 对</td></tr>
-          <tr><td>Step</td><td>执行步数</td><td>1 LLM call + 紧随的 tool calls</td></tr>
+          <tr><td>Step</td><td>执行步数（描述性）</td><td>1 LLM call + 紧随的 tool calls</td></tr>
           <tr><td>Span</td><td>步骤埋点</td><td>OTel span，最小可观测单元</td></tr>
           <tr><td>DAG</td><td>执行流程图</td><td>父子 span 构成的有向无环图</td></tr>
           <tr><td>Critical Path</td><td>关键路径</td><td>DAG 中最长的串行链路</td></tr>

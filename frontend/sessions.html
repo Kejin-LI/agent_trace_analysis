@@ -328,7 +328,7 @@
                   <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
                   <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
                   <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
-                  <div class="tip-row"><span>思考</span><span>执行步数（6 步最优）</span></div>
+                  <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转）</span></div>
                   <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
                   <div class="tip-row"><span>编排</span><span>调度模式（连续重试 / 工具多样性）</span></div>
                   <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
@@ -398,17 +398,21 @@
     }
     function buildAnomalies(s) {
       const rulesRaw = s.rules || [];
-      // 用前端真实"思考循环次数"（trace_count）重新校准"执行步数合理"规则
       const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
+      const hasFinalAnswer = s.has_final_answer !== false;
+      const truncatedByMax = s.terminated_by === 'max_steps_limit';
+      const noOpStreak = s.no_op_streak || 0;
       const rules = rulesRaw.map(r => {
         if (!r) return r;
-        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
-          if (turnsN >= 3 && turnsN <= 9) {
-            return Object.assign({}, r, { name: '执行步数合理', passed: true, detail: turnsN + ' 步（处于 3-9 黄金区）' });
-          } else if (turnsN > 9) {
-            return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: turnsN + ' 步（建议 3-9）' });
+        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少' || r.failed_label === '轨迹异常') {
+          const checks = [];
+          if (!hasFinalAnswer) checks.push('未产出最终答复');
+          if (truncatedByMax) checks.push('触达 max_steps 截断');
+          if (noOpStreak >= 3) checks.push('连续 ' + noOpStreak + ' 步空转');
+          if (checks.length === 0) {
+            return Object.assign({}, r, { name: '执行效率健康', passed: true, detail: turnsN + ' 步，轨迹健康（已答复 / 无截断 / 无空转）' });
           } else {
-            return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: turnsN + ' 步（建议 3-9）' });
+            return Object.assign({}, r, { name: '执行效率健康', passed: false, failed_label: '轨迹异常', detail: turnsN + ' 步 · ' + checks.join('、') });
           }
         }
         return r;
