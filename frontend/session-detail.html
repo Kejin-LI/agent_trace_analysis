@@ -730,7 +730,7 @@
               <div class="mt-1.5"><span class="kpi-badge" id="kpi-duration-sub">--</span></div>
             </div>
             <div class="kpi-cell cursor-help" data-kpi="turns" style="position:relative">
-              <div class="text-[10.5px] text-[--text-tertiary] mb-1">执行步数</div>
+              <div class="text-[10.5px] text-[--text-tertiary] mb-1">执行效率</div>
               <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-turns">--</div>
               <div class="mt-1.5"><span class="kpi-badge" id="kpi-turns-sub">--</span></div>
             </div>
@@ -2105,7 +2105,7 @@
         iconEl.innerHTML = statusTheme.iconPath;
       }
       
-      //       // 基于前端真实轨迹信号重新校准 rules（执行效率：轨迹级健康度）
+      // 基于前端真实轨迹信号重新校准 rules（执行效率：轨迹级健康度）
       const rulesRaw = (s._real && s._real.rules) || s.rules || [];
       const rulesAdjusted = rulesRaw.map(r => {
         if (!r) return r;
@@ -2330,7 +2330,7 @@
         ]);
       }
 
-      //       // 执行效率（轨迹级健康度：检测轨迹是否走完、有无空转/截断/无答复）
+      // 执行效率（轨迹级健康度：检测轨迹是否走完、有无空转/截断/无答复）
       {
         const checks = [];
         if (!hasFinalAnswer) checks.push('未产出最终答复');
@@ -2363,7 +2363,7 @@
             : ['抽查空转步骤的推理内容', '调整提示词减少无效思考']);
       }
 
-      //       // 工具调用（工具级质量：重试 + 重复调用 + 连续失败）
+      // 工具调用（工具级质量：重试 + 重复调用 + 连续失败）
       const toolCalls = f.tool_calls || 0;
       const toolRetries = f.tool_retries || 0;
       {

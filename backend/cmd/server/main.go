@@ -17,7 +17,20 @@ var pageMap = map[string]string{
 	"/docs":          "docs.html",
 }
 
+func findFrontendDir() string {
+	candidates := []string{"./frontend", "../frontend"}
+	for _, dir := range candidates {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	return "./frontend"
+}
+
+var frontendDir string
+
 func main() {
+	frontendDir = findFrontendDir()
 	r := gin.Default()
 
 	r.GET("/healthz", func(c *gin.Context) {
@@ -36,15 +49,15 @@ func main() {
 		requestPath := c.Request.URL.Path
 		var filePath string
 		if mapped, ok := pageMap[requestPath]; ok {
-			filePath = filepath.Join("./frontend", mapped)
+			filePath = filepath.Join(frontendDir, mapped)
 		} else {
-			filePath = filepath.Join("./frontend", requestPath)
+			filePath = filepath.Join(frontendDir, requestPath)
 		}
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			c.File(filePath)
 			return
 		}
-		c.File("./frontend/index.html")
+		c.File(filepath.Join(frontendDir, "index.html"))
 	})
 
 	port := os.Getenv("TCE_PRIMARY_PORT")

@@ -312,8 +312,8 @@
           <div class="text-[--text-secondary]">思考</div>
           <div class="font-semibold num-mono" id="dim-thinking">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>思考：执行步数是否合理</div>
-            执行步数 (Step) 黄金区为 3–9 步。过少 = 想得不够；过多 = 兜圈子。
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>思考：轨迹是否健康走完</div>
+            检测轨迹是否产出最终答复、是否被 max_steps 截断、是否存在连续空转。无答复/截断 = 严重；空转 = 警告。
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
@@ -485,7 +485,7 @@
               <span class="help">步数
                 <div class="tip">
                   <div class="tip-title">⚡ Step（执行步数）</div>
-                  1 Step = 1 LLMCall。黄金区为 3–9 步，过少说明想得不够，过多说明在兜圈子。
+                  1 Step = 1 LLMCall。步数本身不评判好坏，仅作为描述性指标展示。
                 </div>
               </span>
             </th>
@@ -653,19 +653,24 @@
       if (score >= 50) return 'purple';
       return 'red';
     }
-    // 与 sessions.html buildAnomalies 一致：用 trace_count（思考循环次数）动态校准"执行步数合理"
+    // 与 sessions.html buildAnomalies 一致：用轨迹健康信号动态校准"执行效率健康"
     function buildAnomalies(s) {
       const rulesRaw = s.rules || [];
       const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
+      const hasFinalAnswer = s.has_final_answer !== false;
+      const truncatedByMax = s.terminated_by === 'max_steps_limit';
+      const noOpStreak = s.no_op_streak || 0;
       const rules = rulesRaw.map(r => {
         if (!r) return r;
-        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
-          if (turnsN >= 3 && turnsN <= 9) {
-            return Object.assign({}, r, { name: '执行步数合理', passed: true, detail: turnsN + ' 步（处于 3-9 黄金区）' });
-          } else if (turnsN > 9) {
-            return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: turnsN + ' 步（建议 3-9）' });
+        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少' || r.failed_label === '轨迹异常') {
+          const checks = [];
+          if (!hasFinalAnswer) checks.push('未产出最终答复');
+          if (truncatedByMax) checks.push('触达 max_steps 截断');
+          if (noOpStreak >= 3) checks.push('连续 ' + noOpStreak + ' 步空转');
+          if (checks.length === 0) {
+            return Object.assign({}, r, { name: '执行效率健康', passed: true, detail: turnsN + ' 步，轨迹健康（已答复 / 无截断 / 无空转）' });
           } else {
-            return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: turnsN + ' 步（建议 3-9）' });
+            return Object.assign({}, r, { name: '执行效率健康', passed: false, failed_label: '轨迹异常', detail: turnsN + ' 步 · ' + checks.join('、') });
           }
         }
         return r;

@@ -245,7 +245,7 @@
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
  * 数据源：./data/sessions.json（与大盘 / 明细共用）
- * 口径：复用 sessions.html 的 buildAnomalies（含执行步数 3-9 黄金区动态校准）
+ * 口径：复用 sessions.html 的 buildAnomalies（含执行效率轨迹健康校准）
  * 每张卡 = 一类 failed_label，hits = 命中该 label 的 session 数
  */
 
@@ -260,21 +260,27 @@ function scoreBand(score) {
   return 'red';
 }
 
-/* 异常解析 · 复用明细页口径（含执行步数动态校准） */
+/* 异常解析 · 复用明细页口径（含执行效率轨迹健康校准） */
 function buildAnomalies(s) {
   const rulesRaw = s.rules || [];
   const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
   const rules = rulesRaw.map(r => {
     if (!r) return r;
-    if (r.name === '轮数合理' || r.name === '执行步数合理'
+    if (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康'
         || r.failed_label === '轮数过多' || r.failed_label === '轮数过少'
-        || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少') {
-      if (turnsN >= 3 && turnsN <= 9) {
-        return Object.assign({}, r, { name: '执行步数合理', passed: true, detail: turnsN + ' 步（处于 3-9 黄金区）' });
-      } else if (turnsN > 9) {
-        return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过多', detail: turnsN + ' 步（建议 3-9）' });
+        || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少'
+        || r.failed_label === '轨迹异常') {
+      var hasFinalAnswer = s.has_final_answer !== false;
+      var truncatedByMax = s.terminated_by === 'max_steps_limit';
+      var noOpStreak = s.no_op_streak || 0;
+      var checks = [];
+      if (!hasFinalAnswer) checks.push('未产出最终答复');
+      if (truncatedByMax) checks.push('触达 max_steps 截断');
+      if (noOpStreak >= 3) checks.push('连续 ' + noOpStreak + ' 步空转');
+      if (checks.length === 0) {
+        return Object.assign({}, r, { name: '执行效率健康', passed: true, detail: turnsN + ' 步，轨迹健康（已答复 / 无截断 / 无空转）' });
       } else {
-        return Object.assign({}, r, { name: '执行步数合理', passed: false, failed_label: '执行步数过少', detail: turnsN + ' 步（建议 3-9）' });
+        return Object.assign({}, r, { name: '执行效率健康', passed: false, failed_label: '轨迹异常', detail: turnsN + ' 步 · ' + checks.join('、') });
       }
     }
     return r;
