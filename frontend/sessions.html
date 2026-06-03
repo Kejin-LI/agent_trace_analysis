@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Agent Trace 诊断平台 · Session</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="./efficiency-helper.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -182,9 +183,135 @@
   }
   .filter-search .clear-btn:hover { background: rgba(0,0,0,0.08); color: var(--text-primary); }
   .filter-search.has-value .clear-btn { display: inline-flex; }
+  body.app-loading {
+    overflow: hidden;
+  }
+  body.app-loading > :not(#global-loader) {
+    filter: blur(18px) saturate(0.92);
+    transform: scale(1.01);
+    pointer-events: none;
+    user-select: none;
+  }
+  body > :not(#global-loader) {
+    transition: filter .45s ease, transform .45s ease, opacity .45s ease;
+  }
+  #global-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(900px 480px at 12% 8%, rgba(0,113,227,0.16), transparent 60%),
+      radial-gradient(720px 420px at 88% 18%, rgba(191,90,242,0.14), transparent 60%),
+      radial-gradient(680px 420px at 50% 92%, rgba(255,159,10,0.10), transparent 60%),
+      rgba(245, 245, 247, 0.42);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .35s ease, visibility .35s ease;
+  }
+  #global-loader.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .loader-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .loader-orbit {
+    position: relative;
+    width: 108px;
+    height: 108px;
+    margin: 0 auto 22px;
+  }
+  .loader-ring,
+  .loader-core,
+  .loader-dot {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+  }
+  .loader-ring {
+    border: 1px solid rgba(0,113,227,0.16);
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.40), rgba(255,255,255,0.04));
+    box-shadow: 0 10px 30px rgba(0,113,227,0.08) inset;
+    animation: loaderPulse 2.1s ease-in-out infinite;
+  }
+  .loader-core {
+    inset: 22px;
+    background: linear-gradient(135deg, rgba(0,113,227,0.92), rgba(191,90,242,0.88));
+    box-shadow:
+      0 12px 28px rgba(0,113,227,0.26),
+      0 0 0 8px rgba(255,255,255,0.36);
+  }
+  .loader-dot {
+    width: 14px;
+    height: 14px;
+    margin: auto;
+    background: linear-gradient(135deg, #64D2FF, #BF5AF2);
+    box-shadow: 0 6px 14px rgba(100,210,255,0.32);
+    transform-origin: 54px 54px;
+    animation: loaderSpin 1.35s linear infinite;
+  }
+  .loader-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(255,255,255,0.72);
+    transform: scale(0.46);
+  }
+  .loader-shimmer {
+    width: 160px;
+    height: 6px;
+    margin: 18px auto 0;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .loader-shimmer::after {
+    content: "";
+    display: block;
+    width: 46%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(0,113,227,0), rgba(0,113,227,0.78), rgba(191,90,242,0));
+    animation: loaderSweep 1.2s ease-in-out infinite;
+  }
+  @keyframes loaderSpin {
+    from { transform: rotate(0deg) translateY(-47px); }
+    to { transform: rotate(360deg) translateY(-47px); }
+  }
+  @keyframes loaderPulse {
+    0%, 100% { transform: scale(0.98); opacity: 0.92; }
+    50% { transform: scale(1.03); opacity: 1; }
+  }
+  @keyframes loaderSweep {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(300%); }
+  }
 </style>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen app-loading">
+
+<div id="global-loader" aria-live="polite" aria-busy="true">
+  <div class="loader-wrap">
+    <div class="loader-orbit" aria-hidden="true">
+      <div class="loader-ring"></div>
+      <div class="loader-core"></div>
+      <div class="loader-dot"></div>
+    </div>
+    <div class="text-[22px] font-semibold tracking-tight text-[--text-primary]">马上就好，别眨眼</div>
+    <div class="loader-shimmer"></div>
+  </div>
+</div>
 
 <!-- ===== Top Nav ===== -->
 <header class="sticky top-0 z-40">
@@ -326,7 +453,7 @@
                 <span class="tip" style="width:320px">
                   <span class="tip-title">健康度评分如何计算</span>
                   <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
-                  <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
+                  <div class="tip-row"><span>效率</span><span>耗时体感 + 结构效率</span></div>
                   <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
                   <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转）</span></div>
                   <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
@@ -359,6 +486,7 @@
 
 </main>
 
+<script src="./db-api.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
   (async function () {
@@ -374,6 +502,13 @@
     const pgInfo = document.getElementById('pagination-info');
     const pgPages = document.getElementById('pagination-pages');
     if (!tbody) return;
+    const loaderEl = document.getElementById('global-loader');
+    function hideGlobalLoader() {
+      document.body.classList.remove('app-loading');
+      if (!loaderEl) return;
+      loaderEl.classList.add('is-hidden');
+      window.setTimeout(() => loaderEl.remove(), 380);
+    }
 
     // ----- 工具 -----
     function fmtDuration(ms) {
@@ -419,7 +554,7 @@
       });
       const failed = rules.filter(r => r && r.passed === false);
       if (!failed.length) return null;
-      const score = s.score ?? 0;
+      const score = window.AgentTraceEfficiency.adjustedScore(s);
       const color = scoreBand(score);
       return {
         color,
@@ -461,7 +596,7 @@
 
     // ----- 渲染单行 -----
     function renderRow(s) {
-      const score = s.score ?? 80;
+      const score = window.AgentTraceEfficiency.adjustedScore(s);
       const scoreColor = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
       const userInitial = (s.user || 'A').charAt(0).toUpperCase();
@@ -526,7 +661,7 @@
         const ano = buildAnomalies(s);
         // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
         // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
-        const isHealthy = (s.score ?? 0) >= 85;
+        const isHealthy = window.AgentTraceEfficiency.adjustedScore(s) >= 85;
         // 状态分段
         if (f.status === 'anomaly' && isHealthy) return false;
         if (f.status === 'healthy' && !isHealthy) return false;
@@ -537,7 +672,7 @@
         }
         // 健康度档位
         if (f.score !== 'all') {
-          const sc = s.score ?? 0;
+          const sc = window.AgentTraceEfficiency.adjustedScore(s);
           if (scoreBand(sc) !== f.score) return false;
         }
         // 关键字模糊搜索：session_id（含完整 id 精确命中）/ 标题 / 用户
@@ -690,7 +825,7 @@
         }
 
         total++;
-        if ((s.score ?? 0) >= 85) healthy++; else anomaly++;
+        if (window.AgentTraceEfficiency.adjustedScore(s) >= 85) healthy++; else anomaly++;
       });
       statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();
       statusSeg.querySelector('[data-count="anomaly"]').textContent = anomaly.toLocaleString();
@@ -799,8 +934,7 @@
 
     // ----- 加载 -----
     try {
-      const r = await fetch('./data/sessions.json', { cache: 'no-store' });
-      const d = await r.json();
+      const d = await window.AgentTraceDB.loadSessions();
       state.all = d.sessions || [];
       if (!state.all.length) {
         tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">暂无数据</td></tr>`;
@@ -825,15 +959,14 @@
         }
       });
       const gl = document.getElementById('global-loader');
-      if (gl) gl.remove();
+      if (gl) hideGlobalLoader();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--apple-red]">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
       const gl = document.getElementById('global-loader');
-      if (gl) gl.remove();
+      if (gl) hideGlobalLoader();
     }
   })();
 </script>
-
 <!-- 共享日期筛选器组件 -->
 <script src="./range-picker.js"></script>
 

@@ -1,0 +1,59 @@
+syntax="proto3";
+package ttlogagent_gosdk;
+
+message MsgV3Batch {
+    BatchHeader batchHeader=1;
+    repeated MsgV3 msgs=2;
+}
+
+message TraceLogBatch {
+    BatchHeader batchHeader=1;
+    repeated TraceLog traceLogs=2;
+}
+
+message BatchHeader {
+    string taskName=1;
+    string language=2;
+    string cluster=3;
+    string psm=4;
+    string podName=5;
+    string stage=6;
+    bytes host=7;
+    string idc=8;
+}
+
+message MsgV3 {
+    MsgV3Header header=1;
+    repeated KeyValueV3 tags=2;
+    bytes data=3;
+}
+
+message TraceLog {
+    string level=1;
+    string location=2;
+    string logID=3;
+    int64 ts=4;
+    string type=5;
+    uint64 spanID=6;
+    uint64 parentSpanID=7;
+    int64 costInUs=8;
+    string localMethod=9;
+    string remoteMethod=10;
+    string remoteCluster=11;
+    string remoteService=12;
+    bytes remoteAddress=13;
+    int32 statusCode=14;
+    repeated KeyValueV3 tags=15;
+}
+
+message MsgV3Header {
+    string level=1;
+    string location=2;
+    string logID=3;
+    int64 ts=4;
+    uint64 spanID=5;
+}
+message KeyValueV3 {
+    string key=1;
+    string value=2;
+}

@@ -602,13 +602,131 @@
     z-index: 40; display: flex; flex-direction: column;
   }
   #span-drawer.open { transform: translateX(0); }
+  body.app-loading > :not(#global-loader) {
+    filter: blur(18px) saturate(0.92);
+    transform: scale(1.01);
+    pointer-events: none;
+    user-select: none;
+  }
+  body > :not(#global-loader) {
+    transition: filter .45s ease, transform .45s ease, opacity .45s ease;
+  }
+  #global-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(900px 480px at 12% 8%, rgba(0,113,227,0.16), transparent 60%),
+      radial-gradient(720px 420px at 88% 18%, rgba(191,90,242,0.14), transparent 60%),
+      radial-gradient(680px 420px at 50% 92%, rgba(255,159,10,0.10), transparent 60%),
+      rgba(245, 245, 247, 0.42);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .35s ease, visibility .35s ease;
+  }
+  #global-loader.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .loader-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .loader-orbit {
+    position: relative;
+    width: 108px;
+    height: 108px;
+    margin: 0 auto 22px;
+  }
+  .loader-ring,
+  .loader-core,
+  .loader-dot {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+  }
+  .loader-ring {
+    border: 1px solid rgba(0,113,227,0.16);
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.40), rgba(255,255,255,0.04));
+    box-shadow: 0 10px 30px rgba(0,113,227,0.08) inset;
+    animation: loaderPulse 2.1s ease-in-out infinite;
+  }
+  .loader-core {
+    inset: 22px;
+    background: linear-gradient(135deg, rgba(0,113,227,0.92), rgba(191,90,242,0.88));
+    box-shadow:
+      0 12px 28px rgba(0,113,227,0.26),
+      0 0 0 8px rgba(255,255,255,0.36);
+  }
+  .loader-dot {
+    width: 14px;
+    height: 14px;
+    margin: auto;
+    background: linear-gradient(135deg, #64D2FF, #BF5AF2);
+    box-shadow: 0 6px 14px rgba(100,210,255,0.32);
+    transform-origin: 54px 54px;
+    animation: loaderSpin 1.35s linear infinite;
+  }
+  .loader-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(255,255,255,0.72);
+    transform: scale(0.46);
+  }
+  .loader-shimmer {
+    width: 160px;
+    height: 6px;
+    margin: 18px auto 0;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .loader-shimmer::after {
+    content: "";
+    display: block;
+    width: 46%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(0,113,227,0), rgba(0,113,227,0.78), rgba(191,90,242,0));
+    animation: loaderSweep 1.2s ease-in-out infinite;
+  }
+  @keyframes loaderSpin {
+    from { transform: rotate(0deg) translateY(-47px); }
+    to { transform: rotate(360deg) translateY(-47px); }
+  }
+  @keyframes loaderPulse {
+    0%, 100% { transform: scale(0.98); opacity: 0.92; }
+    50% { transform: scale(1.03); opacity: 1; }
+  }
+  @keyframes loaderSweep {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(300%); }
+  }
 </style>
 </head>
-<body class="h-screen flex flex-col">
+<body class="h-screen flex flex-col app-loading">
 <!-- Global Loader -->
-<div id="global-loader" class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#FAFAFA]">
-  <div class="w-8 h-8 border-4 border-black/10 border-t-[--apple-blue] rounded-full animate-spin"></div>
-  <div class="mt-4 text-[13px] text-[--text-secondary] font-medium">加载中...</div>
+<div id="global-loader" aria-live="polite" aria-busy="true">
+  <div class="loader-wrap">
+    <div class="loader-orbit" aria-hidden="true">
+      <div class="loader-ring"></div>
+      <div class="loader-core"></div>
+      <div class="loader-dot"></div>
+    </div>
+    <div class="text-[22px] font-semibold tracking-tight text-[--text-primary]">马上就好，别眨眼</div>
+    <div class="loader-shimmer"></div>
+  </div>
 </div>
 
 <!-- ===== Top Bar ===== -->
@@ -782,7 +900,7 @@
                   <span class="tip" style="width:320px">
                     <span class="tip-title">健康度评分如何计算</span>
                     <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
-                    <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
+                    <div class="tip-row"><span>效率</span><span>耗时体感 + 结构效率</span></div>
                     <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
                     <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转）</span></div>
                     <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
@@ -1883,10 +2001,19 @@
   })();
 </script>
 
+<script src="./efficiency-helper.js"></script>
+<script src="./db-api.js"></script>
 <script>
   // 根据列表页传入的 ?id= 切换详情页头部展示
   // 数据源优先级：① fetch ./data/sessions.json (真实 fornax 数据) → ② 回退到内置 mock
   (async function () {
+    const loaderEl = document.getElementById('global-loader');
+    function hideGlobalLoader() {
+      document.body.classList.remove('app-loading');
+      if (!loaderEl) return;
+      loaderEl.classList.add('is-hidden');
+      window.setTimeout(() => loaderEl.remove(), 380);
+    }
     const FALLBACK_MOCK = {
       '3cfaea': { title: '帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用', score: 92, color: 'green', chip: '健康', user: 'laipanhao.666', trace: '3cfaea74-fd61-45b5-b67e-98c9b41938ae' },
       'a8f3c2': { title: '专家众测评估模板生成 · database 查询超时', score: 42, color: 'red', chip: 'MCP 重试风暴', user: 'liuyifei', trace: 'a8f3c2b1-6f10-4d2c-9d77-2a14e2c3b71d' },
@@ -1898,16 +2025,9 @@
       'a2c094': { title: '行为死循环 · 路由 Agent 卡顿 (已拦截)', score: 81, color: 'purple', chip: '行为死循环', user: 'huachen', trace: 'a2c09478-22bb-4119-9f23-9a4bd7f1e504' }
     };
 
-    async function loadRealData() {
+    async function loadRealData(sessionId) {
       try {
-        const r = await fetch('./data/sessions.json', { cache: 'no-store' });
-        if (!r.ok) return null;
-        const d = await r.json();
-        const map = {};
-        for (const s of d.sessions || []) {
-          map[s.id] = s;
-        }
-        return map;
+        return await window.AgentTraceDB.loadSession(sessionId);
       } catch (e) {
         return null;
       }
@@ -1915,20 +2035,20 @@
 
     const params = new URLSearchParams(location.search);
     const id = params.get('id');
-    if (!id) return;
+    if (!id) { hideGlobalLoader(); return; }
 
-    const real = await loadRealData();
+    const real = await loadRealData(id);
     let s;
-    if (real && real[id]) {
+    if (real) {
       // 真实数据：将后端字段映射到前端展示字段
-      const r = real[id];
+      const r = real;
       s = {
         title: r.title || ('Session ' + id),
-        score: r.score ?? 80,
+        score: r.score ?? 0,
         color: r.color || 'green',
         chip: r.chip || '健康',
         user: r.user || 'anonymous',
-        trace: r.trace,
+        trace: r.trace || (r.traces && r.traces[0] ? r.traces[0].trace_id : ''),
         // 真实数据扩展
         _real: r
       };
@@ -1954,19 +2074,22 @@
     // 分数圆
     const scoreEl = document.querySelector('header .absolute.inset-1.rounded-full');
     if (scoreEl) {
-      scoreEl.textContent = s.score;
+      const headerScore = (s._real && s._real.radar) ? window.AgentTraceEfficiency.adjustedScore(s._real) : s.score;
+      const headerColor = window.AgentTraceEfficiency.scoreColor(headerScore);
+      scoreEl.textContent = headerScore;
       scoreEl.classList.remove('bg-[--apple-green]', 'bg-[--apple-red]', 'bg-[--apple-orange]', 'bg-[--apple-purple]', 'bg-[--apple-cyan]');
-      scoreEl.classList.add('bg-[--apple-' + s.color + ']');
+      scoreEl.classList.add('bg-[--apple-' + headerColor + ']');
       const ring = scoreEl.previousElementSibling;
       if (ring) {
         ring.classList.remove('bg-[--apple-green]/15', 'bg-[--apple-red]/15', 'bg-[--apple-orange]/15', 'bg-[--apple-purple]/15', 'bg-[--apple-cyan]/15');
-        ring.classList.add('bg-[--apple-' + s.color + ']/15');
+        ring.classList.add('bg-[--apple-' + headerColor + ']/15');
       }
     }
     // 状态 chip
     const chipEl = document.querySelector('header .chip');
     if (chipEl) {
-      chipEl.className = 'chip bg-[--apple-' + s.color + ']/10 text-[--apple-' + s.color + ']';
+      const chipColor = (s._real && s._real.radar) ? window.AgentTraceEfficiency.scoreColor(window.AgentTraceEfficiency.adjustedScore(s._real)) : s.color;
+      chipEl.className = 'chip bg-[--apple-' + chipColor + ']/10 text-[--apple-' + chipColor + ']';
       chipEl.textContent = s.chip;
     }
 
@@ -1981,8 +2104,8 @@
     if (s._real && s._real.radar) {
       const r = s._real.radar;
       const f = s._real.features || {};
-      const colorVar = '--apple-' + s.color;
-      const score = s.score;
+      let colorVar = '--apple-' + s.color;
+      let score = s.score;
       const chip = s.chip;
 
       // 顶部分级文字（健康/注意/亚健康/严重）
@@ -2052,6 +2175,28 @@
         currentChip = turnsN < 3 ? '思考过简' : '慢思考无效';
       }
 
+      // 前端按新口径重算：原 response 维度改为效率（体感分 + 规则效率分），并同步影响综合健康度。
+      const thinkingMetric = window.AgentTraceEfficiency.computeThinkingMetric(s._real);
+      const efficiencyMetric = window.AgentTraceEfficiency.computeEfficiencyMetric(s._real);
+      const stabilityMetric = window.AgentTraceEfficiency.computeStabilityMetric(s._real);
+      const resourceMetric = window.AgentTraceEfficiency.computeResourceMetric(s._real);
+      const orchestrationMetric = window.AgentTraceEfficiency.computeOrchestrationMetric(s._real);
+      Object.assign(r, window.AgentTraceEfficiency.adjustedRadar(s._real));
+      score = window.AgentTraceEfficiency.adjustedScore(s._real);
+      const scoreColor = window.AgentTraceEfficiency.scoreColor(score);
+      colorVar = '--apple-' + scoreColor;
+      const recalculatedGrade = score >= 85 ? '健康' : score >= 70 ? '注意' : score >= 50 ? '亚健康' : '严重';
+      const recalculatedGradeEl = document.getElementById('health-grade');
+      if (recalculatedGradeEl) {
+        recalculatedGradeEl.textContent = recalculatedGrade;
+        recalculatedGradeEl.style.color = 'var(' + colorVar + ')';
+      }
+      const recalculatedScoreEl = document.getElementById('health-score');
+      if (recalculatedScoreEl) {
+        recalculatedScoreEl.style.color = 'var(' + colorVar + ')';
+        recalculatedScoreEl.textContent = score;
+      }
+
       const summaryByChip = {
         '健康': '5 个维度均处于正常区间，本次会话整体表现良好。',
         'trace 失败': '本次任务执行失败（调用未完成），请优先排查失败原因。',
@@ -2064,7 +2209,7 @@
         '过度思考': `Agent 执行了 ${turnsN} 步，可能存在路径冗余，建议优化提示词或加强终止判断。`,
         '思考过简': `Agent 仅执行 ${turnsN} 步，可能未充分推理就给出答案，建议复核结果质量。`,
         '慢思考无效': '执行步数符合预期但效果一般，建议接入 AI 评委评估每一步的有效性。',
-        '长上下文超限': `每轮平均消耗 ${avgK}k Token（阈值 76k），上下文过载会拖慢响应并增加成本，建议清理历史或分段处理。`,
+        '长上下文超限': `每轮平均消耗 ${avgK}k Token（阈值 76k），上下文过载会拖慢效率并增加成本，建议清理历史或分段处理。`,
         '显存 OOM 重跑': '执行过程中出现显存不足导致重跑，建议升级实例或降低并发。',
         '串行瓶颈': '步骤几乎全程串行，建议梳理依赖关系，将无依赖步骤改为并行执行。',
       };
@@ -2073,7 +2218,7 @@
       const statusTitleByChip = {
         '健康': '本次会话整体表现良好',
         'trace 失败': '本次任务执行失败',
-        '关键路径过长': '响应耗时偏长',
+        '关键路径过长': '效率偏低：关键路径过长',
         '排队过久': '等待资源耗时偏长',
         'MCP 重试风暴': '检测到 MCP 工具反复重试',
         'Skill 重试过高': '检测到 Skill 重试率偏高',
@@ -2165,18 +2310,9 @@
         }
       }
 
-      // 思考维度：轨迹健康度（不评判步数多少，只检测轨迹是否走完、有无空转）
-      const thinkingScoreReal = Math.max(0, Math.min(100,
-        100
-        - (hasFinalAnswer ? 0 : 35)
-        - (truncatedByMax ? 25 : 0)
-        - Math.min(noOpStreak * 10, 30)
-      ));
-      r.thinking = thinkingScoreReal;
-
       // 5 维迷你条（带独立 hover 说明，PM 友好）
       const dimList = [
-        { key: 'response',      label: '响应', q: '用户等了多久',          formula: '耗时 ≤ 60s 满分；每超 60s 扣分，最多扣 70；调用失败直接 0' },
+        { key: 'response',      label: '效率', q: '耗时是否花得值',        formula: '效率 = 0.4 × 体感分 + 0.6 × 规则效率分；体感分按工具调用数分桶，规则效率分按重复调用/重复编辑/规划缺失等结构信号扣分' },
         { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
         { key: 'thinking',      label: '思考', q: '轨迹是否健康走完', formula: '100 − 无答复35 − 截断25 − 空转(每步10, 上限30)' },
         { key: 'resource',      label: '资源', q: '单轮 Token 用得多不多',   formula: '单轮平均 ≤ 76k 满分；超出后线性扣分，128k 时扣到 60' },
@@ -2188,16 +2324,18 @@
                             :          { text: '较差', c: '--apple-red' };
       const dimReasonOf = (key, v) => {
         if (v >= 85) return '本维度表现良好';
-        if (key === 'response')      return `耗时 ${durSec}s，超过 60s SLA`;
-        if (key === 'stability')     return `工具失败 ${f.tool_failures || 0} 次（成功率 ${(100 - (f.tool_fail_rate||0)).toFixed(0)}%）`;
+        if (key === 'response') {
+          const hitText = efficiencyMetric.hits.length ? `命中 ${efficiencyMetric.hits.map(h => h.label).join('、')}` : '未命中明显结构低效信号';
+          return `耗时 ${durSec}s，体感分 ${efficiencyMetric.experienceScore}，规则效率分 ${efficiencyMetric.ruleEfficiencyScore}；${hitText}`;
+        }
+        if (key === 'stability')     return `工具失败 ${stabilityMetric.toolFailures} 次（成功率 ${Math.round((1 - stabilityMetric.failRate) * 100)}%）`;
         if (key === 'thinking')      return !hasFinalAnswer ? '未产出最终答复' : truncatedByMax ? '被 max_steps 截断' : noOpStreak >= 3 ? `连续 ${noOpStreak} 步空转` : `${turnsN} 步，轨迹健康`;
-        if (key === 'resource')      return `单轮均值 ${avgK}k Token，超出 76k 阈值`;
+        if (key === 'resource')      return `单轮均值 ${Math.round(resourceMetric.avgTokens / 1000)}k Token，${resourceMetric.avgTokens > 76000 ? '超出 76k 阈值' : '处于健康区间'}`;
         if (key === 'orchestration') {
           const parts = [];
           if (f.has_loop) parts.push('存在死循环');
-          if ((f.max_serial_run || 0) >= 3) parts.push(`同名工具连续 ${f.max_serial_run} 次`);
-          const div = (f.tool_calls || 0) > 0 ? (f.unique_tools / f.tool_calls) : 0;
-          if (f.tool_calls && div < 0.4) parts.push(`仅 ${f.unique_tools}/${f.tool_calls} 种工具`);
+          if (orchestrationMetric.maxSerialRun >= 3) parts.push(`同名工具连续 ${orchestrationMetric.maxSerialRun} 次`);
+          if (orchestrationMetric.toolCalls && orchestrationMetric.diversity < 0.4) parts.push(`仅 ${orchestrationMetric.uniqueTools}/${orchestrationMetric.toolCalls} 种工具`);
           return parts.length ? parts.join('；') : '调度模式有改进空间';
         }
         return '';
@@ -2230,8 +2368,8 @@
       // 维度 → 建议（闭包以便引用 durSec / turnsN / avgK / f）
       const dimActionsOf = {
         response: () => [
-          '打开「执行分析」Tab，定位耗时最长的 span',
-          durSec > 120 ? '排查是否存在排队/冷启动；必要时扩容或预热' : '将耗时 Top 1 的步骤纳入优化清单',
+          '打开「执行分析」Tab，先定位耗时最长的 span，再检查是否命中重复调用/重复编辑/规划缺失',
+          efficiencyMetric.hits.length ? `优先处理：${efficiencyMetric.hits.map(h => h.label).join('、')}` : '若无结构低效信号，则按任务复杂度评估耗时是否可接受',
         ],
         stability: () => [
           '查看失败工具的 span，确认入参与依赖服务',
@@ -2312,21 +2450,20 @@
         issues.push({ severity: lv, tag: '指标', title, reason, actions });
       };
 
-      // 总耗时（独立阈值：≤60s good / ≤120s warn / >120s bad）
+      // 总耗时（按任务复杂度分桶：简单/中等/复杂任务阈值不同）
       {
-        const lv = durSec <= 60 ? 'good' : durSec <= 120 ? 'warn' : 'bad';
-        const txt = durSec <= 60 ? '在 SLA 内' : durSec <= 120 ? `超出 SLA · ${durSec}s` : `严重超时 · ${durSec}s`;
-        const reason = durSec > 60
-          ? `本次共耗时 ${durSec} 秒，已超出 60s SLA ${durSec - 60}s`
-          : `本次共耗时 ${durSec} 秒，在 SLA 范围内`;
+        const taskType = efficiencyMetric.toolCalls < 3 ? '简单任务' : efficiencyMetric.toolCalls < 10 ? '中等任务' : '复杂任务';
+        const lv = durSec <= efficiencyMetric.bucket.full ? 'good' : durSec <= efficiencyMetric.bucket.floor ? 'warn' : 'bad';
+        const txt = lv === 'good' ? `${taskType} · 体感正常` : lv === 'warn' ? `${taskType} · 体感偏慢` : `${taskType} · 严重偏慢`;
+        const reason = `本次共耗时 ${durSec} 秒，工具调用 ${efficiencyMetric.toolCalls} 次，按${taskType}阈值评估：满分阈值 ${efficiencyMetric.bucket.full}s，触底阈值 ${efficiencyMetric.bucket.floor}s，体感分 ${efficiencyMetric.experienceScore}`;
         setKpi('duration', 'kpi-duration', 'kpi-duration-sub',
           fmtDur(durSec), txt, lv,
           '总耗时如何判断？',
-          '阈值：≤60s 良好 / 60–120s 警告 / >120s 严重',
+          '口径：按工具调用数分桶。简单任务 <3 次工具：30s 满分/90s 触底；中等任务 3-9 次：90s 满分/240s 触底；复杂任务 ≥10 次：240s 满分/600s 触底',
           reason);
         pushKpiIssue(lv, `总耗时 ${fmtDur(durSec)} · ${txt}`, reason, [
           '打开「执行分析」Tab，定位耗时 Top 1 的 span',
-          lv === 'bad' ? '排查是否存在排队/冷启动；必要时扩容或预热' : '评估能否将串行步骤改为并行',
+          efficiencyMetric.hits.length ? `同时检查结构低效信号：${efficiencyMetric.hits.map(h => h.label).join('、')}` : '若无结构低效信号，优先评估任务复杂度是否合理',
         ]);
       }
 
@@ -2404,7 +2541,7 @@
         const lv = avgK <= 76 ? 'good' : avgK <= 128 ? 'warn' : 'bad';
         const txt = avgK <= 76 ? `单轮均值 ${avgK}k` : `单轮均值 ${avgK}k · 偏高`;
         const reason = avgK > 76
-          ? `单轮平均 ${avgK}k Token，超出 76k 阈值，上下文偏长会拖慢响应并增加成本`
+          ? `单轮平均 ${avgK}k Token，超出 76k 阈值，上下文偏长会拖慢效率并增加成本`
           : `共 ${fmtTokens(totalTok)} Token，单轮均值 ${avgK}k，处于健康区间`;
         setKpi('tokens', 'kpi-tokens', 'kpi-tokens-sub',
           fmtTokens(totalTok), txt, lv,
@@ -2633,8 +2770,7 @@
     // 文档标题
     document.title = s.title.slice(0, 24) + ' · Session 详情';
     
-    const gl = document.getElementById('global-loader');
-    if (gl) gl.remove();
+    hideGlobalLoader();
   })();
 
   // 工具：安全提取 JSON 字段

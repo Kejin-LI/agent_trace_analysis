@@ -6,13 +6,13 @@
 
 <!-- SEO & Social Media Metadata -->
   <title>Agent Trace 诊断平台</title>
-  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化响应、稳定、思考、资源、编排 5 维健康度。">
+  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化效率、稳定、思考、资源、编排 5 维健康度。">
 
   <!-- Open Graph / Facebook / Feishu -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kejin-li.github.io/agent_trace_analysis/">
   <meta property="og:title" content="Agent Trace 诊断平台">
-  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化响应、稳定、思考、资源、编排 5 维健康度。">
+  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化效率、稳定、思考、资源、编排 5 维健康度。">
   <!-- 飞书和微信等通常抓取 og:image 作为卡片图标或预览图，这里生成一个带渐变背景和图标的占位 SVG 充当 Logo -->
   <meta property="og:image" content="https://api.dicebear.com/7.x/shapes/svg?seed=AgentTrace&backgroundColor=0071E3,BF5AF2">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -201,9 +201,138 @@
   .help.tip-right-anchor:hover .tip { transform: translateX(0) translateY(-4px); }
   .tip-bottom { bottom: auto; top: calc(100% + 6px); }
   .tip-bottom::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: rgba(28,28,30,0.92); }
+
+  body.app-loading {
+    overflow: hidden;
+  }
+  body.app-loading main,
+  body.app-loading header {
+    filter: blur(18px) saturate(0.92);
+    transform: scale(1.01);
+    pointer-events: none;
+    user-select: none;
+  }
+  body header,
+  body main {
+    transition: filter .45s ease, transform .45s ease, opacity .45s ease;
+  }
+  #global-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(900px 480px at 12% 8%, rgba(0,113,227,0.16), transparent 60%),
+      radial-gradient(720px 420px at 88% 18%, rgba(191,90,242,0.14), transparent 60%),
+      radial-gradient(680px 420px at 50% 92%, rgba(255,159,10,0.10), transparent 60%),
+      rgba(245, 245, 247, 0.42);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .35s ease, visibility .35s ease;
+  }
+  #global-loader.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .loader-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .loader-orbit {
+    position: relative;
+    width: 108px;
+    height: 108px;
+    margin: 0 auto 22px;
+  }
+  .loader-ring,
+  .loader-core,
+  .loader-dot {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+  }
+  .loader-ring {
+    border: 1px solid rgba(0,113,227,0.16);
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.40), rgba(255,255,255,0.04));
+    box-shadow: 0 10px 30px rgba(0,113,227,0.08) inset;
+    animation: loaderPulse 2.1s ease-in-out infinite;
+  }
+  .loader-core {
+    inset: 22px;
+    background: linear-gradient(135deg, rgba(0,113,227,0.92), rgba(191,90,242,0.88));
+    box-shadow:
+      0 12px 28px rgba(0,113,227,0.26),
+      0 0 0 8px rgba(255,255,255,0.36);
+  }
+  .loader-dot {
+    width: 14px;
+    height: 14px;
+    margin: auto;
+    background: linear-gradient(135deg, #64D2FF, #BF5AF2);
+    box-shadow: 0 6px 14px rgba(100,210,255,0.32);
+    transform-origin: 54px 54px;
+    animation: loaderSpin 1.35s linear infinite;
+  }
+  .loader-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(255,255,255,0.72);
+    transform: scale(0.46);
+  }
+  .loader-shimmer {
+    width: 160px;
+    height: 6px;
+    margin: 18px auto 0;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .loader-shimmer::after {
+    content: "";
+    display: block;
+    width: 46%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(0,113,227,0), rgba(0,113,227,0.78), rgba(191,90,242,0));
+    animation: loaderSweep 1.2s ease-in-out infinite;
+  }
+  @keyframes loaderSpin {
+    from { transform: rotate(0deg) translateY(-47px); }
+    to { transform: rotate(360deg) translateY(-47px); }
+  }
+  @keyframes loaderPulse {
+    0%, 100% { transform: scale(0.98); opacity: 0.92; }
+    50% { transform: scale(1.03); opacity: 1; }
+  }
+  @keyframes loaderSweep {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(300%); }
+  }
 </style>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen app-loading">
+
+<div id="global-loader" aria-live="polite" aria-busy="true">
+  <div class="loader-wrap">
+    <div class="loader-orbit" aria-hidden="true">
+      <div class="loader-ring"></div>
+      <div class="loader-core"></div>
+      <div class="loader-dot"></div>
+    </div>
+    <div class="text-[22px] font-semibold tracking-tight text-[--text-primary]">马上就好，别眨眼</div>
+    <div class="loader-shimmer"></div>
+  </div>
+</div>
 
 <!-- ===== Top Nav ===== -->
 <header class="sticky top-0 z-40">
@@ -281,7 +410,7 @@
             <circle id="radar-d-thinking" cx="0" cy="0" r="3" fill="#0071E3"/>
             <circle id="radar-d-resource" cx="0" cy="0" r="3" fill="#0071E3"/>
             <circle id="radar-d-orch" cx="0" cy="0" r="3" fill="#0071E3"/>
-            <text x="0" y="-110" text-anchor="middle" font-size="11" fill="#6E6E73">响应 <tspan id="radar-l-response" class="num-mono">—</tspan></text>
+            <text x="0" y="-110" text-anchor="middle" font-size="11" fill="#6E6E73">效率 <tspan id="radar-l-response" class="num-mono">—</tspan></text>
             <text x="105" y="-31" font-size="11" fill="#6E6E73">稳定 <tspan id="radar-l-stability" class="num-mono">—</tspan></text>
             <text x="69" y="96" font-size="11" fill="#6E6E73">思考 <tspan id="radar-l-thinking" class="num-mono">—</tspan></text>
             <text x="-69" y="96" text-anchor="end" font-size="11" fill="#6E6E73">资源 <tspan id="radar-l-resource" class="num-mono">—</tspan></text>
@@ -291,12 +420,12 @@
       </div>
       <div class="grid grid-cols-5 gap-2 mt-3 text-[11px]">
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">响应</div>
+          <div class="text-[--text-secondary]">效率</div>
           <div class="font-semibold num-mono" id="dim-response">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-orange] mr-1.5 align-middle"></span>响应：用户等多久</div>
-            会话的端到端时长是否在合理范围。≤ 60 秒得满分，每多 1 秒线性扣分。
-            <div class="tip-formula">100 × (1 − max(0, duration − 60s) ÷ 60s)</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-orange] mr-1.5 align-middle"></span>效率：耗时是否花得值</div>
+            合并用户体感与结构效率：先按任务复杂度计算耗时体感分，再用重复调用、重复编辑、规划缺失等结构信号扣分。
+            <div class="tip-formula">效率 = 0.4 × 体感分 + 0.6 × 规则效率分</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
@@ -455,12 +584,11 @@
       <table class="w-full text-[13px] table-fixed">
         <colgroup>
           <col style="width:7%" />
-          <col style="width:36%" />
+          <col style="width:39%" />
           <col style="width:14%" />
-          <col style="width:8%" />
-          <col style="width:8%" />
+          <col style="width:9%" />
           <col style="width:7%" />
-          <col style="width:13%" />
+          <col style="width:15%" />
           <col style="width:7%" />
         </colgroup>
         <thead class="bg-white/30">
@@ -469,7 +597,7 @@
               <span class="help">健康度
                 <div class="tip">
                   <div class="tip-title">🎯 健康度评分（0-100）</div>
-                  从 5 维（响应/稳定/思考/资源/编排）取平均，调用失败时硬封顶 50。
+                  从 5 维（效率/稳定/思考/资源/编排）取平均，调用失败时硬封顶 50。
                   <div class="tip-row"><span class="tip-good">≥ 85</span><span>健康</span></div>
                   <div class="tip-row"><span class="tip-warn">70–84</span><span>注意</span></div>
                   <div class="tip-row"><span style="color:#BF5AF2">50–69</span><span>亚健康</span></div>
@@ -480,7 +608,6 @@
             <th class="text-left font-medium py-3">Session</th>
             <th class="text-left font-medium py-3">异常</th>
             <th class="text-right font-medium py-3 num-mono">耗时</th>
-            <th class="text-right font-medium py-3 num-mono">成本</th>
             <th class="text-right font-medium py-3 num-mono">
               <span class="help">步数
                 <div class="tip">
@@ -494,7 +621,7 @@
           </tr>
         </thead>
         <tbody id="risk-tbody" class="divide-y divide-black/5">
-          <tr><td colspan="8" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">加载中…</td></tr>
+          <tr><td colspan="7" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">加载中…</td></tr>
         </tbody>
       </table>
     </div>
@@ -617,11 +744,20 @@
   })();
 </script>
 
+<script src="./efficiency-helper.js"></script>
+<script src="./db-api.js"></script>
 <script>
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
     const tbody = document.getElementById('risk-tbody');
     if (!tbody) return;
+    const loaderEl = document.getElementById('global-loader');
+    function hideGlobalLoader() {
+      document.body.classList.remove('app-loading');
+      if (!loaderEl) return;
+      loaderEl.classList.add('is-hidden');
+      window.setTimeout(() => loaderEl.remove(), 380);
+    }
 
     function fmtDuration(ms) {
       if (!ms || ms < 1000) return (ms || 0) + 'ms';
@@ -677,7 +813,7 @@
       });
       const failed = rules.filter(r => r && r.passed === false);
       if (!failed.length) return null;
-      const score = s.score ?? 0;
+      const score = adjustedScore(s);
       const color = scoreBand(score);
       return { color, list: failed.map(r => ({ label: r.failed_label || r.name, detail: r.detail || '' })) };
     }
@@ -701,6 +837,11 @@
       if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
       return String(n);
     }
+
+    const efficiencyHelper = window.AgentTraceEfficiency;
+    const computeEfficiencyMetric = efficiencyHelper.computeEfficiencyMetric;
+    const adjustedRadar = efficiencyHelper.adjustedRadar;
+    const adjustedScore = efficiencyHelper.adjustedScore;
 
     function renderEmpty(msg) {
       tbody.innerHTML = `<tr>
@@ -767,10 +908,9 @@
     }
 
     function renderRow(s) {
-      const score = s.score ?? 0;
+      const score = adjustedScore(s);
       const color = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
-      const totalTok = (s.input_tokens || 0) + (s.output_tokens || 0);
       const ano = buildAnomalies(s);
       const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
       const turnsClass = (turnsN >= 3 && turnsN <= 9) ? '' : 'text-[--apple-orange]';
@@ -799,7 +939,6 @@
         </td>
         <td class="py-3.5">${chipsHtml}</td>
         <td class="py-3.5 text-right num-mono">${fmtDuration(s.duration_ms)}</td>
-        <td class="py-3.5 text-right num-mono">$${fmtCost(totalTok)}</td>
         <td class="py-3.5 text-right num-mono ${turnsClass}">${turnsN}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
@@ -854,7 +993,7 @@
       if (!total) { renderEmpty('此时间范围内暂无 session 数据'); return; }
 
       // ===== 聚合 =====
-      const scores = sessions.map(s => s.score ?? 0);
+      const scores = sessions.map(adjustedScore);
       const durations = sessions.map(s => s.duration_ms || 0);
       const totalTokens = sessions.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
       const avgScore = avg(scores);
@@ -879,7 +1018,10 @@
       sessions.forEach(s => {
         if (!s.radar) return;
         radarN++;
-        Object.keys(avgRadar).forEach(k => avgRadar[k] += (s.radar[k] || 0));
+        const r = adjustedRadar(s);
+        Object.keys(avgRadar).forEach(k => {
+          avgRadar[k] += r[k] || 0;
+        });
       });
       if (radarN) Object.keys(avgRadar).forEach(k => avgRadar[k] = avgRadar[k] / radarN);
 
@@ -930,7 +1072,8 @@
       }
 
       // ===== 最近 Session 表 =====
-      tbody.innerHTML = sessions.map(renderRow).join('');
+      const recentSessions = sessions.slice(0, 10);
+      tbody.innerHTML = recentSessions.map(renderRow).join('');
       tbody.querySelectorAll('tr[data-href]').forEach(tr => {
         tr.addEventListener('click', e => {
           if (e.target.closest('a')) return;
@@ -938,25 +1081,20 @@
         });
       });
       setupCellTooltip();
-      document.getElementById('risk-pg-info').textContent = `显示 1 – ${total}，共 ${total} 条`;
+      document.getElementById('risk-pg-info').textContent = `显示 1 – ${recentSessions.length}，共 ${total} 条`;
     };
 
     try {
-      const r = await fetch('./data/sessions.json', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
+      const d = await window.AgentTraceDB.loadSessions();
       window.dashboardData = (d.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0)); // 健康度倒序：低分优先
 
       // 数据就绪后再触发一次 applyRange，让筛选器与数据联动
       const savedRange = localStorage.getItem('agenttrace.range') || '7d';
       window.applyRange(savedRange);
-
-      const gl = document.getElementById('global-loader');
-      if (gl) gl.remove();
+      hideGlobalLoader();
     } catch (e) {
       renderEmpty('加载失败：' + (e.message || String(e)));
-      const gl = document.getElementById('global-loader');
-      if (gl) gl.remove();
+      hideGlobalLoader();
     }
   })();
 </script>
