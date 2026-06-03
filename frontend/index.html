@@ -6,13 +6,13 @@
 
 <!-- SEO & Social Media Metadata -->
   <title>Agent Trace 诊断平台</title>
-  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化响应、稳定、思考、资源、编排 5 维健康度。">
+  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化效率、稳定、思考、资源、编排 5 维健康度。">
 
   <!-- Open Graph / Facebook / Feishu -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kejin-li.github.io/agent_trace_analysis/">
   <meta property="og:title" content="Agent Trace 诊断平台">
-  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化响应、稳定、思考、资源、编排 5 维健康度。">
+  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化效率、稳定、思考、资源、编排 5 维健康度。">
   <!-- 飞书和微信等通常抓取 og:image 作为卡片图标或预览图，这里生成一个带渐变背景和图标的占位 SVG 充当 Logo -->
   <meta property="og:image" content="https://api.dicebear.com/7.x/shapes/svg?seed=AgentTrace&backgroundColor=0071E3,BF5AF2">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -281,7 +281,7 @@
             <circle id="radar-d-thinking" cx="0" cy="0" r="3" fill="#0071E3"/>
             <circle id="radar-d-resource" cx="0" cy="0" r="3" fill="#0071E3"/>
             <circle id="radar-d-orch" cx="0" cy="0" r="3" fill="#0071E3"/>
-            <text x="0" y="-110" text-anchor="middle" font-size="11" fill="#6E6E73">响应 <tspan id="radar-l-response" class="num-mono">—</tspan></text>
+            <text x="0" y="-110" text-anchor="middle" font-size="11" fill="#6E6E73">效率 <tspan id="radar-l-response" class="num-mono">—</tspan></text>
             <text x="105" y="-31" font-size="11" fill="#6E6E73">稳定 <tspan id="radar-l-stability" class="num-mono">—</tspan></text>
             <text x="69" y="96" font-size="11" fill="#6E6E73">思考 <tspan id="radar-l-thinking" class="num-mono">—</tspan></text>
             <text x="-69" y="96" text-anchor="end" font-size="11" fill="#6E6E73">资源 <tspan id="radar-l-resource" class="num-mono">—</tspan></text>
@@ -291,12 +291,12 @@
       </div>
       <div class="grid grid-cols-5 gap-2 mt-3 text-[11px]">
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">响应</div>
+          <div class="text-[--text-secondary]">效率</div>
           <div class="font-semibold num-mono" id="dim-response">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-orange] mr-1.5 align-middle"></span>响应：用户等多久</div>
-            会话的端到端时长是否在合理范围。≤ 60 秒得满分，每多 1 秒线性扣分。
-            <div class="tip-formula">100 × (1 − max(0, duration − 60s) ÷ 60s)</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-orange] mr-1.5 align-middle"></span>效率：耗时是否花得值</div>
+            合并用户体感与结构效率：先按任务复杂度计算耗时体感分，再用重复调用、重复编辑、规划缺失等结构信号扣分。
+            <div class="tip-formula">效率 = 0.4 × 体感分 + 0.6 × 规则效率分</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
@@ -469,7 +469,7 @@
               <span class="help">健康度
                 <div class="tip">
                   <div class="tip-title">🎯 健康度评分（0-100）</div>
-                  从 5 维（响应/稳定/思考/资源/编排）取平均，调用失败时硬封顶 50。
+                  从 5 维（效率/稳定/思考/资源/编排）取平均，调用失败时硬封顶 50。
                   <div class="tip-row"><span class="tip-good">≥ 85</span><span>健康</span></div>
                   <div class="tip-row"><span class="tip-warn">70–84</span><span>注意</span></div>
                   <div class="tip-row"><span style="color:#BF5AF2">50–69</span><span>亚健康</span></div>
@@ -617,6 +617,8 @@
   })();
 </script>
 
+<script src="./efficiency-helper.js"></script>
+<script src="./db-api.js"></script>
 <script>
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
@@ -677,7 +679,7 @@
       });
       const failed = rules.filter(r => r && r.passed === false);
       if (!failed.length) return null;
-      const score = s.score ?? 0;
+      const score = adjustedScore(s);
       const color = scoreBand(score);
       return { color, list: failed.map(r => ({ label: r.failed_label || r.name, detail: r.detail || '' })) };
     }
@@ -701,6 +703,11 @@
       if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
       return String(n);
     }
+
+    const efficiencyHelper = window.AgentTraceEfficiency;
+    const computeEfficiencyMetric = efficiencyHelper.computeEfficiencyMetric;
+    const adjustedRadar = efficiencyHelper.adjustedRadar;
+    const adjustedScore = efficiencyHelper.adjustedScore;
 
     function renderEmpty(msg) {
       tbody.innerHTML = `<tr>
@@ -767,7 +774,7 @@
     }
 
     function renderRow(s) {
-      const score = s.score ?? 0;
+      const score = adjustedScore(s);
       const color = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
       const totalTok = (s.input_tokens || 0) + (s.output_tokens || 0);
@@ -854,7 +861,7 @@
       if (!total) { renderEmpty('此时间范围内暂无 session 数据'); return; }
 
       // ===== 聚合 =====
-      const scores = sessions.map(s => s.score ?? 0);
+      const scores = sessions.map(adjustedScore);
       const durations = sessions.map(s => s.duration_ms || 0);
       const totalTokens = sessions.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
       const avgScore = avg(scores);
@@ -879,7 +886,10 @@
       sessions.forEach(s => {
         if (!s.radar) return;
         radarN++;
-        Object.keys(avgRadar).forEach(k => avgRadar[k] += (s.radar[k] || 0));
+        const r = adjustedRadar(s);
+        Object.keys(avgRadar).forEach(k => {
+          avgRadar[k] += r[k] || 0;
+        });
       });
       if (radarN) Object.keys(avgRadar).forEach(k => avgRadar[k] = avgRadar[k] / radarN);
 
@@ -942,9 +952,7 @@
     };
 
     try {
-      const r = await fetch('./data/sessions.json', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
+      const d = await window.AgentTraceDB.loadSessions();
       window.dashboardData = (d.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0)); // 健康度倒序：低分优先
 
       // 数据就绪后再触发一次 applyRange，让筛选器与数据联动

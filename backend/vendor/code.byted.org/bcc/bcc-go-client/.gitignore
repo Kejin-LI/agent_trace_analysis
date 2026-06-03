@@ -1,0 +1,5 @@
+/.idea
+/.vscode
+/logger/test*
+script
+confclient/log/

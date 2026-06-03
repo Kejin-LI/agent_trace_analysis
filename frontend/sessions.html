@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Agent Trace 诊断平台 · Session</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="./efficiency-helper.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -326,7 +327,7 @@
                 <span class="tip" style="width:320px">
                   <span class="tip-title">健康度评分如何计算</span>
                   <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
-                  <div class="tip-row"><span>响应</span><span>用户等待时长（≤60s 满分）</span></div>
+                  <div class="tip-row"><span>效率</span><span>耗时体感 + 结构效率</span></div>
                   <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
                   <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转）</span></div>
                   <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
@@ -359,6 +360,7 @@
 
 </main>
 
+<script src="./db-api.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
   (async function () {
@@ -419,7 +421,7 @@
       });
       const failed = rules.filter(r => r && r.passed === false);
       if (!failed.length) return null;
-      const score = s.score ?? 0;
+      const score = window.AgentTraceEfficiency.adjustedScore(s);
       const color = scoreBand(score);
       return {
         color,
@@ -461,7 +463,7 @@
 
     // ----- 渲染单行 -----
     function renderRow(s) {
-      const score = s.score ?? 80;
+      const score = window.AgentTraceEfficiency.adjustedScore(s);
       const scoreColor = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
       const userInitial = (s.user || 'A').charAt(0).toUpperCase();
@@ -526,7 +528,7 @@
         const ano = buildAnomalies(s);
         // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
         // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
-        const isHealthy = (s.score ?? 0) >= 85;
+        const isHealthy = window.AgentTraceEfficiency.adjustedScore(s) >= 85;
         // 状态分段
         if (f.status === 'anomaly' && isHealthy) return false;
         if (f.status === 'healthy' && !isHealthy) return false;
@@ -537,7 +539,7 @@
         }
         // 健康度档位
         if (f.score !== 'all') {
-          const sc = s.score ?? 0;
+          const sc = window.AgentTraceEfficiency.adjustedScore(s);
           if (scoreBand(sc) !== f.score) return false;
         }
         // 关键字模糊搜索：session_id（含完整 id 精确命中）/ 标题 / 用户
@@ -690,7 +692,7 @@
         }
 
         total++;
-        if ((s.score ?? 0) >= 85) healthy++; else anomaly++;
+        if (window.AgentTraceEfficiency.adjustedScore(s) >= 85) healthy++; else anomaly++;
       });
       statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();
       statusSeg.querySelector('[data-count="anomaly"]').textContent = anomaly.toLocaleString();
@@ -799,8 +801,7 @@
 
     // ----- 加载 -----
     try {
-      const r = await fetch('./data/sessions.json', { cache: 'no-store' });
-      const d = await r.json();
+      const d = await window.AgentTraceDB.loadSessions();
       state.all = d.sessions || [];
       if (!state.all.length) {
         tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">暂无数据</td></tr>`;
@@ -833,7 +834,6 @@
     }
   })();
 </script>
-
 <!-- 共享日期筛选器组件 -->
 <script src="./range-picker.js"></script>
 
