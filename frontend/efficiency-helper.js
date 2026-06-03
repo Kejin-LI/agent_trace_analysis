@@ -7,6 +7,23 @@
     return (data?.traces || []).flatMap(t => t.spans || []);
   }
 
+  function getModelSpans(data) {
+    return getAllSpans(data)
+      .filter(sp => sp.span_type === 'model')
+      .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+  }
+
+  function getToolSpans(data) {
+    return getAllSpans(data)
+      .filter(sp => sp.span_type === 'tool')
+      .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+  }
+
+  function extractChoices(sp) {
+    const out = safeJSON(sp?.output);
+    return out.choices || out.response?.choices || [];
+  }
+
   function toolPath(sp) {
     const inp = safeJSON(sp?.input);
     return inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path || '';
@@ -20,51 +37,90 @@
     ));
   }
 
-  function computeThinkingMetric(data) {
-    const spans = getAllSpans(data);
-    const modelSpans = spans.filter(sp => sp.span_type === 'model').sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
-    const hasFinalAnswer = modelSpans.some(sp => {
-      try {
-        const out = JSON.parse(sp.output || '{}');
-        const choices = out.choices || out.response?.choices || [];
-        return choices.some(c => c.message && c.message.content && c.message.content.trim().length > 0 && (!c.message.tool_calls || c.message.tool_calls.length === 0));
-      } catch {
-        return false;
-      }
-    });
+  function getTraceSignals(data) {
+    const modelSpans = getModelSpans(data);
+    const toolSpans = getToolSpans(data);
+    const hasFinalAnswer = modelSpans.some(sp =>
+      extractChoices(sp).some(c => c.message && c.message.content && c.message.content.trim().length > 0 && (!c.message.tool_calls || c.message.tool_calls.length === 0))
+    );
     const truncatedByMax = data?.terminated_by === 'max_steps_limit';
     let noOpStreak = 0;
     let curStreak = 0;
+    let toolIntentTurns = 0;
+    let toolIntentCalls = 0;
     modelSpans.forEach(sp => {
-      let hasToolCall = false;
-      try {
-        const out = JSON.parse(sp.output || '{}');
-        const choices = out.choices || out.response?.choices || [];
-        hasToolCall = choices.some(c => c.message && c.message.tool_calls && c.message.tool_calls.length > 0);
-      } catch {}
-      const hasContent = (sp.output || '').trim().length > 0;
-      if (!hasToolCall && !hasContent) {
+      const choices = extractChoices(sp);
+      const hasToolCallIntent = choices.some(c => c.message && Array.isArray(c.message.tool_calls) && c.message.tool_calls.length > 0);
+      if (hasToolCallIntent) {
+        toolIntentTurns++;
+        choices.forEach(c => {
+          if (c.message && Array.isArray(c.message.tool_calls)) {
+            toolIntentCalls += c.message.tool_calls.length;
+          }
+        });
+      }
+      const hasContent = choices.some(c => c.message && c.message.content && c.message.content.trim().length > 0);
+      if (!hasToolCallIntent && !hasContent) {
         curStreak++;
         noOpStreak = Math.max(noOpStreak, curStreak);
       } else {
         curStreak = 0;
       }
     });
-    const turnsN = modelSpans.length || (data?.trace_count || data?.turns || 0);
+    const realToolCalls = Number(data?.tool_calls ?? data?.features?.tool_calls ?? toolSpans.length) || 0;
+    const hasToolIntentWithoutExecution = toolIntentCalls > 0 && realToolCalls === 0;
+    return {
+      modelSpans,
+      toolSpans,
+      hasFinalAnswer,
+      truncatedByMax,
+      noOpStreak,
+      toolIntentTurns,
+      toolIntentCalls,
+      realToolCalls,
+      hasToolIntentWithoutExecution,
+      turnsN: modelSpans.length || (data?.trace_count || data?.turns || 0),
+    };
+  }
+
+  function getDimensionApplicability(data) {
+    const signals = getTraceSignals(data);
+    return {
+      response: true,
+      thinking: true,
+      resource: true,
+      stability: signals.realToolCalls > 0,
+      orchestration: signals.realToolCalls > 0,
+      signals,
+    };
+  }
+
+  function computeThinkingMetric(data) {
+    const signals = getTraceSignals(data);
     const score = Math.max(0, Math.min(100,
       100
-      - (hasFinalAnswer ? 0 : 35)
-      - (truncatedByMax ? 25 : 0)
-      - Math.min(noOpStreak * 10, 30)
+      - (signals.hasFinalAnswer ? 0 : 35)
+      - (signals.truncatedByMax ? 25 : 0)
+      - Math.min(signals.noOpStreak * 10, 30)
+      - (signals.hasToolIntentWithoutExecution ? 25 : 0)
     ));
-    return { score, hasFinalAnswer, truncatedByMax, noOpStreak, turnsN };
+    return {
+      score,
+      hasFinalAnswer: signals.hasFinalAnswer,
+      truncatedByMax: signals.truncatedByMax,
+      noOpStreak: signals.noOpStreak,
+      turnsN: signals.turnsN,
+      toolIntentTurns: signals.toolIntentTurns,
+      toolIntentCalls: signals.toolIntentCalls,
+      realToolCalls: signals.realToolCalls,
+      hasToolIntentWithoutExecution: signals.hasToolIntentWithoutExecution,
+    };
   }
 
   function computeEfficiencyMetric(data) {
     const f = data?.features || {};
-    const spans = getAllSpans(data);
-    const toolSpans = spans.filter(sp => sp.span_type === 'tool').sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
-    const modelSpans = spans.filter(sp => sp.span_type === 'model').sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+    const toolSpans = getToolSpans(data);
+    const modelSpans = getModelSpans(data);
     const toolCalls = Number(data?.tool_calls ?? f.tool_calls ?? toolSpans.length) || 0;
     const durSec = Math.max(0, Math.round((data?.duration_ms || 0) / 1000));
     const bucket = toolCalls < 3
@@ -126,6 +182,10 @@
   }
 
   function computeStabilityMetric(data) {
+    const applicability = getDimensionApplicability(data);
+    if (!applicability.stability) {
+      return { score: null, applicable: false, toolFailures: 0, failRate: 0 };
+    }
     const f = data?.features || {};
     const toolFailures = Number(f.tool_failures || 0);
     let failRate = Number(f.tool_fail_rate || 0);
@@ -134,7 +194,7 @@
     let score = Math.round((1 - failRate) * 100 - toolFailures * 5);
     if (hasExecutionFailure(data?.rules)) score = Math.min(score, 50);
     score = Math.max(0, Math.min(100, score));
-    return { score, toolFailures, failRate };
+    return { score, applicable: true, toolFailures, failRate };
   }
 
   function computeResourceMetric(data) {
@@ -150,6 +210,10 @@
   }
 
   function computeOrchestrationMetric(data) {
+    const applicability = getDimensionApplicability(data);
+    if (!applicability.orchestration) {
+      return { score: null, applicable: false, maxSerialRun: 0, toolCalls: 0, uniqueTools: 0, diversity: 0 };
+    }
     const f = data?.features || {};
     const maxSerialRun = Number(f.max_serial_run || 0);
     const toolCalls = Number(f.tool_calls || data?.tool_calls || 0);
@@ -165,24 +229,30 @@
       else if (diversity >= 0.4) score += 10;
     }
     score = Math.round(Math.max(0, Math.min(100, score)));
-    return { score, maxSerialRun, toolCalls, uniqueTools, diversity };
+    return { score, applicable: true, maxSerialRun, toolCalls, uniqueTools, diversity };
   }
 
   function adjustedRadar(sessionLike) {
     if (!sessionLike?.radar) return null;
+    const thinking = computeThinkingMetric(sessionLike);
+    const stability = computeStabilityMetric(sessionLike);
+    const resource = computeResourceMetric(sessionLike);
+    const orchestration = computeOrchestrationMetric(sessionLike);
     return Object.assign({}, sessionLike.radar, {
       response: computeEfficiencyMetric(sessionLike).score,
-      stability: computeStabilityMetric(sessionLike).score,
-      thinking: computeThinkingMetric(sessionLike).score,
-      resource: computeResourceMetric(sessionLike).score,
-      orchestration: computeOrchestrationMetric(sessionLike).score,
+      stability: stability.applicable ? stability.score : null,
+      thinking: thinking.score,
+      resource: resource.score,
+      orchestration: orchestration.applicable ? orchestration.score : null,
     });
   }
 
   function adjustedScore(sessionLike) {
     const r = adjustedRadar(sessionLike);
     if (!r) return sessionLike?.score ?? 0;
-    const values = ['response', 'stability', 'thinking', 'resource', 'orchestration'].map(k => r[k] || 0);
+    const values = ['response', 'stability', 'thinking', 'resource', 'orchestration']
+      .map(k => r[k])
+      .filter(v => typeof v === 'number' && !Number.isNaN(v));
     let score = values.reduce((sum, v) => sum + v, 0) / values.length;
     if (hasExecutionFailure(sessionLike?.rules)) score = Math.min(score, 50);
     return Math.round(score);
@@ -195,6 +265,10 @@
   window.AgentTraceEfficiency = {
     safeJSON,
     getAllSpans,
+    getModelSpans,
+    getToolSpans,
+    getTraceSignals,
+    getDimensionApplicability,
     toolPath,
     hasExecutionFailure,
     computeThinkingMetric,

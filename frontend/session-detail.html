@@ -899,16 +899,16 @@
                 <span class="text-[10.5px] text-[--text-tertiary] help cursor-help" style="position:relative" aria-label="健康度说明">
                   <span class="tip" style="width:320px">
                     <span class="tip-title">健康度评分如何计算</span>
-                    <div style="margin:6px 0 4px">从 5 个角度给本次会话打分（每项 0-100），<b>取平均</b>得到总分：</div>
+                    <div style="margin:6px 0 4px">先判断维度是否适用，再对适用维度打分并<b>取平均</b>得到总分：</div>
                     <div class="tip-row"><span>效率</span><span>耗时体感 + 结构效率</span></div>
-                    <div class="tip-row"><span>稳定</span><span>工具最终成功率（看后果）</span></div>
-                    <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转）</span></div>
+                    <div class="tip-row"><span>稳定</span><span>真实工具调用最终成功率（无工具时 N/A）</span></div>
+                    <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转/决策落地）</span></div>
                     <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
-                    <div class="tip-row"><span>编排</span><span>调度模式（连续重试 / 工具多样性）</span></div>
+                    <div class="tip-row"><span>编排</span><span>真实工具调度模式（无工具时 N/A）</span></div>
                     <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
                       <span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span>
                     </div>
-                    <div style="margin-top:6px;color:rgba(255,255,255,0.7);font-size:10.5px">调用失败时硬封顶 50；异常标签取最低分维度。</div>
+                    <div style="margin-top:6px;color:rgba(255,255,255,0.7);font-size:10.5px">无真实工具调用时，稳定/编排不参与分母；调用失败时硬封顶 50。</div>
                   </span>
                 </span>
               </div>
@@ -2134,29 +2134,7 @@
       const avgK = Math.round((f.avg_tokens_per_turn || 0) / 1000);
 
       const allSpansFlat = (s._real.traces || []).flatMap(t => t.spans || []);
-      const modelSpans = allSpansFlat.filter(sp => sp.span_type === 'model');
       const toolSpans = allSpansFlat.filter(sp => sp.span_type === 'tool');
-      const hasFinalAnswer = modelSpans.some(sp => {
-        try {
-          const out = JSON.parse(sp.output || '{}');
-          const choices = out.choices || out.response?.choices || [];
-          return choices.some(c => c.message && c.message.content && c.message.content.trim().length > 0 && (!c.message.tool_calls || c.message.tool_calls.length === 0));
-        } catch(e) { return false; }
-      });
-      const truncatedByMax = s._real.terminated_by === 'max_steps_limit';
-      let noOpStreak = 0;
-      let curStreak = 0;
-      modelSpans.forEach(sp => {
-        let hasToolCall = false;
-        try {
-          const out = JSON.parse(sp.output || '{}');
-          const choices = out.choices || out.response?.choices || [];
-          hasToolCall = choices.some(c => c.message && c.message.tool_calls && c.message.tool_calls.length > 0);
-        } catch(e) {}
-        const hasContent = (sp.output || '').trim().length > 0;
-        if (!hasToolCall && !hasContent) { curStreak++; noOpStreak = Math.max(noOpStreak, curStreak); }
-        else { curStreak = 0; }
-      });
       const toolCallMap = new Map();
       toolSpans.forEach(sp => {
         const key = (sp.span_name || '') + '::' + (sp.input || '').slice(0, 128);
@@ -2181,6 +2159,9 @@
       const stabilityMetric = window.AgentTraceEfficiency.computeStabilityMetric(s._real);
       const resourceMetric = window.AgentTraceEfficiency.computeResourceMetric(s._real);
       const orchestrationMetric = window.AgentTraceEfficiency.computeOrchestrationMetric(s._real);
+      const hasFinalAnswer = thinkingMetric.hasFinalAnswer;
+      const truncatedByMax = thinkingMetric.truncatedByMax;
+      const noOpStreak = thinkingMetric.noOpStreak;
       Object.assign(r, window.AgentTraceEfficiency.adjustedRadar(s._real));
       score = window.AgentTraceEfficiency.adjustedScore(s._real);
       const scoreColor = window.AgentTraceEfficiency.scoreColor(score);
@@ -2259,8 +2240,9 @@
           if (!hasFinalAnswer) checks.push('未产出最终答复');
           if (truncatedByMax) checks.push('触达 max_steps 截断');
           if (noOpStreak >= 3) checks.push(`连续 ${noOpStreak} 步空转`);
+          if (thinkingMetric.hasToolIntentWithoutExecution) checks.push('识别出工具意图但没有真实工具执行');
           if (checks.length === 0) {
-            return { ...r, name: '执行效率健康', passed: true, detail: `${turnsN} 步，轨迹健康（已答复 / 无截断 / 无空转）` };
+            return { ...r, name: '执行效率健康', passed: true, detail: `${turnsN} 步，轨迹健康（已答复 / 无截断 / 无空转 / 决策可落地）` };
           } else {
             return { ...r, name: '执行效率健康', passed: false, failed_label: '轨迹异常', detail: `${turnsN} 步 · ${checks.join('、')}` };
           }
@@ -2313,23 +2295,25 @@
       // 5 维迷你条（带独立 hover 说明，PM 友好）
       const dimList = [
         { key: 'response',      label: '效率', q: '耗时是否花得值',        formula: '效率 = 0.4 × 体感分 + 0.6 × 规则效率分；体感分按工具调用数分桶，规则效率分按重复调用/重复编辑/规划缺失等结构信号扣分' },
-        { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
-        { key: 'thinking',      label: '思考', q: '轨迹是否健康走完', formula: '100 − 无答复35 − 截断25 − 空转(每步10, 上限30)' },
+        { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '无真实工具调用时 N/A；否则 成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
+        { key: 'thinking',      label: '思考', q: '轨迹是否健康走完', formula: '100 − 无答复35 − 截断25 − 空转(每步10, 上限30) − 工具意图未落地25' },
         { key: 'resource',      label: '资源', q: '单轮 Token 用得多不多',   formula: '单轮平均 ≤ 76k 满分；超出后线性扣分，128k 时扣到 60' },
-        { key: 'orchestration', label: '编排', q: 'Agent 调度工具是否高效',  formula: '100 − 串行重试惩罚（同名工具连续 ≥3/5/7 次扣 10/20/30） + 调度多样性奖励（unique/total ≥0.6/0.4 +20/+10）' },
+        { key: 'orchestration', label: '编排', q: 'Agent 调度工具是否高效',  formula: '无真实工具调用时 N/A；否则 100 − 串行重试惩罚（同名工具连续 ≥3/5/7 次扣 10/20/30） + 调度多样性奖励（unique/total ≥0.6/0.4 +20/+10）' },
       ];
-      const ratingOf = (v) => v >= 85 ? { text: '优秀', c: '--apple-green' }
+      const ratingOf = (v) => v == null ? { text: '不适用', c: '--text-tertiary' }
+                            : v >= 85 ? { text: '优秀', c: '--apple-green' }
                             : v >= 70 ? { text: '良好', c: '--apple-orange' }
                             : v >= 50 ? { text: '一般', c: '--apple-purple' }
                             :          { text: '较差', c: '--apple-red' };
       const dimReasonOf = (key, v) => {
+        if (v == null) return '无真实工具调用，本维度不适用，也不会纳入综合分。';
         if (v >= 85) return '本维度表现良好';
         if (key === 'response') {
           const hitText = efficiencyMetric.hits.length ? `命中 ${efficiencyMetric.hits.map(h => h.label).join('、')}` : '未命中明显结构低效信号';
           return `耗时 ${durSec}s，体感分 ${efficiencyMetric.experienceScore}，规则效率分 ${efficiencyMetric.ruleEfficiencyScore}；${hitText}`;
         }
         if (key === 'stability')     return `工具失败 ${stabilityMetric.toolFailures} 次（成功率 ${Math.round((1 - stabilityMetric.failRate) * 100)}%）`;
-        if (key === 'thinking')      return !hasFinalAnswer ? '未产出最终答复' : truncatedByMax ? '被 max_steps 截断' : noOpStreak >= 3 ? `连续 ${noOpStreak} 步空转` : `${turnsN} 步，轨迹健康`;
+        if (key === 'thinking')      return !hasFinalAnswer ? '未产出最终答复' : truncatedByMax ? '被 max_steps 截断' : noOpStreak >= 3 ? `连续 ${noOpStreak} 步空转` : thinkingMetric.hasToolIntentWithoutExecution ? '识别出工具调用意图，但没有真实工具执行' : `${turnsN} 步，轨迹健康`;
         if (key === 'resource')      return `单轮均值 ${Math.round(resourceMetric.avgTokens / 1000)}k Token，${resourceMetric.avgTokens > 76000 ? '超出 76k 阈值' : '处于健康区间'}`;
         if (key === 'orchestration') {
           const parts = [];
@@ -2343,17 +2327,19 @@
       const barsEl = document.getElementById('health-bars');
       if (barsEl) {
         barsEl.innerHTML = dimList.map(d => {
-          const v = r[d.key] ?? 0;
+          const v = r[d.key];
           const rt = ratingOf(v);
+          const barWidth = v == null ? 0 : Math.max(0, Math.min(100, v));
+          const valueText = v == null ? '—' : v;
           return `<div class="text-center dim-bar cursor-help" style="position:relative">
             <div class="text-[11px] text-[--text-secondary] mb-1.5">${d.label}</div>
             <div class="h-1 rounded-full bg-black/5 overflow-hidden">
-              <div class="h-full rounded-full" style="width:${v}%;background:var(${rt.c})"></div>
+              <div class="h-full rounded-full" style="width:${barWidth}%;background:var(${rt.c})"></div>
             </div>
-            <div class="text-[13px] font-semibold num-mono mt-1.5" style="color:var(${rt.c})">${v}</div>
+            <div class="text-[13px] font-semibold num-mono mt-1.5" style="color:var(${rt.c})">${valueText}</div>
             <span class="tip" style="width:260px">
               <span class="tip-title">${d.label} · ${d.q}</span>
-              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:var(${rt.c})">${v} 分（${rt.text}）</b></div>
+              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:var(${rt.c})">${v == null ? 'N/A' : `${v} 分`}（${rt.text}）</b></div>
               <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${dimReasonOf(d.key, v)}</div>
               <div class="tip-formula" style="margin-top:8px">${d.formula}</div>
             </span>
@@ -2381,6 +2367,8 @@
             ? ['增加 max_steps 限制或优化 Agent 规划效率', '抽查最后几步是否冗余']
             : noOpStreak >= 3
               ? ['抽查空转步骤的推理内容', '调整提示词减少无效思考']
+              : thinkingMetric.hasToolIntentWithoutExecution
+                ? ['检查工具选择后的执行链路，确认 tool_call 是否被正确下发', '补充提示词或中间层校验，避免“决定调用但没真正执行”']
               : ['轨迹健康，无需特别处理'],
         resource: () => [
           '检查上下文是否含大段无关历史，可清理或截断',
@@ -2397,7 +2385,8 @@
         },
       };
       dimList.forEach(d => {
-        const v = r[d.key] ?? 0;
+        const v = r[d.key];
+        if (v == null) return;
         if (v >= 85) return;
         issues.push({
           severity: v < 70 ? 'bad' : 'warn',
@@ -2954,18 +2943,144 @@
   }
   window.toggleCollapse = toggleCollapse;
 
-  // 从一个 LLM span 的 input.messages 中找最后一个 role=user 的 content
+  function normalizePromptText(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function isControlLikePrompt(text) {
+    const compact = normalizePromptText(text)
+      .toLowerCase()
+      .replace(/[\s()[\]{}<>（）【】"'“”.,，:：!！?？]/g, '');
+    return [
+      '继续执行',
+      '请继续执行',
+      '继续',
+      'continue',
+      'pleasecontinue',
+      'resume',
+      'resumeexecution',
+      'goon',
+      'proceed',
+    ].includes(compact);
+  }
+
+  function cleanUserPrompt(text) {
+    const prompt = normalizePromptText(text);
+    return prompt && !isControlLikePrompt(prompt) ? prompt : '';
+  }
+
+  function contentToText(content) {
+    if (typeof content === 'string') return normalizePromptText(content);
+    if (!Array.isArray(content)) return '';
+    return content.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n').trim();
+  }
+
+  // 从一个 LLM span 的 input.messages 中找最后一个"有效用户提问"；
+  // 过滤框架注入的"继续执行"之类控制词，避免被误判成新一轮对话。
   function extractUserPrompt(span) {
     const inp = safeJSON(span.input);
     if (!inp || !inp.messages) return '';
     const userMsgs = inp.messages.filter(m => m.role === 'user');
-    const last = userMsgs[userMsgs.length - 1];
-    if (!last) return '';
-    let c = last.content;
-    if (Array.isArray(c)) {
-      c = c.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n');
+    let fallback = '';
+    for (let i = userMsgs.length - 1; i >= 0; i--) {
+      const content = contentToText(userMsgs[i].content);
+      if (!content) continue;
+      const cleaned = cleanUserPrompt(content);
+      if (cleaned) return cleaned;
+      if (!fallback) fallback = normalizePromptText(content);
     }
-    return c || '';
+    return fallback;
+  }
+
+  function pickPromptForSpan(span, trace, { preferTracePrompt = false } = {}) {
+    const spanPrompt = cleanUserPrompt(span.user_prompt) || cleanUserPrompt(extractUserPrompt(span));
+    const tracePrompt = cleanUserPrompt(trace.user_prompt);
+    const titlePrompt = cleanUserPrompt(trace.title);
+    return preferTracePrompt
+      ? (tracePrompt || spanPrompt || titlePrompt)
+      : (spanPrompt || tracePrompt || titlePrompt);
+  }
+
+  function computeSegmentDurationMs(spans) {
+    if (!spans || !spans.length) return 0;
+    let minStart = Infinity;
+    let maxEnd = 0;
+    spans.forEach(sp => {
+      const start = Number(sp.started_at_ms) || 0;
+      const end = start + (Number(sp.duration_ms) || 0);
+      if (start && start < minStart) minStart = start;
+      if (end > maxEnd) maxEnd = end;
+    });
+    if (!isFinite(minStart) || !maxEnd) return 0;
+    return Math.max(0, maxEnd - minStart);
+  }
+
+  function segmentTraceByPrompt(trace) {
+    const spans = (trace.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+    if (!spans.length) return [trace];
+
+    const segments = [];
+    let current = null;
+    let pendingSpans = [];
+    let currentRoundIndex = 0;
+
+    function startSegment(modelSpan, prompt, roundIndex) {
+      const seg = {
+        ...trace,
+        user_prompt: prompt || '',
+        round_index: roundIndex || 0,
+        started_at_ms: Number(modelSpan?.started_at_ms) || Number(trace.started_at_ms) || 0,
+        duration_ms: 0,
+        spans: [],
+      };
+      if (pendingSpans.length) {
+        seg.spans.push(...pendingSpans);
+        pendingSpans = [];
+      }
+      segments.push(seg);
+      current = seg;
+      return seg;
+    }
+
+    spans.forEach(sp => {
+      if (sp.span_type !== 'model') {
+        if (current) current.spans.push(sp);
+        else pendingSpans.push(sp);
+        return;
+      }
+
+      const prompt = pickPromptForSpan(sp, trace, { preferTracePrompt: segments.length === 0 && !current });
+      const roundIndex = Number(sp.round_index || 0);
+      const currentPrompt = current ? cleanUserPrompt(current.user_prompt) : '';
+      const shouldStartNewByRound = !!(roundIndex && current && currentRoundIndex && roundIndex !== currentRoundIndex);
+      const shouldStartNewByPrompt = !!(prompt && !!currentPrompt && prompt !== currentPrompt);
+      const shouldStartNew = !current || shouldStartNewByRound || shouldStartNewByPrompt;
+      const target = shouldStartNew ? startSegment(sp, prompt, roundIndex) : current;
+      target.spans.push(sp);
+      if (prompt && !target.user_prompt) target.user_prompt = prompt;
+      if (roundIndex) {
+        target.round_index = roundIndex;
+        currentRoundIndex = roundIndex;
+      }
+    });
+
+    if (!segments.length) return [trace];
+    if (pendingSpans.length) {
+      if (current) current.spans.push(...pendingSpans);
+      else {
+        return [{
+          ...trace,
+          spans,
+          user_prompt: cleanUserPrompt(trace.user_prompt) || cleanUserPrompt(trace.title) || '',
+          round_index: Number(trace.round_count || 0) > 0 ? 1 : 0,
+        }];
+      }
+    }
+
+    return segments.map(seg => ({
+      ...seg,
+      duration_ms: computeSegmentDurationMs(seg.spans),
+    }));
   }
 
   // 从一个 LLM span 的 output 中提取 assistant 文本 + 工具调用列表 + 思考(reasoning)
@@ -3536,7 +3651,10 @@
     const stream = document.getElementById('chat-stream');
     const cnt = document.getElementById('chat-trace-count');
     if (!stream || !real) return;
-    const traces = (real.traces || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+    const traces = (real.traces || [])
+      .slice()
+      .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0))
+      .flatMap(segmentTraceByPrompt);
     if (!traces.length) { 
       if (cnt) cnt.textContent = `· 0 轮`;
       stream.innerHTML = '<div class="text-[11px] text-[--text-tertiary] text-center">无对话数据</div>'; 
@@ -3551,17 +3669,20 @@
     traces.forEach(t => {
       const spans = (t.spans || []);
       const firstLLM = spans.find(s => s.span_type === 'model');
-      const up = firstLLM ? extractUserPrompt(firstLLM) : '';
+      const up = firstLLM ? pickPromptForSpan(firstLLM, t) : (cleanUserPrompt(t.user_prompt) || cleanUserPrompt(t.title));
       const startTime = Number(t.started_at_ms) || 0;
+      const idleGapMs = startTime - lastTraceTime;
+      const promptChanged = !!(up && up !== curPrompt);
       
       // 判断是否开启新的一轮气泡：
       // 1. 如果没有当前气泡 -> 开启新组
-      // 2. 如果距离上一次 trace 超过了 10 秒空闲（说明真的是用户再次输入了） -> 开启新组
-      // 3. 否则，即使 user prompt 因为框架注入 observation 发生了变化，也强制合并到同一个大循环里
-      const isNewTurn = groups.length === 0 || (startTime - lastTraceTime > 10000 && up && up !== curPrompt);
+      // 2. 如果用户 prompt 已经变化 -> 开启新组
+      // 3. 如果距离上一次 trace 超过了 10 秒空闲 -> 也视为进入新一轮
+      const isNewTurn = groups.length === 0 || promptChanged || idleGapMs > 10000;
       
       if (isNewTurn) {
-        groups.push({ userPrompt: up || curPrompt || '（继续执行）', traces: [t] });
+        const displayPrompt = up || cleanUserPrompt(t.title) || (idleGapMs > 10000 ? '（新一轮对话）' : (curPrompt || '（未识别到用户提问）'));
+        groups.push({ userPrompt: displayPrompt, traces: [t] });
         if (up) curPrompt = up;
       } else {
         groups[groups.length - 1].traces.push(t);

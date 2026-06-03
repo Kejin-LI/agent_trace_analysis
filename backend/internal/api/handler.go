@@ -62,23 +62,28 @@ type apiRadar struct {
 }
 
 type apiSpan struct {
-	SpanID      string `json:"span_id"`
-	ParentID    string `json:"parent_id"`
-	SpanName    string `json:"span_name"`
-	SpanType    string `json:"span_type"`
-	DurationMs  int64  `json:"duration_ms"`
-	StartedAtMs int64  `json:"started_at_ms"`
-	StartedAt   string `json:"started_at,omitempty"`
-	StatusCode  int    `json:"status_code"`
-	Input       string `json:"input"`
-	Output      string `json:"output"`
-	CustomTags  string `json:"custom_tags"`
+	SpanID       string `json:"span_id"`
+	ParentID     string `json:"parent_id"`
+	SpanName     string `json:"span_name"`
+	SpanType     string `json:"span_type"`
+	DurationMs   int64  `json:"duration_ms"`
+	StartedAtMs  int64  `json:"started_at_ms"`
+	StartedAt    string `json:"started_at,omitempty"`
+	StatusCode   int    `json:"status_code"`
+	Input        string `json:"input"`
+	Output       string `json:"output"`
+	CustomTags   string `json:"custom_tags"`
+	UserPrompt   string `json:"user_prompt,omitempty"`
+	PromptSource string `json:"prompt_source,omitempty"`
+	RoundIndex   int    `json:"round_index,omitempty"`
 }
 
 type apiTrace struct {
 	TraceID      string    `json:"trace_id"`
 	SpanID       string    `json:"span_id"`
 	Title        string    `json:"title"`
+	UserPrompt   string    `json:"user_prompt,omitempty"`
+	RoundCount   int       `json:"round_count,omitempty"`
 	ModelName    string    `json:"model_name"`
 	Turns        int       `json:"turns"`
 	DurationMs   int64     `json:"duration_ms"`
@@ -281,11 +286,15 @@ func buildSessionBundle(session model.StgArtifactSession, traceRows []model.StgA
 
 	for i, tr := range traceRows {
 		spans := buildTraceSpans(spansByTrace[tr.TraceID])
+		userPrompt := extractTraceUserPrompt(tr.UserRequestPreview, spans)
+		roundCount := countRounds(spans)
 		turns := countModelSpans(spans)
 		apiTraces = append(apiTraces, apiTrace{
 			TraceID:      tr.TraceID,
 			SpanID:       tr.RootSpanID,
 			Title:        pickFirstNonEmpty(tr.UserRequestPreview, tr.FinalResult, tr.TraceID),
+			UserPrompt:   userPrompt,
+			RoundCount:   roundCount,
 			ModelName:    tr.ModelName,
 			Turns:        max(turns, nullableInt(tr.TurnCount)),
 			DurationMs:   nullableInt64(tr.DurationMs),
@@ -366,18 +375,31 @@ func buildTraceSpans(rows []model.StgArtifactSpan) []apiSpan {
 				customTags = string(buf)
 			}
 		}
+		inputPreview := sp.InputPreview
+		userPrompt := ""
+		promptSource := ""
+		roundIndex := 0
+		if summary, ok := parseModelInputSummary(sp.InputPreview); ok {
+			inputPreview = summary.InputPreview
+			userPrompt = summary.UserPrompt
+			promptSource = summary.PromptSource
+			roundIndex = summary.RoundIndex
+		}
 		out = append(out, apiSpan{
-			SpanID:      sp.SpanID,
-			ParentID:    sp.ParentID,
-			SpanName:    sp.SpanName,
-			SpanType:    sp.SpanType,
-			DurationMs:  nullableInt64(sp.DurationMs),
-			StartedAtMs: nullableInt64(sp.StartedAtMs),
-			StartedAt:   timeToString(sp.StartedAt),
-			StatusCode:  statusCodeFromStatus(sp.Status),
-			Input:       sp.InputPreview,
-			Output:      sp.OutputPreview,
-			CustomTags:  customTags,
+			SpanID:       sp.SpanID,
+			ParentID:     sp.ParentID,
+			SpanName:     sp.SpanName,
+			SpanType:     sp.SpanType,
+			DurationMs:   nullableInt64(sp.DurationMs),
+			StartedAtMs:  nullableInt64(sp.StartedAtMs),
+			StartedAt:    timeToString(sp.StartedAt),
+			StatusCode:   statusCodeFromStatus(sp.Status),
+			Input:        inputPreview,
+			Output:       sp.OutputPreview,
+			CustomTags:   customTags,
+			UserPrompt:   userPrompt,
+			PromptSource: promptSource,
+			RoundIndex:   roundIndex,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -546,6 +568,16 @@ func countModelSpans(spans []apiSpan) int {
 	return n
 }
 
+func countRounds(spans []apiSpan) int {
+	maxRound := 0
+	for _, sp := range spans {
+		if sp.RoundIndex > maxRound {
+			maxRound = sp.RoundIndex
+		}
+	}
+	return maxRound
+}
+
 func bundlePagination(c *gin.Context) (limit, offset int) {
 	limit = 1000
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 2000 {
@@ -605,6 +637,154 @@ func safeJSONMap(s string) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return out
+}
+
+func extractTraceUserPrompt(tracePreview string, spans []apiSpan) string {
+	for _, sp := range spans {
+		if sp.SpanType != "model" {
+			continue
+		}
+		if prompt := cleanUserPrompt(sp.UserPrompt); prompt != "" {
+			return prompt
+		}
+		if prompt := extractUserPromptFromInput(sp.Input); prompt != "" {
+			return prompt
+		}
+	}
+	if prompt := cleanUserPrompt(tracePreview); prompt != "" {
+		return prompt
+	}
+	return ""
+}
+
+type modelInputSummary struct {
+	Kind         string `json:"kind"`
+	UserPrompt   string `json:"user_prompt"`
+	PromptSource string `json:"prompt_source"`
+	RoundIndex   int    `json:"round_index"`
+	InputPreview string `json:"input_preview"`
+}
+
+func parseModelInputSummary(input string) (modelInputSummary, bool) {
+	var summary modelInputSummary
+	if strings.TrimSpace(input) == "" {
+		return summary, false
+	}
+	if err := json.Unmarshal([]byte(input), &summary); err != nil {
+		return summary, false
+	}
+	if summary.Kind != "model_input_summary" {
+		return summary, false
+	}
+	return summary, true
+}
+
+func extractUserPromptFromInput(input string) string {
+	inp := safeJSONMap(input)
+	rawMsgs, ok := inp["messages"].([]interface{})
+	if !ok || len(rawMsgs) == 0 {
+		return ""
+	}
+	fallback := ""
+	for i := len(rawMsgs) - 1; i >= 0; i-- {
+		msg, ok := rawMsgs[i].(map[string]interface{})
+		if !ok || !strings.EqualFold(fmt.Sprint(msg["role"]), "user") {
+			continue
+		}
+		content := messageContentToText(msg["content"])
+		if content == "" {
+			continue
+		}
+		if prompt := cleanUserPrompt(content); prompt != "" {
+			return prompt
+		}
+		if fallback == "" {
+			fallback = normalizePromptText(content)
+		}
+	}
+	return fallback
+}
+
+func messageContentToText(raw interface{}) string {
+	switch v := raw.(type) {
+	case string:
+		return normalizePromptText(v)
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			switch p := item.(type) {
+			case string:
+				if t := normalizePromptText(p); t != "" {
+					parts = append(parts, t)
+				}
+			case map[string]interface{}:
+				if text, ok := p["text"].(string); ok {
+					if t := normalizePromptText(text); t != "" {
+						parts = append(parts, t)
+					}
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
+}
+
+func cleanUserPrompt(raw string) string {
+	prompt := normalizePromptText(raw)
+	if prompt == "" || isControlLikePrompt(prompt) {
+		return ""
+	}
+	return prompt
+}
+
+func normalizePromptText(raw string) string {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	return strings.TrimSpace(strings.Join(fields, " "))
+}
+
+func isControlLikePrompt(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	compact := strings.ToLower(raw)
+	replacer := strings.NewReplacer(
+		" ", "",
+		"\n", "",
+		"\t", "",
+		"(", "",
+		")", "",
+		"（", "",
+		"）", "",
+		"[", "",
+		"]", "",
+		"【", "",
+		"】", "",
+		"<", "",
+		">", "",
+		"“", "",
+		"”", "",
+		"\"", "",
+		"'", "",
+		"。", "",
+		".", "",
+		"，", "",
+		",", "",
+		":", "",
+		"：", "",
+		"!", "",
+		"！", "",
+		"?", "",
+		"？", "",
+	)
+	compact = replacer.Replace(compact)
+	switch compact {
+	case "继续执行", "请继续执行", "继续", "continue", "pleasecontinue", "resume", "resumeexecution", "goon", "proceed":
+		return true
+	default:
+		return false
+	}
 }
 
 func responseBucket(toolCalls int) (full, floor int) {

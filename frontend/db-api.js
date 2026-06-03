@@ -68,11 +68,16 @@
       input: sp.input || '',
       output: sp.output || '',
       custom_tags: sp.custom_tags || '{}',
+      user_prompt: sp.user_prompt || sp.userPrompt || '',
+      prompt_source: sp.prompt_source || sp.promptSource || '',
+      round_index: Number(sp.round_index || sp.roundIndex || 0),
     }));
     return {
       trace_id: trace.trace_id,
       span_id: trace.span_id,
       title: trace.title || '',
+      user_prompt: trace.user_prompt || trace.userPrompt || '',
+      round_count: Number(trace.round_count || trace.roundCount || 0),
       model_name: trace.model_name || '',
       turns: Number(trace.turns || 0),
       duration_ms: Number(trace.duration_ms || 0),
