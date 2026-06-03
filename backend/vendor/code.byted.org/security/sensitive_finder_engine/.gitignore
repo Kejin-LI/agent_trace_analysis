@@ -1,0 +1,4 @@
+.idea/
+v2/static/*.json
+v2/static/*.txt
+/static/*.json

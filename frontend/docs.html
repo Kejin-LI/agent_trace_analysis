@@ -337,7 +337,7 @@
       <h2><span class="ch-no">01</span>平台速览</h2>
       <div class="ch-cover">
         <div class="text-[15px] font-semibold">这个平台到底是干什么的？</div>
-        <div class="ch-summary">如果把 Agent 看作一个员工，AgentTrace 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话评估它的响应、稳定、思考、资源、编排五项体征，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
+        <div class="ch-summary">如果把 Agent 看作一个员工，AgentTrace 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话评估它的效率、稳定、思考、资源、编排五项体征，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
         <div class="ch-meta">本章 · 预计阅读 2 分钟</div>
       </div>
 
@@ -436,7 +436,7 @@
       <table class="doc-table">
         <thead><tr><th style="width:13%">维度</th><th style="width:26%">它在测什么</th><th style="width:31%">不及格代表</th><th>核心信号</th></tr></thead>
         <tbody>
-          <tr><td><span class="dim dim-response">响应</span></td><td>用户等了多久</td><td>Agent <strong>慢</strong>，用户感知差</td><td>端到端耗时 ≤ 60s 满分</td></tr>
+          <tr><td><span class="dim dim-response">效率</span></td><td>耗时是否合理、有没有时间浪费</td><td>Agent <strong>慢</strong>，或虽然耗时长但过程里有明显空耗</td><td>0.4 × 体感分 + 0.6 × 规则效率分</td></tr>
           <tr><td><span class="dim dim-stability">稳定</span></td><td>调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出</td></tr>
           <tr><td><span class="dim dim-thinking">思考</span></td><td>轨迹是否健康走完</td><td>Agent <strong>轨迹异常</strong>（无答复/截断/空转）</td><td>最终答复 + 截断检测 + 空转检测</td></tr>
           <tr><td><span class="dim dim-resource">资源</span></td><td>Token 用得省不省</td><td>Agent <strong>烧得多但产出少</strong></td><td>单轮 Token ≤ 76k 满分</td></tr>
@@ -630,7 +630,7 @@
       <table class="doc-table">
         <thead><tr><th style="width:14%">维度</th><th style="width:26%">满分条件</th><th>计分公式</th></tr></thead>
         <tbody>
-          <tr><td><span class="dim dim-response">响应</span></td><td>≤ 60s</td><td class="col-formula">100 × (1 − max(0, duration − 60s) / 60s)</td></tr>
+          <tr><td><span class="dim dim-response">效率</span></td><td>体感耗时合理，且过程无明显空耗</td><td class="col-formula">0.4 × 体感分 + 0.6 × 规则效率分<br>体感分按工具调用数分桶：简单任务 ≤ 30s / 中等任务 ≤ 90s / 复杂任务 ≤ 240s 满分；<br>规则效率分从 100 起扣，命中环境黑洞(-20)、重复编辑(-20)、思考冗余(-10)、缺少规划(-10)、规划偏离(-10)、测试残留(-5)</td></tr>
           <tr><td><span class="dim dim-stability">稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
           <tr><td><span class="dim dim-thinking">思考</span></td><td>100 分</td><td class="col-formula">100 − 无答复35 − 截断25 − 空转(每步10,上限30)</td></tr>
           <tr><td><span class="dim dim-resource">资源</span></td><td>≤ 76k token / 轮</td><td class="col-formula">100 × (1 − max(0, tokens − 76k) / 76k)</td></tr>
@@ -673,7 +673,7 @@
         <div class="path-arrow">↓</div>
         <div class="path-step"><div class="num">3</div><div class="content">
           <div class="step-title">点击 session id 进入<a class="key-purple" href="/sessions">明细</a>详情页</div>
-          重点看 <strong>5 维雷达</strong>：是不是<strong>响应</strong>维度独凹下去？是的话进入路径 C。
+          重点看 <strong>5 维雷达</strong>：是不是<strong>效率</strong>维度独凹下去？是的话进入路径 C。
         </div></div>
       </div>
       <p class="demo-only text-[12px] text-[--text-tertiary]">演示样例：点击 <a class="key-num" href="/session-detail?id=af2cb1">af2cb1</a>（健康度 49 / 严重档）查看详情。</p>
