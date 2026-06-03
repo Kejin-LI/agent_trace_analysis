@@ -432,21 +432,21 @@
       </div>
 
       <h3 id="ch2-2">2.2 5 维健康度</h3>
-      <p>把"Agent 体检"拆成五项独立指标，每一维满分 100，综合分取均值：</p>
+      <p>把"Agent 体检"拆成五项独立指标。先判断维度是否适用，再对适用维度打分，综合分只对适用维度取均值：</p>
       <table class="doc-table">
         <thead><tr><th style="width:13%">维度</th><th style="width:26%">它在测什么</th><th style="width:31%">不及格代表</th><th>核心信号</th></tr></thead>
         <tbody>
           <tr><td><span class="dim dim-response">效率</span></td><td>耗时是否合理、有没有时间浪费</td><td>Agent <strong>慢</strong>，或虽然耗时长但过程里有明显空耗</td><td>0.4 × 体感分 + 0.6 × 规则效率分</td></tr>
-          <tr><td><span class="dim dim-stability">稳定</span></td><td>调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出</td></tr>
-          <tr><td><span class="dim dim-thinking">思考</span></td><td>轨迹是否健康走完</td><td>Agent <strong>轨迹异常</strong>（无答复/截断/空转）</td><td>最终答复 + 截断检测 + 空转检测</td></tr>
+          <tr><td><span class="dim dim-stability">稳定</span></td><td>真实工具调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出；无真实工具调用时 N/A</td></tr>
+          <tr><td><span class="dim dim-thinking">思考</span></td><td>轨迹是否健康走完</td><td>Agent <strong>轨迹异常</strong>（无答复/截断/空转/决策未落地）</td><td>最终答复 + 截断检测 + 空转检测 + 工具意图落地检测</td></tr>
           <tr><td><span class="dim dim-resource">资源</span></td><td>Token 用得省不省</td><td>Agent <strong>烧得多但产出少</strong></td><td>单轮 Token ≤ 76k 满分</td></tr>
-          <tr><td><span class="dim dim-orch">编排</span></td><td>调度模式合不合理</td><td>Agent <strong>来回踩同一个坑</strong>（过程导向）</td><td>连续重试次数、工具多样性</td></tr>
+          <tr><td><span class="dim dim-orch">编排</span></td><td>真实工具调度模式合不合理</td><td>Agent <strong>来回踩同一个坑</strong>（过程导向）</td><td>连续重试次数、工具多样性；无真实工具调用时 N/A</td></tr>
         </tbody>
       </table>
 
       <div class="callout callout-orange">
         <div class="callout-title">⚠️ 稳定 vs 编排：很容易搞混</div>
-        <strong>稳定看后果，编排看模式。</strong> 同一个 session 可能"跌跌撞撞最终成功"——稳定 100、编排 50。这种 case 真实发生：
+        <strong>稳定看后果，编排看模式。</strong> 两者都只在发生过真实工具调用时适用；纯聊天 session 会置灰，不参与综合分。同一个 session 可能"跌跌撞撞最终成功"——稳定 100、编排 50。这种 case 真实发生：
         <span class="demo-only">参考演示数据 <a class="key-num" href="/session-detail?id=441ce4">441ce4</a>，连续 7 次 retry 同一工具但最终成功。</span>
       </div>
 
@@ -620,9 +620,9 @@
       <table class="doc-table">
         <thead><tr><th style="width:18%">指标</th><th style="width:24%">含义</th><th style="width:30%">口径</th><th>判定</th></tr></thead>
         <tbody>
-          <tr><td>执行效率</td><td>轨迹级健康度（是否走完、有无空转）</td><td class="col-formula">has_final_answer &amp;&amp; !truncated &amp;&amp; no_op_streak&lt;3</td><td>—</td></tr>
-          <tr><td>执行效率健康</td><td>轨迹健康</td><td class="col-formula">有最终答复 &amp;&amp; 未截断 &amp;&amp; 无连续空转</td><td><span class="band-chip band-green">健康</span></td></tr>
-          <tr><td>轨迹异常</td><td>无最终答复 / 被 max_steps 截断 / 连续空转≥3</td><td class="col-formula">!has_final_answer || truncated || no_op_streak≥3</td><td><span class="band-chip band-red">异常</span></td></tr>
+          <tr><td>执行效率</td><td>轨迹级健康度（是否走完、有无空转、决策能否落地）</td><td class="col-formula">has_final_answer &amp;&amp; !truncated &amp;&amp; no_op_streak&lt;3 &amp;&amp; !tool_intent_without_execution</td><td>—</td></tr>
+          <tr><td>执行效率健康</td><td>轨迹健康</td><td class="col-formula">有最终答复 &amp;&amp; 未截断 &amp;&amp; 无连续空转 &amp;&amp; 工具决策可落地</td><td><span class="band-chip band-green">健康</span></td></tr>
+          <tr><td>轨迹异常</td><td>无最终答复 / 被 max_steps 截断 / 连续空转≥3 / 工具意图未落地</td><td class="col-formula">!has_final_answer || truncated || no_op_streak≥3 || tool_intent_without_execution</td><td><span class="band-chip band-red">异常</span></td></tr>
         </tbody>
       </table>
 
@@ -631,10 +631,10 @@
         <thead><tr><th style="width:14%">维度</th><th style="width:26%">满分条件</th><th>计分公式</th></tr></thead>
         <tbody>
           <tr><td><span class="dim dim-response">效率</span></td><td>体感耗时合理，且过程无明显空耗</td><td class="col-formula">0.4 × 体感分 + 0.6 × 规则效率分<br>体感分按工具调用数分桶：简单任务 ≤ 30s / 中等任务 ≤ 90s / 复杂任务 ≤ 240s 满分；<br>规则效率分从 100 起扣，命中环境黑洞(-20)、重复编辑(-20)、思考冗余(-10)、缺少规划(-10)、规划偏离(-10)、测试残留(-5)</td></tr>
-          <tr><td><span class="dim dim-stability">稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
-          <tr><td><span class="dim dim-thinking">思考</span></td><td>100 分</td><td class="col-formula">100 − 无答复35 − 截断25 − 空转(每步10,上限30)</td></tr>
+          <tr><td><span class="dim dim-stability">稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">无真实工具调用时 N/A；否则基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
+          <tr><td><span class="dim dim-thinking">思考</span></td><td>100 分</td><td class="col-formula">100 − 无答复35 − 截断25 − 空转(每步10,上限30) − 工具意图未落地25</td></tr>
           <tr><td><span class="dim dim-resource">资源</span></td><td>≤ 76k token / 轮</td><td class="col-formula">100 × (1 − max(0, tokens − 76k) / 76k)</td></tr>
-          <tr><td><span class="dim dim-orch">编排</span></td><td>低 max_serial_run + 高工具多样性</td><td class="col-formula">惩罚连续相同工具调用 (max_serial_run)<br>奖励 unique_tools / tool_calls</td></tr>
+          <tr><td><span class="dim dim-orch">编排</span></td><td>低 max_serial_run + 高工具多样性</td><td class="col-formula">无真实工具调用时 N/A；否则惩罚连续相同工具调用 (max_serial_run)<br>奖励 unique_tools / tool_calls</td></tr>
         </tbody>
       </table>
 
@@ -642,7 +642,7 @@
       <table class="doc-table">
         <thead><tr><th style="width:24%">failed_label</th><th>触发条件</th><th>归属维度</th></tr></thead>
         <tbody>
-          <tr><td><strong>轨迹异常</strong></td><td>无答复/截断/空转</td><td><span class="dim dim-thinking">思考</span></td></tr>
+          <tr><td><strong>轨迹异常</strong></td><td>无答复/截断/空转/工具意图未落地</td><td><span class="dim dim-thinking">思考</span></td></tr>
           <tr><td><strong>上下文超限</strong></td><td>单次 LLM 调用 token 超出模型上下文窗口</td><td><span class="dim dim-resource">资源</span></td></tr>
           <tr><td><strong>执行失败</strong></td><td>根 span 异常退出 / 任务未完成</td><td><span class="dim dim-stability">稳定</span></td></tr>
           <tr><td><strong>出现死循环</strong></td><td>同一工具连续调用 max_serial_run ≥ 阈值</td><td><span class="dim dim-orch">编排</span></td></tr>

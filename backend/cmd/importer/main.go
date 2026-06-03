@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,16 +59,27 @@ type traceJSON struct {
 }
 
 type spanJSON struct {
-	SpanID      string                 `json:"span_id"`
-	ParentID    string                 `json:"parent_id"`
-	SpanName    string                 `json:"span_name"`
-	SpanType    string                 `json:"span_type"`
-	DurationMs  *int64                 `json:"duration_ms"`
-	StartedAtMs *int64                 `json:"started_at_ms"`
-	StatusCode  *int                   `json:"status_code"`
-	Input       string                 `json:"input"`
-	Output      string                 `json:"output"`
-	CustomTags  map[string]interface{} `json:"custom_tags"`
+	SpanID       string                 `json:"span_id"`
+	ParentID     string                 `json:"parent_id"`
+	SpanName     string                 `json:"span_name"`
+	SpanType     string                 `json:"span_type"`
+	DurationMs   *int64                 `json:"duration_ms"`
+	StartedAtMs  *int64                 `json:"started_at_ms"`
+	StatusCode   *int                   `json:"status_code"`
+	Input        string                 `json:"input"`
+	Output       string                 `json:"output"`
+	CustomTags   map[string]interface{} `json:"custom_tags"`
+	UserPrompt   string                 `json:"-"`
+	PromptSource string                 `json:"-"`
+	RoundIndex   int                    `json:"-"`
+}
+
+type modelInputSummary struct {
+	Kind         string `json:"kind"`
+	UserPrompt   string `json:"user_prompt,omitempty"`
+	PromptSource string `json:"prompt_source,omitempty"`
+	RoundIndex   int    `json:"round_index,omitempty"`
+	InputPreview string `json:"input_preview,omitempty"`
 }
 
 func main() {
@@ -87,6 +99,7 @@ func main() {
 	if err := json.Unmarshal(raw, &root); err != nil {
 		log.Fatalf("解析 JSON 失败: %v", err)
 	}
+	enrichSessions(root.Sessions)
 	log.Printf("已加载 %d 个 session", len(root.Sessions))
 
 	gdb, err := db.Open()
@@ -231,7 +244,7 @@ func upsertSpan(tx *gorm.DB, jobID string, s sessionJSON, t traceJSON, sp spanJS
 		TotalTokens:   sumTokens(in, out),
 		HasInput:      sp.Input != "",
 		HasOutput:     sp.Output != "",
-		InputPreview:  truncate(sp.Input, previewLimit),
+		InputPreview:  buildInputPreview(sp),
 		OutputPreview: truncate(sp.Output, previewLimit),
 	}
 	return tx.Clauses(clause.OnConflict{
@@ -295,6 +308,164 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…[truncated]"
+}
+
+func buildInputPreview(sp spanJSON) string {
+	if sp.SpanType != "model" {
+		return truncate(sp.Input, previewLimit)
+	}
+	summary := modelInputSummary{
+		Kind:         "model_input_summary",
+		UserPrompt:   sp.UserPrompt,
+		PromptSource: sp.PromptSource,
+		RoundIndex:   sp.RoundIndex,
+		InputPreview: truncate(sp.Input, 320),
+	}
+	buf, err := json.Marshal(summary)
+	if err != nil {
+		return truncate(sp.Input, previewLimit)
+	}
+	return string(buf)
+}
+
+func enrichSessions(sessions []sessionJSON) {
+	for si := range sessions {
+		for ti := range sessions[si].Traces {
+			enrichTrace(&sessions[si].Traces[ti])
+		}
+	}
+}
+
+func enrichTrace(t *traceJSON) {
+	curPrompt := ""
+	roundIndex := 0
+	modelIdx := modelSpanIndices(t.Spans)
+	for _, idx := range modelIdx {
+		sp := &t.Spans[idx]
+		prompt, source := extractPromptFromModelInput(sp.Input)
+		if prompt == "" {
+			prompt = cleanPromptText(t.Title)
+			if prompt != "" {
+				source = "trace_title"
+			}
+		}
+		if prompt != "" && prompt != curPrompt {
+			roundIndex++
+			curPrompt = prompt
+		} else if roundIndex == 0 && prompt != "" {
+			roundIndex = 1
+			curPrompt = prompt
+		}
+		if prompt == "" {
+			prompt = curPrompt
+		}
+		sp.UserPrompt = prompt
+		sp.PromptSource = source
+		sp.RoundIndex = roundIndex
+	}
+}
+
+func modelSpanIndices(spans []spanJSON) []int {
+	indices := make([]int, 0)
+	for i := range spans {
+		if spans[i].SpanType == "model" {
+			indices = append(indices, i)
+		}
+	}
+	return indices
+}
+
+func extractPromptFromModelInput(input string) (string, string) {
+	if strings.TrimSpace(input) == "" {
+		return "", ""
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		return "", ""
+	}
+	rawMsgs, ok := payload["messages"].([]interface{})
+	if !ok || len(rawMsgs) == 0 {
+		return "", ""
+	}
+	fallback := ""
+	for i := len(rawMsgs) - 1; i >= 0; i-- {
+		msg, ok := rawMsgs[i].(map[string]interface{})
+		if !ok || strings.ToLower(fmt.Sprint(msg["role"])) != "user" {
+			continue
+		}
+		content := contentToText(msg["content"])
+		if content == "" {
+			continue
+		}
+		if prompt := cleanPromptText(content); prompt != "" {
+			return prompt, "messages_last_user"
+		}
+		if fallback == "" {
+			fallback = normalizeText(content)
+		}
+	}
+	if fallback != "" {
+		return fallback, "messages_last_user_fallback"
+	}
+	return "", ""
+}
+
+func contentToText(raw interface{}) string {
+	switch v := raw.(type) {
+	case string:
+		return normalizeText(v)
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			switch p := item.(type) {
+			case string:
+				if s := normalizeText(p); s != "" {
+					parts = append(parts, s)
+				}
+			case map[string]interface{}:
+				if text, ok := p["text"].(string); ok {
+					if s := normalizeText(text); s != "" {
+						parts = append(parts, s)
+					}
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
+}
+
+func cleanPromptText(raw string) string {
+	prompt := normalizeText(raw)
+	if prompt == "" || isControlPrompt(prompt) {
+		return ""
+	}
+	return prompt
+}
+
+func normalizeText(raw string) string {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	return strings.TrimSpace(strings.Join(fields, " "))
+}
+
+func isControlPrompt(raw string) bool {
+	compact := strings.ToLower(raw)
+	replacer := strings.NewReplacer(
+		" ", "", "\n", "", "\t", "",
+		"(", "", ")", "", "（", "", "）", "",
+		"[", "", "]", "", "【", "", "】", "",
+		"<", "", ">", "", "\"", "", "'", "",
+		"“", "", "”", "", ".", "", "。", "",
+		",", "", "，", "", ":", "", "：", "",
+		"!", "", "！", "", "?", "", "？", "",
+	)
+	switch replacer.Replace(compact) {
+	case "继续执行", "请继续执行", "继续", "continue", "pleasecontinue", "resume", "resumeexecution", "goon", "proceed":
+		return true
+	default:
+		return false
+	}
 }
 
 func statusFromCode(code *int) string {

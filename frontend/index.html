@@ -433,8 +433,8 @@
           <div class="font-semibold num-mono" id="dim-stability">—</div>
           <div class="tip">
             <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-red] mr-1.5 align-middle"></span>稳定：调用最终成不成功</div>
-            工具调用最终成功率。看后果，不看是否经过重试。
-            <div class="tip-formula">100 × (1 − tool_fail_rate)</div>
+            只看真实工具调用的最终成功率。看后果，不看是否经过重试；无真实工具调用时本维度不适用。
+            <div class="tip-formula">score = N/A（无真实工具调用）或 100 × (1 − tool_fail_rate) − 5 × failures</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
@@ -442,7 +442,8 @@
           <div class="font-semibold num-mono" id="dim-thinking">—</div>
           <div class="tip">
             <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>思考：轨迹是否健康走完</div>
-            检测轨迹是否产出最终答复、是否被 max_steps 截断、是否存在连续空转。无答复/截断 = 严重；空转 = 警告。
+            检测轨迹是否产出最终答复、是否被 max_steps 截断、是否存在连续空转，以及是否识别出工具意图却没有真实落地执行。
+            <div class="tip-formula">100 − 无答复35 − 截断25 − 空转(每步10, 上限30) − 工具意图未落地25</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
@@ -459,7 +460,8 @@
           <div class="font-semibold num-mono" id="dim-orch">—</div>
           <div class="tip">
             <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-green] mr-1.5 align-middle"></span>编排：工具调度合理吗</div>
-            惩罚连续相同工具（max_serial_run），奖励工具多样性（unique / total）。
+            只看真实发生过的工具调度模式；无真实工具调用时本维度不适用。惩罚连续相同工具，奖励工具多样性。
+            <div class="tip-formula">score = N/A（无真实工具调用）或 100 − 串行重试惩罚 + 多样性奖励</div>
           </div>
         </div>
       </div>
@@ -597,7 +599,7 @@
               <span class="help">健康度
                 <div class="tip">
                   <div class="tip-title">🎯 健康度评分（0-100）</div>
-                  从 5 维（效率/稳定/思考/资源/编排）取平均，调用失败时硬封顶 50。
+                  先判断维度是否适用，再对适用维度取平均；无真实工具调用时，稳定/编排不纳入分母。调用失败时硬封顶 50。
                   <div class="tip-row"><span class="tip-good">≥ 85</span><span>健康</span></div>
                   <div class="tip-row"><span class="tip-warn">70–84</span><span>注意</span></div>
                   <div class="tip-row"><span style="color:#BF5AF2">50–69</span><span>亚健康</span></div>
@@ -792,19 +794,18 @@
     // 与 sessions.html buildAnomalies 一致：用轨迹健康信号动态校准"执行效率健康"
     function buildAnomalies(s) {
       const rulesRaw = s.rules || [];
-      const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
-      const hasFinalAnswer = s.has_final_answer !== false;
-      const truncatedByMax = s.terminated_by === 'max_steps_limit';
-      const noOpStreak = s.no_op_streak || 0;
+      const thinkingMetric = efficiencyHelper.computeThinkingMetric(s);
+      const turnsN = thinkingMetric.turnsN || ((typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0));
       const rules = rulesRaw.map(r => {
         if (!r) return r;
         if (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少' || r.failed_label === '轨迹异常') {
           const checks = [];
-          if (!hasFinalAnswer) checks.push('未产出最终答复');
-          if (truncatedByMax) checks.push('触达 max_steps 截断');
-          if (noOpStreak >= 3) checks.push('连续 ' + noOpStreak + ' 步空转');
+          if (!thinkingMetric.hasFinalAnswer) checks.push('未产出最终答复');
+          if (thinkingMetric.truncatedByMax) checks.push('触达 max_steps 截断');
+          if (thinkingMetric.noOpStreak >= 3) checks.push('连续 ' + thinkingMetric.noOpStreak + ' 步空转');
+          if (thinkingMetric.hasToolIntentWithoutExecution) checks.push('识别出工具意图但没有真实工具执行');
           if (checks.length === 0) {
-            return Object.assign({}, r, { name: '执行效率健康', passed: true, detail: turnsN + ' 步，轨迹健康（已答复 / 无截断 / 无空转）' });
+            return Object.assign({}, r, { name: '执行效率健康', passed: true, detail: turnsN + ' 步，轨迹健康（已答复 / 无截断 / 无空转 / 决策可落地）' });
           } else {
             return Object.assign({}, r, { name: '执行效率健康', passed: false, failed_label: '轨迹异常', detail: turnsN + ' 步 · ' + checks.join('、') });
           }
@@ -968,20 +969,26 @@
     function renderRadar(avgRadar) {
       const R = 100;
       const pts = RADAR_AXES.map(ax => {
-        const v = Math.max(0, Math.min(100, avgRadar[ax.key] || 0));
-        const r = (v / 100) * R;
+        const raw = avgRadar[ax.key];
+        const hasValue = typeof raw === 'number' && !Number.isNaN(raw);
+        const v = hasValue ? Math.max(0, Math.min(100, raw)) : null;
+        const r = v == null ? 0 : (v / 100) * R;
         const rad = (ax.angle * Math.PI) / 180;
         const x = +(Math.cos(rad) * r).toFixed(1);
         const y = +(Math.sin(rad) * r).toFixed(1);
         const labelEl = document.getElementById(ax.label);
-        if (labelEl) labelEl.textContent = Math.round(v);
+        if (labelEl) labelEl.textContent = v == null ? '—' : Math.round(v);
         const dotEl = document.getElementById(ax.dot);
         if (dotEl) { dotEl.setAttribute('cx', x); dotEl.setAttribute('cy', y); }
         const txtEl = document.getElementById(DIM_TEXT_IDS[ax.key]);
         if (txtEl) {
-          txtEl.textContent = Math.round(v);
-          const band = scoreBand(v);
-          txtEl.style.color = band === 'green' ? 'var(--text-primary)' : `var(--apple-${band})`;
+          txtEl.textContent = v == null ? '—' : Math.round(v);
+          if (v == null) {
+            txtEl.style.color = 'var(--text-tertiary)';
+          } else {
+            const band = scoreBand(v);
+            txtEl.style.color = band === 'green' ? 'var(--text-primary)' : `var(--apple-${band})`;
+          }
         }
         return `${x},${y}`;
       });
@@ -1014,16 +1021,20 @@
 
       // 雷达 5 维平均
       const avgRadar = { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 };
-      let radarN = 0;
+      const radarCount = { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 };
       sessions.forEach(s => {
         if (!s.radar) return;
-        radarN++;
         const r = adjustedRadar(s);
         Object.keys(avgRadar).forEach(k => {
-          avgRadar[k] += r[k] || 0;
+          if (typeof r[k] === 'number' && !Number.isNaN(r[k])) {
+            avgRadar[k] += r[k];
+            radarCount[k]++;
+          }
         });
       });
-      if (radarN) Object.keys(avgRadar).forEach(k => avgRadar[k] = avgRadar[k] / radarN);
+      Object.keys(avgRadar).forEach(k => {
+        avgRadar[k] = radarCount[k] ? (avgRadar[k] / radarCount[k]) : null;
+      });
 
       // ===== H1 标题 =====
       const issueCountEl = document.getElementById('hdr-issue-count');
@@ -1048,7 +1059,7 @@
       document.getElementById('radar-total').textContent = Math.round(avgScore);
       const totalBand = scoreBand(avgScore);
       document.getElementById('radar-total').style.color = totalBand === 'green' ? 'var(--text-primary)' : `var(--apple-${totalBand})`;
-      document.getElementById('radar-n').textContent = radarN;
+      document.getElementById('radar-n').textContent = total;
       renderRadar(avgRadar);
 
       // ===== 核心指标 =====
