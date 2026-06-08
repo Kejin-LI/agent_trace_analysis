@@ -440,9 +440,13 @@ function buildClusters(sessions) {
   }).sort((a, b) => a.avgScore - b.avgScore); // Sort by average score ascending (most severe first)
 }
 
-/* 时间桶 · 严格以当前系统时间为锚点 */
+/* 时间桶 · 以数据中最新 session 开始时间为锚点 */
 function genBuckets(range, sessions) {
-  const baseMs = Date.now();
+  // 锚点取数据中最新的 session 开始时间（无数据时回退到当前时刻），
+  // 保证趋势图窗口能覆盖到实际数据，而非固定从“此刻”往前推。
+  let latest = 0;
+  (sessions || []).forEach(s => { const t = s.started_at_ms || 0; if (t > latest) latest = t; });
+  const baseMs = latest || Date.now();
   const now = new Date(baseMs);
   const buckets = [];
   if (range === '24h') {

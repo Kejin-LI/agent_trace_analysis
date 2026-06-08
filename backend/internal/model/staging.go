@@ -2,6 +2,31 @@ package model
 
 import "time"
 
+// StgSessionSource 对应 stg_session_sources 表：TOS 实时数据源索引。
+// 仅存 session 元信息与 TOS JSONL 地址（obj_url），不存对话内容；
+// 详情页对话/思考/工具调用由后端实时拉取 obj_url 解析得到。
+//
+// 唯一键为 artifact_id（CSV 中天然唯一，UUID 格式）。
+// session_id 可选：仅 .jsonl 文件可从文件名提取（ses_xxx.jsonl）。
+// 当前阶段仅纳入 .jsonl 格式日志，旧 .json 格式（流式裸日志、缺 promptId）不入库。
+type StgSessionSource struct {
+	ID              uint64     `gorm:"column:id;primaryKey;autoIncrement"`
+	ArtifactID      string     `gorm:"column:artifact_id;type:varchar(64);uniqueIndex:uk_artifact_id"`
+	SessionID       string     `gorm:"column:session_id;type:varchar(128);index:idx_session_id"`
+	UserID          string     `gorm:"column:user_id;type:varchar(64);index:idx_user_id"`
+	UserName        string     `gorm:"column:user_name;type:varchar(128)"`
+	ObjURL          string     `gorm:"column:obj_url;type:varchar(1024)"`
+	ObjFormat       string     `gorm:"column:obj_format;type:varchar(16)"`
+	SourceCreatedAt *time.Time `gorm:"column:source_created_at"`
+	SourceUpdatedAt *time.Time `gorm:"column:source_updated_at;index:idx_source_updated_at"`
+	Extra           string     `gorm:"column:extra;type:json"`
+	ImportBatch     string     `gorm:"column:import_batch;type:varchar(64)"`
+	CreatedAt       time.Time  `gorm:"column:created_at"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at"`
+}
+
+func (StgSessionSource) TableName() string { return "stg_session_sources" }
+
 // StgSyncJob 对应 stg_sync_jobs 表：记录每次同步任务
 type StgSyncJob struct {
 	ID            uint64     `gorm:"column:id;primaryKey;autoIncrement"`
