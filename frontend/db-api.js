@@ -17,13 +17,19 @@
     return uniq([manual, saved, origin, ...fallbacks]);
   }
 
+  // 当前页面挂在 /trace_sever/ 网关前缀下时，API 也要带同样的前缀（注意 sever 是网关侧的实际拼写）。
+  function apiPrefix() {
+    return window.location.pathname.startsWith('/trace_sever/') ? '/trace_sever' : '';
+  }
+
   let resolvedBase = null;
 
   async function fetchJSON(path) {
     const errors = [];
     const bases = resolvedBase ? [resolvedBase] : candidateBases();
+    const finalPath = apiPrefix() + path;
     for (const base of bases) {
-      const url = base.replace(/\/$/, '') + path;
+      const url = base.replace(/\/$/, '') + finalPath;
       try {
         const resp = await fetch(url, { cache: 'no-store' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ' + url);

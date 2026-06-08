@@ -14,11 +14,11 @@ import (
 )
 
 var pageMap = map[string]string{
-	"/":              "index.html",
-	"/sessions":      "sessions.html",
-	"/session-detail":"session-detail.html",
-	"/clusters":      "clusters.html",
-	"/docs":          "docs.html",
+	"/":               "index.html",
+	"/sessions":       "sessions.html",
+	"/session-detail": "session-detail.html",
+	"/clusters":       "clusters.html",
+	"/docs":           "docs.html",
 }
 
 func findFrontendDir() string {
@@ -38,7 +38,9 @@ func main() {
 	r := gin.Default()
 
 	r.Use(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+		p := c.Request.URL.Path
+		// 同时覆盖本地 /api/ 与生产网关 /trace_sever/api/ 两个前缀。
+		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/trace_sever/api/") {
 			c.Header("Access-Control-Allow-Origin", "*")
 			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
@@ -62,8 +64,18 @@ func main() {
 		})
 	})
 
-	// 读库 API：DB 不可用时（缺少环境变量）仅跳过 API，静态服务照常运行。
-	if gdb, err := db.Open(); err != nil {
+	// 读库 API：根据 DATA_SOURCE 决定数据源。
+	//   DATA_SOURCE=api ：上游接口模式，不依赖 DB
+	//   其他          ：依赖 DB 的 fornax / tos 模式（DB 不可用则跳过 API）
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("DATA_SOURCE")), "api") {
+		h, err := api.NewAPI()
+		if err != nil {
+			log.Printf("api 模式初始化失败，读库 API 已禁用: %v", err)
+		} else {
+			h.Register(r)
+			log.Printf("读库 API 已启用（DATA_SOURCE=api，直连上游模型日志接口）")
+		}
+	} else if gdb, err := db.Open(); err != nil {
 		log.Printf("数据库未连接，读库 API 已禁用: %v", err)
 	} else {
 		api.New(gdb).Register(r)
@@ -72,6 +84,16 @@ func main() {
 
 	r.NoRoute(func(c *gin.Context) {
 		requestPath := c.Request.URL.Path
+		// 生产网关前缀 /trace_sever 不做 path rewrite，请求会原样带前缀打到我们 Pod；
+		// 这里把前缀剥掉再走和本地一致的页面映射 / 静态文件查找逻辑。
+		const gatewayPrefix = "/trace_sever"
+		if strings.HasPrefix(requestPath, gatewayPrefix) {
+			stripped := strings.TrimPrefix(requestPath, gatewayPrefix)
+			if stripped == "" {
+				stripped = "/"
+			}
+			requestPath = stripped
+		}
 		var filePath string
 		if mapped, ok := pageMap[requestPath]; ok {
 			filePath = filepath.Join(frontendDir, mapped)

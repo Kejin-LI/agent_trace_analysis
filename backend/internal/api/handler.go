@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,25 +14,134 @@ import (
 	"gorm.io/gorm"
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/tracelog"
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
-// Handler 持有数据库连接，提供读库接口。
+// Handler 持有数据库连接 / 上游客户端，提供读库 API。
+//
+// 三种数据源模式：
+//   - fornax：旧表 stg_artifact_sessions/traces/spans（默认，依赖 db）
+//   - tos：   新表 stg_session_sources + 实时拉 obj_url JSONL（依赖 db + fetcher）
+//   - api：   完全不落库，直接调上游模型日志接口 + 实时拉 JSONL（依赖 upstream + fetcher）
 type Handler struct {
-	db *gorm.DB
+	db       *gorm.DB
+	fetcher  *tracelog.Fetcher
+	upstream *modellog.Client
 }
 
-func New(db *gorm.DB) *Handler { return &Handler{db: db} }
+// New 构造依赖 DB 的 Handler（fornax / tos 模式）。
+func New(db *gorm.DB) *Handler {
+	h := &Handler{db: db, fetcher: tracelog.NewFetcher()}
+	// TOS 模式下后台批量预热：保证列表页首次加载就有 chip / rules / 雷达数据。
+	if dataSourceMode() == "tos" {
+		go h.backfillAllMetrics()
+	}
+	return h
+}
 
-// Register 将读库 API 挂载到 /api 下。
+// NewAPI 构造 api 模式 Handler（不依赖 DB，仅依赖上游接口）。
+// upstream 为空时返回错误，调用方决定是否降级。
+func NewAPI() (*Handler, error) {
+	cli, err := modellog.NewClient()
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{fetcher: tracelog.NewFetcher(), upstream: cli}, nil
+}
+
+// backfillAllMetrics 启动时一次性扫描所有 jsonl session，缺 cached_metrics 的拉取并回写。
+// 限流：同时最多 4 个并发拉 TOS，避免打爆带宽。
+func (h *Handler) backfillAllMetrics() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("backfillAllMetrics panic: %v\n", r)
+		}
+	}()
+	var rows []model.StgSessionSource
+	if err := h.db.Where("obj_format = ?", "jsonl").Find(&rows).Error; err != nil {
+		fmt.Printf("backfill: scan failed: %v\n", err)
+		return
+	}
+	fmt.Printf("backfill: scanning %d sessions\n", len(rows))
+	sem := make(chan struct{}, 4)
+	var done int64
+	for _, src := range rows {
+		// 已有 cached_metrics 且 chip 字段非空的跳过（避免老缓存只有 features 没 chip 的情况）
+		if m, ok := readCachedMetrics(src.Extra); ok && len(m.Rules) > 0 {
+			continue
+		}
+		if src.ObjURL == "" {
+			continue
+		}
+		sem <- struct{}{}
+		go func(src model.StgSessionSource) {
+			defer func() {
+				<-sem
+				if r := recover(); r != nil {
+					fmt.Printf("backfill one panic: %v\n", r)
+				}
+			}()
+			pr, err := h.fetcher.FetchAndParse(src.ObjURL)
+			if err != nil {
+				return
+			}
+			bundle := buildBundleFromTOS(src, pr)
+			h.writeBackMetrics(src, bundle)
+			done++
+			if done%50 == 0 {
+				fmt.Printf("backfill: progress %d/%d\n", done, len(rows))
+			}
+		}(src)
+	}
+	// 等待最后一批完成
+	for i := 0; i < cap(sem); i++ {
+		sem <- struct{}{}
+	}
+	fmt.Printf("backfill: done\n")
+}
+
+// dataSourceMode 决定列表/详情接口走哪种数据源。
+//
+// 取值：
+//   - "api"    走上游模型日志接口，不落库（推荐，PG 同步停在 6/2 后启用）
+//   - "tos"    走新表 stg_session_sources + 实时拉 obj_url JSONL
+//   - "fornax" 走旧表 stg_artifact_sessions/traces/spans（默认，便于灰度回退）
+//
+// 由 DATA_SOURCE 环境变量控制；未设置时回退到 fornax。
+func dataSourceMode() string {
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("DATA_SOURCE"))); v {
+	case "api":
+		return "api"
+	case "tos":
+		return "tos"
+	default:
+		return "fornax"
+	}
+}
+
+// Register 将读库 API 挂载到 /api 与 /trace_sever/api 两个前缀下。
+//
+// 双前缀的原因：
+//   - 本地开发 / 历史前端代码：/api/...（保持兼容）
+//   - 生产网关前缀匹配：/trace_sever/...（注意网关配置拼写就是 trace_sever，少一个 r）
+//
+// 网关层不做 path rewrite 时，请求会原样带前缀打到我们 Pod，所以两路都注册。
+// api 模式仅注册 session-bundles 两个端点（其余端点依赖 DB，没意义）。
 func (h *Handler) Register(r *gin.Engine) {
-	g := r.Group("/api")
-	g.GET("/sessions", h.listSessions)
-	g.GET("/session-bundles", h.listSessionBundles)
-	g.GET("/session-bundles/:session_id", h.getSessionBundle)
-	g.GET("/sessions/:session_id/traces", h.listTraces)
-	g.GET("/traces/:trace_id", h.getTrace)
-	g.GET("/traces/:trace_id/spans", h.listSpans)
-	g.GET("/sync-jobs", h.listSyncJobs)
+	for _, prefix := range []string{"/api", "/trace_sever/api"} {
+		g := r.Group(prefix)
+		g.GET("/session-bundles", h.listSessionBundles)
+		g.GET("/session-bundles/:session_id", h.getSessionBundle)
+		if dataSourceMode() == "api" {
+			continue
+		}
+		g.GET("/sessions", h.listSessions)
+		g.GET("/sessions/:session_id/traces", h.listTraces)
+		g.GET("/traces/:trace_id", h.getTrace)
+		g.GET("/traces/:trace_id/spans", h.listSpans)
+		g.GET("/sync-jobs", h.listSyncJobs)
+	}
 }
 
 type apiRule struct {
@@ -137,6 +247,14 @@ func (h *Handler) listSessions(c *gin.Context) {
 }
 
 func (h *Handler) listSessionBundles(c *gin.Context) {
+	switch dataSourceMode() {
+	case "api":
+		h.listSessionBundlesAPI(c)
+		return
+	case "tos":
+		h.listSessionBundlesTOS(c)
+		return
+	}
 	limit, offset := bundlePagination(c)
 	var sessions []model.StgArtifactSession
 	q := h.db.Order("session_created_at_ms DESC").Limit(limit).Offset(offset)
@@ -159,6 +277,14 @@ func (h *Handler) listSessionBundles(c *gin.Context) {
 }
 
 func (h *Handler) getSessionBundle(c *gin.Context) {
+	switch dataSourceMode() {
+	case "api":
+		h.getSessionBundleAPI(c)
+		return
+	case "tos":
+		h.getSessionBundleTOS(c)
+		return
+	}
 	var session model.StgArtifactSession
 	if err := h.db.Where("session_id = ?", c.Param("session_id")).First(&session).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -178,6 +304,176 @@ func (h *Handler) getSessionBundle(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, bundles[0])
+}
+
+// listSessionBundlesTOS 走新表 stg_session_sources。
+//
+// 列表页只展示元信息（user/时间/对话轮次概览），不实时拉 JSONL。
+// 默认按 source_updated_at DESC 排序，分页 50 条。
+func (h *Handler) listSessionBundlesTOS(c *gin.Context) {
+	limit, offset := bundlePaginationDefault(c, 50)
+	var rows []model.StgSessionSource
+	q := h.db.Where("obj_format = ?", "jsonl").
+		Order("source_updated_at DESC, id DESC").
+		Limit(limit).Offset(offset)
+	if uid := c.Query("user_id"); uid != "" {
+		q = q.Where("user_id = ?", uid)
+	}
+	if name := c.Query("user_name"); name != "" {
+		q = q.Where("user_name = ?", name)
+	}
+	if sid := c.Query("session_id"); sid != "" {
+		q = q.Where("session_id = ?", sid)
+	}
+	if aid := c.Query("artifact_id"); aid != "" {
+		q = q.Where("artifact_id = ?", aid)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		fail(c, err)
+		return
+	}
+	bundles := make([]apiSessionBundle, 0, len(rows))
+	prewarmURLs := make([]string, 0, 10)
+	for i, r := range rows {
+		bundles = append(bundles, lightBundleFromSource(r))
+		// 异步预热前 10 条，提升用户点击详情页首屏速度。
+		if i < 10 && r.ObjURL != "" {
+			prewarmURLs = append(prewarmURLs, r.ObjURL)
+		}
+	}
+	if len(prewarmURLs) > 0 {
+		h.fetcher.Prewarm(prewarmURLs)
+	}
+	c.JSON(http.StatusOK, gin.H{"data": bundles, "limit": limit, "offset": offset})
+}
+
+// getSessionBundleTOS 详情页：实时拉 obj_url JSONL，解析后返回完整 bundle。
+//
+// 路由参数 :session_id 实际上接受 session_id 或 artifact_id（前端列表传哪个都兼容）。
+func (h *Handler) getSessionBundleTOS(c *gin.Context) {
+	key := c.Param("session_id")
+	var src model.StgSessionSource
+	q := h.db.Where("session_id = ? OR artifact_id = ?", key, key)
+	if err := q.First(&src).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+			return
+		}
+		fail(c, err)
+		return
+	}
+	if src.ObjFormat != "jsonl" || src.ObjURL == "" {
+		c.JSON(http.StatusUnsupportedMediaType, gin.H{
+			"error":       "obj_format not supported",
+			"obj_format":  src.ObjFormat,
+			"session_id":  src.SessionID,
+			"artifact_id": src.ArtifactID,
+		})
+		return
+	}
+	pr, err := h.fetcher.FetchAndParse(src.ObjURL)
+	if err != nil {
+		fail(c, fmt.Errorf("fetch jsonl: %w", err))
+		return
+	}
+	bundle := buildBundleFromTOS(src, pr)
+	c.JSON(http.StatusOK, bundle)
+
+	// 异步回写指标缓存到 extra.cached_metrics，列表页雷达将能用上。
+	go h.writeBackMetrics(src, bundle)
+}
+
+// writeBackMetrics 异步把详情页算好的指标写回 stg_session_sources.extra。
+// 失败仅打日志，不影响主流程；同一指标 5 分钟内不重复写。
+func (h *Handler) writeBackMetrics(src model.StgSessionSource, b apiSessionBundle) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("writeBackMetrics panic: %v\n", r)
+		}
+	}()
+	if old, ok := readCachedMetrics(src.Extra); ok {
+		if time.Since(time.Unix(old.UpdatedAt, 0)) < 5*time.Minute {
+			return
+		}
+	}
+	m := extractCachedMetrics(b)
+	newExtra, err := mergeCachedMetricsIntoExtra(src.Extra, m)
+	if err != nil {
+		return
+	}
+	h.db.Model(&model.StgSessionSource{}).
+		Where("id = ?", src.ID).
+		Update("extra", newExtra)
+}
+
+// lightBundleFromSource 列表项不实时拉 JSONL，只用索引表本身的字段拼概览。
+// 若详情页访问过，extra.cached_metrics 已被回写，则填充 features/turns 等让雷达可算。
+func lightBundleFromSource(src model.StgSessionSource) apiSessionBundle {
+	startedMs := int64(0)
+	if src.SourceCreatedAt != nil {
+		startedMs = src.SourceCreatedAt.UnixMilli()
+	}
+	endedMs := int64(0)
+	if src.SourceUpdatedAt != nil {
+		endedMs = src.SourceUpdatedAt.UnixMilli()
+	}
+	dur := endedMs - startedMs
+	if dur < 0 {
+		dur = 0
+	}
+	id := pickFirstNonEmpty(src.SessionID, src.ArtifactID)
+	title := "Session " + id
+
+	bundle := apiSessionBundle{
+		ID:          id,
+		SessionID:   src.SessionID,
+		ArtifactID:  src.ArtifactID,
+		User:        src.UserName,
+		UserID:      src.UserID,
+		Title:       title,
+		Trace:       "",
+		StartedAtMs: startedMs,
+		StartedAt:   msToString(startedMs),
+		DurationMs:  dur,
+		TraceCount:  0,
+		Color:       "green",
+		Traces:      []apiTrace{},
+		Rules:       []apiRule{},
+	}
+
+	// 若有缓存指标（来自详情页一次访问），把雷达计算所需字段填上。
+	if m, ok := readCachedMetrics(src.Extra); ok {
+		bundle.ToolCalls = m.ToolCalls
+		bundle.Turns = m.Turns
+		bundle.TraceCount = m.TraceCount
+		bundle.InputTokens = m.InputTokens
+		bundle.OutputTokens = m.OutputTokens
+		if m.DurationMs > 0 {
+			bundle.DurationMs = m.DurationMs
+		}
+		bundle.Features = apiFeatures{
+			ToolCalls:        m.ToolCalls,
+			UniqueTools:      m.UniqueTools,
+			MaxSerialRun:     m.MaxSerialRun,
+			ToolFailures:     m.ToolFailures,
+			ToolFailRate:     m.ToolFailRate,
+			AvgTokensPerTurn: m.AvgTokensTurn,
+		}
+		// 异常标签 & 规则（驱动列表页"异常"列）。
+		if m.Chip != "" {
+			bundle.Chip = m.Chip
+		}
+		if len(m.Rules) > 0 {
+			bundle.Rules = m.Rules
+		}
+		if m.Title != "" {
+			bundle.Title = m.Title
+		}
+		if m.Trace != "" {
+			bundle.Trace = m.Trace
+		}
+	}
+	return bundle
 }
 
 func (h *Handler) listTraces(c *gin.Context) {
@@ -579,7 +875,13 @@ func countRounds(spans []apiSpan) int {
 }
 
 func bundlePagination(c *gin.Context) (limit, offset int) {
-	limit = 1000
+	return bundlePaginationDefault(c, 1000)
+}
+
+// bundlePaginationDefault 与 bundlePagination 一致，但允许指定默认 limit。
+// 用于 TOS 模式列表页：默认 50 条更适合按更新时间倒序浏览。
+func bundlePaginationDefault(c *gin.Context, defaultLimit int) (limit, offset int) {
+	limit = defaultLimit
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 2000 {
 		limit = v
 	}
