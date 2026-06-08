@@ -20,7 +20,9 @@ import (
 //   - start_time / end_time：可选时间窗，格式 "YYYY-MM-DD HH:mm:ss"；缺省最近 7 天
 //   - user_id / user_name / session_id / artifact_id：本地二次过滤（上游接口当前不支持服务端过滤）
 //
-// 列表项不实时拉 JSONL，仅返回元信息概览，详情数据由 getSessionBundleAPI 拉取。
+// 列表项不实时拉 JSONL，仅返回元信息概览。当 aggregator 已对涉及日期完成预聚合时，
+// 会把缓存指标 join 到 bundle 上（chip / token / 雷达指标全部填充）；缺失的日期
+// 会用当前请求的 Cookie 异步触发后台聚合，不阻塞本次返回。
 func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	if h.upstream == nil {
 		fail(c, fmt.Errorf("upstream client not initialized"))
@@ -64,7 +66,21 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		if aid != "" && s.ArtifactID != aid {
 			continue
 		}
-		bundles = append(bundles, lightBundleFromAPI(s))
+		b := lightBundleFromAPI(s)
+		if h.aggregator != nil {
+			if m, ok := h.aggregator.Get(s.SessionID); ok {
+				b = applyCachedMetricsToBundle(b, m)
+			}
+		}
+		bundles = append(bundles, b)
+	}
+
+	// 异步触发缺失日期的聚合：当前时间窗涉及的所有自然日。
+	if h.aggregator != nil {
+		days := daysFromQueryRange(tr)
+		if len(days) > 0 {
+			h.aggregator.EnsureDays(cookie, days)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -172,6 +188,11 @@ func sessionToStgSource(s modellog.Session) model.StgSessionSource {
 }
 
 // lightBundleFromAPI 列表项概览：与 lightBundleFromSource 等价，只是字段来源不同。
+//
+// started_at_ms 三级兜底：
+//  1. 上游 create_at（最准确）
+//  2. session_id 自带时间戳（OpenCode 之外的格式如 20260608_095347_*）
+//  3. 0（让前端按"未知时间"渲染）
 func lightBundleFromAPI(s modellog.Session) apiSessionBundle {
 	startedAt := parseUpstreamTime(s.CreateAt)
 	endedAt := parseUpstreamTime(s.UpdateAt)
@@ -181,6 +202,11 @@ func lightBundleFromAPI(s modellog.Session) apiSessionBundle {
 	}
 	if !endedAt.IsZero() {
 		endedMs = endedAt.UnixMilli()
+	}
+	if startedMs == 0 {
+		if ts := parseSessionIDTimestamp(s.SessionID); ts > 0 {
+			startedMs = ts
+		}
 	}
 	dur := endedMs - startedMs
 	if dur < 0 {
@@ -203,6 +229,17 @@ func lightBundleFromAPI(s modellog.Session) apiSessionBundle {
 		Traces:      []apiTrace{},
 		Rules:       []apiRule{},
 	}
+}
+
+// daysFromQueryRange 从上游 TimeRange（"YYYY-MM-DD HH:mm:ss"）解析出涉及的自然日。
+// 解析失败返回今天单日，避免空触发。
+func daysFromQueryRange(tr modellog.TimeRange) []string {
+	st, err1 := time.ParseInLocation("2006-01-02 15:04:05", tr.StartTime, time.Local)
+	et, err2 := time.ParseInLocation("2006-01-02 15:04:05", tr.EndTime, time.Local)
+	if err1 != nil || err2 != nil || et.Before(st) {
+		return []string{time.Now().Format("2006-01-02")}
+	}
+	return rangeDays(st.UnixMilli(), et.UnixMilli())
 }
 
 // parseUpstreamTime 兼容上游可能的时间格式：RFC3339 / "YYYY-MM-DD HH:mm:ss" / 毫秒时间戳字符串。

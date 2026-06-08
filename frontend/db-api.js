@@ -7,13 +7,22 @@
     return new URLSearchParams(window.location.search).get(name);
   }
 
+  // 部署在 agentic-aidp.bytedance.net 这种带网关前缀的环境下，本地回环兜底毫无意义且会污染缓存，
+  // 因此仅在 localhost / 内网开发地址下才尝试 127.0.0.1。
+  function isLocalEnv() {
+    const h = window.location.hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0';
+  }
+
   function candidateBases() {
     const manual = param('api_base') || param('apiBase');
-    const saved = localStorage.getItem('agenttrace.apiBase');
+    const saved = isLocalEnv() ? localStorage.getItem('agenttrace.apiBase') : null;
     const origin = window.location.origin;
     const fallbacks = [];
-    if (origin !== 'http://127.0.0.1:18080') fallbacks.push('http://127.0.0.1:18080');
-    if (origin !== 'http://localhost:18080') fallbacks.push('http://localhost:18080');
+    if (isLocalEnv()) {
+      if (origin !== 'http://127.0.0.1:18080') fallbacks.push('http://127.0.0.1:18080');
+      if (origin !== 'http://localhost:18080') fallbacks.push('http://localhost:18080');
+    }
     return uniq([manual, saved, origin, ...fallbacks]);
   }
 
@@ -21,6 +30,43 @@
   function apiPrefix() {
     return window.location.pathname.startsWith('/trace_sever/') ? '/trace_sever' : '';
   }
+
+  // 页面所有以 "/xxx" 开头的导航链接（明细/异常/详情等）需要改写成 "/trace_sever/xxx"，
+  // 否则浏览器会跳到主域根路径，被网关以默认页接管，看上去像"回到主菜单"。
+  function rewriteNavLinks(root) {
+    const prefix = apiPrefix();
+    if (!prefix) return;
+    const scope = root || document;
+    const apply = (el, attr) => {
+      const raw = el.getAttribute(attr);
+      if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return;
+      if (raw.startsWith(prefix + '/') || raw === prefix) return;
+      el.setAttribute(attr, prefix + raw);
+    };
+    scope.querySelectorAll('a[href^="/"]:not([href^="//"])').forEach(a => apply(a, 'href'));
+    // 列表行的 data-href 也要一并处理（点击后由 JS 跳转）。
+    scope.querySelectorAll('[data-href^="/"]:not([data-href^="//"])').forEach(el => apply(el, 'data-href'));
+  }
+  function startNavRewriter() {
+    rewriteNavLinks();
+    // 业务页面通过 innerHTML 动态生成的 <a>/<tr data-href> 也需要改写，用 MutationObserver
+    // 全局监听一次，比让每个页面手动调用更稳。
+    if (typeof MutationObserver === 'undefined') return;
+    const obs = new MutationObserver(muts => {
+      for (const m of muts) {
+        m.addedNodes.forEach(n => {
+          if (n.nodeType === 1) rewriteNavLinks(n);
+        });
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startNavRewriter);
+  } else {
+    startNavRewriter();
+  }
+  window.__rewriteNavLinks = rewriteNavLinks;
 
   let resolvedBase = null;
 
@@ -31,11 +77,12 @@
     for (const base of bases) {
       const url = base.replace(/\/$/, '') + finalPath;
       try {
-        const resp = await fetch(url, { cache: 'no-store' });
+        // same-origin 请求需要带 cookie 才能透传到上游 SSO。
+        const resp = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ' + url);
         const data = await resp.json();
         resolvedBase = base;
-        localStorage.setItem('agenttrace.apiBase', base);
+        if (isLocalEnv()) localStorage.setItem('agenttrace.apiBase', base);
         return data;
       } catch (err) {
         errors.push(err.message || String(err));
