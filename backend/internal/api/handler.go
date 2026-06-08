@@ -25,9 +25,10 @@ import (
 //   - tos：   新表 stg_session_sources + 实时拉 obj_url JSONL（依赖 db + fetcher）
 //   - api：   完全不落库，直接调上游模型日志接口 + 实时拉 JSONL（依赖 upstream + fetcher）
 type Handler struct {
-	db       *gorm.DB
-	fetcher  *tracelog.Fetcher
-	upstream *modellog.Client
+	db         *gorm.DB
+	fetcher    *tracelog.Fetcher
+	upstream   *modellog.Client
+	aggregator *Aggregator
 }
 
 // New 构造依赖 DB 的 Handler（fornax / tos 模式）。
@@ -47,7 +48,12 @@ func NewAPI() (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{fetcher: tracelog.NewFetcher(), upstream: cli}, nil
+	fetcher := tracelog.NewFetcher()
+	return &Handler{
+		fetcher:    fetcher,
+		upstream:   cli,
+		aggregator: NewAggregator(cli, fetcher),
+	}, nil
 }
 
 // backfillAllMetrics 启动时一次性扫描所有 jsonl session，缺 cached_metrics 的拉取并回写。
