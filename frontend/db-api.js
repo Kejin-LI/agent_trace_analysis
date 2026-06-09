@@ -48,10 +48,13 @@
         // same-origin 请求需要带 cookie 才能透传到上游 SSO。
         const resp = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ' + url);
-        const data = await resp.json();
         resolvedBase = base;
         if (isLocalEnv()) localStorage.setItem('agenttrace.apiBase', base);
-        return data;
+        // 204 No Content 或空 body：视为"暂无数据"，返回 null 而非解析空 body 报错。
+        if (resp.status === 204) return null;
+        const text = await resp.text();
+        if (!text) return null;
+        return JSON.parse(text);
       } catch (err) {
         errors.push(err.message || String(err));
       }
@@ -168,8 +171,11 @@
     };
   }
 
-  async function loadSession(sessionId) {
-    const payload = await fetchJSON('/api/session-bundles/' + encodeURIComponent(sessionId));
+  async function loadSession(sessionId, opts) {
+    const metaOnly = opts && opts.metaOnly;
+    const url = '/api/session-bundles/' + encodeURIComponent(sessionId) + (metaOnly ? '?meta_only=1' : '');
+    const payload = await fetchJSON(url);
+    if (!payload) return null; // 204：DB 暂无缓存，等完整加载
     return normalizeSession(payload);
   }
 

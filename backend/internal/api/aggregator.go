@@ -39,6 +39,12 @@ type Aggregator struct {
 
 	flightMu sync.Mutex
 	flight   map[string]bool // date -> queued or running
+
+	// cookieMu 保护最近一次用户访问携带的有效 Cookie。
+	// 仅驻留内存、绝不落盘，供凌晨 cron 复用以触发全量聚合；
+	// 一旦上游鉴权失败会被清空，自动回退到"用户访问触发"模式。
+	cookieMu   sync.RWMutex
+	lastCookie string
 }
 
 // NewAggregator 构造 DB-backed 聚合器并确保表结构存在。
@@ -61,7 +67,85 @@ func NewAggregator(db *gorm.DB, client *modellog.Client, fetcher *tracelog.Fetch
 		flight:   make(map[string]bool),
 	}
 	go a.worker()
+	go a.nightlyCron()
 	return a, nil
+}
+
+// rememberCookie 把最近一次用户访问携带的有效 Cookie 缓存到内存，供凌晨 cron 复用。
+// 绝不持久化到磁盘/DB，进程退出即丢失。
+func (a *Aggregator) rememberCookie(cookie string) {
+	if a == nil || strings.TrimSpace(cookie) == "" {
+		return
+	}
+	a.cookieMu.Lock()
+	a.lastCookie = cookie
+	a.cookieMu.Unlock()
+}
+
+// currentCookie 返回内存中缓存的最近 Cookie；无则返回空串。
+func (a *Aggregator) currentCookie() string {
+	if a == nil {
+		return ""
+	}
+	a.cookieMu.RLock()
+	defer a.cookieMu.RUnlock()
+	return a.lastCookie
+}
+
+// forgetCookie 在检测到 Cookie 失效（上游鉴权失败）时清空缓存，
+// 让凌晨 cron 自动回退到"用户访问触发"模式，避免反复用失效凭证打上游。
+func (a *Aggregator) forgetCookie() {
+	if a == nil {
+		return
+	}
+	a.cookieMu.Lock()
+	a.lastCookie = ""
+	a.cookieMu.Unlock()
+}
+
+// nightlyCron 每天凌晨用内存缓存的最近 Cookie 跑昨天+今天的全量聚合，
+// 让大盘指标在用户上班前就已"秒出"。拿不到可用 Cookie 时跳过本轮，
+// 自动回退到"用户访问触发"补库（方案 C），不破坏 Cookie 不落盘的安全红线。
+func (a *Aggregator) nightlyCron() {
+	if a == nil || a.db == nil {
+		return
+	}
+	// 每分钟检查一次是否到达触发时刻（本地时间 03:00），命中即聚合。
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	lastRunDate := ""
+	for range ticker.C {
+		now := time.Now()
+		if now.Hour() != 3 {
+			continue
+		}
+		today := now.Format("2006-01-02")
+		if today == lastRunDate {
+			continue // 当天已触发过，避免 03:00~03:59 内重复
+		}
+		cookie := a.currentCookie()
+		if strings.TrimSpace(cookie) == "" {
+			log.Printf("aggregator: nightly cron skipped (no cached cookie), fallback to access-triggered backfill")
+			continue
+		}
+		lastRunDate = today
+		yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+		for _, date := range []string{yesterday, today} {
+			if a.isDateCompleted(date) {
+				continue
+			}
+			if !a.acquireDateFlight(date) {
+				continue
+			}
+			select {
+			case a.jobs <- aggregateJob{cookie: cookie, date: date}:
+				log.Printf("aggregator: nightly cron enqueued date=%s", date)
+			default:
+				log.Printf("aggregator: nightly cron queue full, skip date=%s", date)
+				a.releaseDateFlight(date)
+			}
+		}
+	}
 }
 
 // Get 查 session 的聚合指标，命中返回。
@@ -86,6 +170,8 @@ func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	if a == nil || a.db == nil || cookie == "" {
 		return
 	}
+	// 记住最近一次用户访问携带的 Cookie，供凌晨 cron 复用（仅内存）。
+	a.rememberCookie(cookie)
 	date, ok := mostRecentDay(dates)
 	if !ok {
 		return
@@ -140,6 +226,18 @@ func (a *Aggregator) releaseDateFlight(date string) {
 	delete(a.flight, date)
 }
 
+// isAuthError 粗粒度判断上游错误是否为鉴权失败（Cookie 失效），用于触发清空缓存 Cookie。
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "http 401") ||
+		strings.Contains(msg, "http 403") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "forbidden")
+}
+
 // runAggregate 拉指定日期所有 session list -> 低并发拉 TOS JSONL -> 解析 -> 直接写 DB。
 func (a *Aggregator) runAggregate(cookie, date string) {
 	startedAt := time.Now()
@@ -169,6 +267,11 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 		errAt := time.Now()
 		a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, err.Error(), &startedAt, nil, &errAt, 0, 2)
 		log.Printf("aggregator: %s list failed: %v", date, err)
+		// 鉴权失败说明缓存 Cookie 已失效，清空它让凌晨 cron 回退到用户访问触发。
+		if isAuthError(err) {
+			a.forgetCookie()
+			log.Printf("aggregator: cached cookie invalidated due to auth error")
+		}
 		return
 	}
 	listTotal := len(resp.Data)

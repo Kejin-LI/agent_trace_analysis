@@ -916,6 +916,15 @@ func bundlePaginationDefault(c *gin.Context, defaultLimit int) (limit, offset in
 	return
 }
 
+// isTruthy 把常见的真值字符串（1/true/yes/on）判为 true，用于解析 query 开关。
+func isTruthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
+	return false
+}
+
 func pagination(c *gin.Context) (limit, offset int) {
 	limit = 50
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 500 {
