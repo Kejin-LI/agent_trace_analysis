@@ -5,9 +5,10 @@ import (
 )
 
 const (
-	kOsPPEFile         = "/opt/tmp/byteos/ppe"
-	kTceClusterFile    = "/opt/tmp/tce/cluster"
-	kTceSubClusterFile = "/opt/tmp/tce/subcluster"
+	kOsPPEFile           = "/opt/tmp/byteos/ppe"
+	kTceClusterFile      = "/opt/tmp/tce/cluster"
+	kTceSubClusterFile   = "/opt/tmp/tce/subcluster"
+	kMetricsEdgeConfFile = "/opt/tmp/metric/edge.conf"
 )
 
 type config struct {

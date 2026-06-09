@@ -112,7 +112,9 @@ func SetToDc(sp Span, value string) {
 }
 
 func SetErrorMessage(sp Span, value string) {
-	sp.SetTag(errorMessageKey, value)
+	if sp != nil {
+		sp.SetTag(errorMessageKey, value)
+	}
 }
 
 // IncrExecCount should only be used with batch span who are started with option "AsBatchExecSpan"

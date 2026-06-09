@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	maxTagLen  = 255
-	maxASCII   = '\u007F' // unicode.MaxASCII
+	maxTagLen = 255
+	maxASCII  = '\u007F' // unicode.MaxASCII
 )
 
 func isAgentSidecar() bool {
@@ -184,12 +184,39 @@ func ss(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
+const (
+	mask64 uint64 = 0x8080808080808080
+	mask32 uint32 = 0x80808080
+)
+
 func isValidString(s string) bool {
 	if len(s) == 0 || len(s) > maxTagLen {
 		return false
 	}
-	for _, r := range s {
-		if r > maxASCII {
+
+	ptr := unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&s)).Data)
+	size := len(s)
+	offset := 0
+
+	for ; offset+8 <= size; offset += 8 {
+		d := *(*uint64)(unsafe.Pointer(uintptr(ptr) + uintptr(offset)))
+		if d&mask64 != 0 {
+			return false
+		}
+	}
+
+	if offset+4 <= size {
+		d := *(*uint32)(unsafe.Pointer(uintptr(ptr) + uintptr(offset)))
+		if d&mask32 != 0 {
+			return false
+		}
+		offset += 4
+	}
+
+	// rest bytes
+	for ; offset < size; offset++ {
+		b := *(*byte)(unsafe.Pointer(uintptr(ptr) + uintptr(offset)))
+		if b > maxASCII {
 			return false
 		}
 	}

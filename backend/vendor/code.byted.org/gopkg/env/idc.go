@@ -4,7 +4,6 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -50,6 +49,7 @@ const (
 	DC_BJGS            = "bjgs"
 	DC_BJLGY           = "bjlgy"
 	DC_BOE             = "boe"     // bytedance offline environment
+	DC_BOE2            = "boe2"    // bytedance offline environment(china-east)
 	DC_IBOE            = "boei18n" // bytedance offline environment(international)
 	DC_CA              = "ca"      // West America
 	DC_COF             = "cof"
@@ -118,6 +118,7 @@ const (
 	DC_USEAST8         = "useast8"
 	DC_USEASTDT        = "useastdt"
 	DC_USWEST1A        = "uswest1a"
+	DC_USWEST2         = "uswest2"
 	DC_USTSENTRY       = "ustsentry"
 	DC_USORDX          = "usordx"
 	DC_VA              = "va"
@@ -136,10 +137,23 @@ const (
 	DC_XFLONLINE       = "xflonline"
 	DC_SINFBOE         = "sinfboe"
 	DC_SINFONLINE      = "sinfonline"
+	DC_SINFONLINEA     = "sinfonlinea"
+	DC_SINFONLINEC     = "sinfonlinec"
 	DC_SINFSHA         = "sinfsha"
-	DC_IE2             = "ie2" // EU-Compliance2
-	DC_DE              = "de"  // EU-Compliance
-	DC_HJ              = "hj"
+	DC_IE2             = "ie2"       // EU-Compliance2
+	DC_DE              = "de"        // EU-Compliance
+	DC_ID1A            = "id1a"      // ID-Compliance pipo at Indonesia
+	DC_ID2A            = "id2a"      // ID-Compliance2 pipo at Indonesia
+	DC_USEAST11A       = "useast11a" // US-Compliance pipo at useast
+	DC_IEDT            = "iedt"      // EU-TTP DT
+	DC_DEDT            = "dedt"      // EU-TTP DT backup
+	DC_NO1A            = "no1a"      // EU-TTP2 norway
+	DC_MYA             = "mya"
+	DC_HJ              = "hj"       // China-East
+	DC_HJZG            = "hjzg"     // caijing zg dc in china east
+	DC_USEAST9A        = "useast9a" // US-East ninth idc (nontt)
+	DC_MY2             = "my2"
+	DC_USEAST10A       = "useast10a" // US-East 10th idc for TikTok
 )
 
 const (
@@ -159,17 +173,24 @@ var (
 	ipv6Segments atomic.Value // ipv6 segments - idc ([]*ipv6Segment)
 )
 
-// IDC .
+// IDC returns the VDC information bound to current environment. To keep compatible, the function name
+// still uses IDC, however, users should be aware that the function response is VDC.
 func IDC() string {
 	if v := idc.Load(); v != nil {
 		return v.(string)
 	}
 
+	// TCE load injects RUNTIME_IDC_NAME environment variable value into container process environment.
+	// This part is the main path for processes deployed in container.
+	// Refer to /proc/$pid/environ for more details.
 	if dc := os.Getenv("RUNTIME_IDC_NAME"); dc != "" {
 		idc.Store(dc)
 		return dc
 	}
 
+	// Consul Agent injects IDC (actually VDC) into file according to machine IP.
+	// This part is the fast path for processes deployed on bare metal or VM.
+	// Refer to IDC Metadata for more details about the mapping relationship between netsegment and VDC.
 	b, err := ioutil.ReadFile("/opt/tmp/consul_agent/datacenter")
 	if err == nil {
 		if dc := strings.TrimSpace(string(b)); dc != "" {
@@ -178,26 +199,16 @@ func IDC() string {
 		}
 	}
 
-	cmd0 := exec.Command("/opt/tiger/consul_deploy/bin/determine_dc.sh")
-	output0, err := cmd0.Output()
-	if err == nil {
-		dc := strings.TrimSpace(string(output0))
-		if hasIDC(dc) {
-			idc.Store(dc)
-			return dc
-		}
+	// Determine IDC according to chadc netsegment files.
+	// This part is the slow path for processes deployed on bare metal or VM. Usually happens when Consul Agent
+	// is not installed for some reasons.
+	if hostIP := getHostIP(); hostIP != "" {
+		dc := GetIDCFromHost(hostIP)
+		idc.Store(dc)
+		return dc
 	}
 
-	cmd := exec.Command(`bash`, `-c`, `sd report|grep "Data center"|awk '{print $3}'`)
-	output, err := cmd.Output()
-	if err == nil {
-		dc := strings.TrimSpace(string(output))
-		if hasIDC(dc) {
-			idc.Store(dc)
-			return dc
-		}
-	}
-
+	// Fallback, do NOT leave it empty.
 	idc.Store(UnknownIDC)
 	return UnknownIDC
 }
@@ -218,7 +229,12 @@ func GetIDCFromHost(ip string) string {
 
 // GetIDCList .
 func GetIDCList() []string {
-	return idcList()
+	idcs := make([]string, 0, len(dcToRegionMap))
+	for idc := range dcToRegionMap {
+		idcs = append(idcs, idc)
+	}
+	// return all available idcs mapping
+	return idcs
 }
 
 // SetIDC .
@@ -240,6 +256,48 @@ func SetIpv6File(file string) {
 
 func init() {
 	refreshIDCs()
+}
+
+func getHostIP() string {
+	// Get host IP from environment variable values injected by ipAddressEnv-user.
+	hostIP := os.Getenv("BYTED_HOST_IP")
+	if hostIP == "" {
+		hostIP = os.Getenv("BYTED_HOST_IPV6")
+	}
+	if hostIP != "" {
+		return hostIP
+	}
+
+	// Try to fetch the first valid IP of eth0 interface.
+	//
+	// The code doesn't consider the following complicated environments:
+	// - eth0 is NOT the main interface, bond0 or other name instead
+	// - eth0 has public IP address
+	// - eth0 has multiple valid addresses
+	// - ...
+	// Users should take care of the logics in business code when they encountered
+	// scenarios mentioned before.
+	// For exmaple:
+	// 1. determine IP registered in IDC metadata
+	// 2. use env.GetIDCFromHost(ip) to get VDC of this IP
+	iface, err := net.InterfaceByName("eth0")
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ip := ipnet.IP; ip.IsGlobalUnicast() {
+			return ip.String()
+		}
+	}
+	return ""
 }
 
 // ATTENTION: IT COMES WITH A LOOP, DON'T CALL IT AGAIN.
@@ -292,7 +350,7 @@ func readSegments(userFile atomic.Value, defaultFiles []string, addItem func(ipN
 		}
 	}
 	// Deduplication: key=segment, value=idc
-	var lineMap = make(map[string]string, len(lines))
+	lineMap := make(map[string]string, len(lines))
 	for _, line := range lines {
 		s := strings.Split(line, " ")
 		if len(s) != 2 {
@@ -399,13 +457,13 @@ func mergeIpv4Segment(ipv4s []*ipv4Segment) (merged []*ipv4Segment) {
 	}
 	sort.Sort(sortIpv4Segment(ipv4s))
 	// 先打平所有网段
-	var flatten = []*ipv4Segment{ipv4s[0]}
+	flatten := []*ipv4Segment{ipv4s[0]}
 	var former, latter *ipv4Segment
 	for formerIdx, latterIdx := 0, 1; latterIdx < len(ipv4s); {
 		former, latter = flatten[formerIdx], ipv4s[latterIdx]
 		// 判断前后两网段是否交叉, former.end >= latter.start
 		if former.end >= latter.start {
-			var tmp = make([]*ipv4Segment, 0, 4)
+			tmp := make([]*ipv4Segment, 0, 4)
 			latterIdx++
 			if former.start == latter.start {
 				tmp = append(tmp, latter)
@@ -529,13 +587,13 @@ func mergeIpv6Segment(ipv6s []*ipv6Segment) (merged []*ipv6Segment) {
 	}
 	sort.Sort(sortIpv6Segment(ipv6s))
 	// 打平所有网段
-	var flatten = []*ipv6Segment{ipv6s[0]}
+	flatten := []*ipv6Segment{ipv6s[0]}
 	var former, latter *ipv6Segment
 	for formerIdx, latterIdx := 0, 1; latterIdx < len(ipv6s); {
 		former, latter = flatten[formerIdx], ipv6s[latterIdx]
 		// 判断前后两网段是否交叉, former.end >= latter.start
 		if geU128(former.end, latter.start) {
-			var tmp = make([]*ipv6Segment, 0, 4)
+			tmp := make([]*ipv6Segment, 0, 4)
 			latterIdx++
 			if eqU128(former.start, latter.start) {
 				tmp = append(tmp, latter)

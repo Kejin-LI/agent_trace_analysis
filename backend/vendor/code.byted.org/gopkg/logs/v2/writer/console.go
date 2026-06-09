@@ -10,7 +10,8 @@ import (
 // ConsoleWriter provides a console output writer.
 type ConsoleWriter struct {
 	io.WriteCloser
-	isColorful bool
+	isColorful  bool
+	writeRawLog bool
 }
 
 // NewConsoleWriter creates a ConsoleWriter.
@@ -29,19 +30,24 @@ func NewConsoleWriter(options ...ConsoleOption) LogWriter {
 func (w *ConsoleWriter) Write(l RecyclableLog) error {
 	defer l.Recycle()
 	var err error
-	content := l.GetContent()
-
-	if w.isColorful {
-		_, err = w.WriteCloser.Write(colors[l.GetLevel()])
-	}
-	_, err = w.WriteCloser.Write(content)
-
-	if w.isColorful {
-		_, err = w.WriteCloser.Write(colorSuffix)
+	var content []byte
+	if w.writeRawLog {
+		content = l.GetBody()
+	} else {
+		content = l.GetContent()
 	}
 
-	if len(content) == 0 || content[len(content)-1] != '\n' {
-		_, err = w.WriteCloser.Write([]byte{'\n'})
+	if !w.isColorful {
+		content = append(content, '\n')
+		_, err = w.WriteCloser.Write(content)
+	} else {
+		packet := NewPacket(0)
+		defer PutPacket(packet)
+		*packet = append(*packet, colors[l.GetLevel()]...)
+		*packet = append(*packet, content...)
+		*packet = append(*packet, colorSuffix...)
+		*packet = append(*packet, '\n')
+		_, err = w.WriteCloser.Write(*packet)
 	}
 	return err
 }
@@ -72,5 +78,11 @@ type ConsoleOption func(writer *ConsoleWriter)
 func SetColorful(isColorful bool) ConsoleOption {
 	return func(writer *ConsoleWriter) {
 		writer.isColorful = isColorful
+	}
+}
+
+func WriteRawConsoleLog(writeRawLog bool) ConsoleOption {
+	return func(writer *ConsoleWriter) {
+		writer.writeRawLog = writeRawLog
 	}
 }

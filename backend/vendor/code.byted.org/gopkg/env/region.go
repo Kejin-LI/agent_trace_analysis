@@ -17,6 +17,7 @@ const (
 	R_ALISG            = "ALISG" // Singapore Aliyun
 	R_CA               = "CA"    // West America
 	R_BOE              = "BOE"
+	R_ChinaBOE2        = "China-BOE2"
 	R_SUITEKA          = "SUITEKA"
 	R_SUITEKA2         = "SUITEKA2"
 	R_SUITEKA3         = "SUITEKA3"
@@ -40,10 +41,19 @@ const (
 	R_ChinaEast        = "China-East"
 	R_EUCOMPLIANCE2    = "EU-Compliance2"
 	R_EUCOMPLIANCE     = "EU-Compliance"
+	R_IDCompliance     = "ID-Compliance"
+	R_IDCompliance2    = "ID-Compliance2"
+	R_USCompliance     = "US-Compliance"
+	R_EUTTP2           = "EU-TTP2"
+	R_ChinaPay2        = "China-Pay2"
+	R_AsiaSouthEastBD  = "Asia-SouthEastBD"
+	R_USEastBD         = "US-EastBD"
 )
 
-const regionFileDefault = "/opt/tiger/chadc/region.json"
-const regionRefreshDur = 5 * time.Minute
+const (
+	regionFileDefault = "/opt/tiger/chadc/region.json"
+	regionRefreshDur  = 5 * time.Minute
+)
 
 var (
 	region     atomic.Value // local region (string)
@@ -52,30 +62,36 @@ var (
 )
 
 var dcToRegionMap = map[string]string{
-	DC_HY:     R_CN,
-	DC_LF:     R_CN,
-	DC_HL:     R_CN,
-	DC_YG:     R_CN,
-	DC_WJ:     R_CN,
-	DC_SDQD:   R_CN,
-	DC_SDQDCJ: R_CN,
-	DC_ALINC2: R_CN,
-	DC_LQ:     R_CN,
-	DC_AGSY:   R_CN,
-	DC_AGCQ:   R_CN,
-	DC_AGGDSZ: R_CN,
-	DC_AGHBWH: R_CN,
-	DC_AGJSNJ: R_CN,
-	DC_AGLNSY: R_CN,
-	DC_AGSDQD: R_CN,
-	DC_AGSXXA: R_CN,
-	DC_AGSXLQ: R_CN,
+	DC_HY:          R_CN,
+	DC_LF:          R_CN,
+	DC_HL:          R_CN,
+	DC_YG:          R_CN,
+	DC_WJ:          R_CN,
+	DC_SDQD:        R_CN,
+	DC_SDQDCJ:      R_CN,
+	DC_ALINC2:      R_CN,
+	DC_LQ:          R_CN,
+	DC_AGSY:        R_CN,
+	DC_AGCQ:        R_CN,
+	DC_AGGDSZ:      R_CN,
+	DC_AGHBWH:      R_CN,
+	DC_AGJSNJ:      R_CN,
+	DC_AGLNSY:      R_CN,
+	DC_AGSDQD:      R_CN,
+	DC_AGSXXA:      R_CN,
+	DC_AGSXLQ:      R_CN,
+	DC_XFLONLINE:   R_CN,
+	DC_SINFONLINE:  R_CN,
+	DC_SINFONLINEA: R_CN,
+	DC_SINFONLINEC: R_CN,
+	DC_SINFSHA:     R_CN,
 
 	DC_CA: R_CA,
 
-	DC_MALIVA:  R_MALIVA,
-	DC_USEAST3: R_MALIVA,
-	DC_USEAST4: R_MALIVA,
+	DC_MALIVA:    R_MALIVA,
+	DC_USEAST3:   R_MALIVA,
+	DC_USEAST4:   R_MALIVA,
+	DC_USEAST10A: R_MALIVA,
 
 	DC_USEAST2A: R_I18N,
 
@@ -88,9 +104,12 @@ var dcToRegionMap = map[string]string{
 	DC_SGSAAS1LARKIDC1: R_QMSG,
 	DC_SGSAAS1LARKIDC2: R_QMSG,
 
-	DC_BOE:  R_BOE,
-	DC_IBOE: R_BOE,
-	DC_COF:  R_BOE,
+	DC_BOE:     R_BOE,
+	DC_IBOE:    R_BOE,
+	DC_COF:     R_BOE,
+	DC_SINFBOE: R_BOE,
+
+	DC_BOE2: R_ChinaBOE2,
 
 	DC_BOETTP: R_USBOE,
 
@@ -101,6 +120,7 @@ var dcToRegionMap = map[string]string{
 	DC_SGCOMM1:      R_ALISG,
 	DC_SGCOMPLIANCE: R_ALISG,
 	DC_MY:           R_ALISG,
+	DC_MY2:          R_ALISG,
 
 	DC_SYKALARK: R_SUITEKA,
 
@@ -139,16 +159,33 @@ var dcToRegionMap = map[string]string{
 	DC_AWSFR:         R_EuropeCentral,
 	DC_FRACOMPLIANCE: R_EuropeCentral,
 
-	DC_IE: R_EUTTP,
+	DC_IE:   R_EUTTP,
+	DC_IEDT: R_EUTTP,
+	DC_DEDT: R_EUTTP,
+
+	DC_NO1A: R_EUTTP2,
+
+	DC_IE2: R_EUCOMPLIANCE2,
+
+	DC_DE: R_EUCOMPLIANCE,
+
+	DC_ID1A: R_IDCompliance,
+
+	DC_ID2A: R_IDCompliance2,
+
+	DC_USEAST11A: R_USCompliance,
 
 	DC_LFZG: R_ChinaPay,
 	DC_HLZG: R_ChinaPay,
 
-	DC_IE2: R_EUCOMPLIANCE2,
-	DC_DE:  R_EUCOMPLIANCE,
+	DC_HJZG: R_ChinaPay2,
 
 	DC_PD: R_ChinaEast,
 	DC_HJ: R_ChinaEast,
+
+	DC_MYA: R_AsiaSouthEastBD,
+
+	DC_USEAST9A: R_USEastBD,
 }
 
 // Region .

@@ -31,3 +31,10 @@ _testmain.go
 /metrics.test
 /profile*.png
 .idea/
+/auto-tests/log/
+/auto-tests/output/
+/output/
+/v4/go.work
+/v4/go.work.sum
+/auto-tests/go.work
+/auto-tests/go.work.sum

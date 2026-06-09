@@ -4,23 +4,29 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"unsafe"
 
+	fastRT "code.byted.org/duanyi.aster/gopkg/runtime"
 	"code.byted.org/gopkg/env"
+)
+
+const (
+	funcNameKey = "func"
 )
 
 type prefixedLog struct {
 	Log
 }
 
-func (l *prefixedLog) Time(includeZone bool) *prefixedLog {
+func (l *prefixedLog) Time() *prefixedLog {
 	if l == nil {
 		return nil
 	}
 	l.executors = append(l.executors, func(l *Log) {
 		current := current()
 		l.time = current.Time
-		if includeZone {
+		if l.includeZone {
 			l.buf = append(l.buf, current.serialBytes...)
 		} else {
 			l.buf = append(l.buf, current.serialBytes[:len(current.serialBytes)-5]...)
@@ -52,13 +58,39 @@ func (l *prefixedLog) Location() *prefixedLog {
 		} else if l.line != nil {
 			f := l.line.load(l.logger.callDepth+l.callDepthOffset, l.logger.fullPath || enableSecMark)
 			fileLine = *(*string)(unsafe.Pointer(&f))
+		} else if l.isInjectedFileLocation() {
+			if !(l.logger.fullPath || enableSecMark) {
+				fileLine = l.injectedLocation
+			} else {
+				fileLine = l.injectedFullLocation
+			}
 		} else {
-			_, file, line, ok := runtime.Caller(l.logger.callDepth + l.callDepthOffset)
+			var pc uintptr
+			var file string
+			var line int
+			var ok bool
+			if l.logger.useFastCaller {
+				pc, file, line, ok = fastRT.PhysicCaller(l.logger.callDepth + l.callDepthOffset)
+			} else {
+				pc, file, line, ok = runtime.Caller(l.logger.callDepth + l.callDepthOffset)
+			}
+
 			if ok {
 				if !(l.logger.fullPath || enableSecMark) {
 					file = filepath.Base(file)
 				}
 				fileLine = file + ":" + strconv.Itoa(line)
+				printStatus := l.logger.funcNameInfo
+				if printStatus != noPrintFunc {
+					fn := runtime.FuncForPC(pc)
+					funcName := fn.Name()
+					switch printStatus {
+					case funcNameOnly:
+						funcName = filepath.Ext(funcName)
+						funcName = strings.TrimPrefix(funcName, ".")
+					}
+					l.StrKV(funcNameKey, funcName)
+				}
 			} else {
 				fileLine = "?:?"
 			}

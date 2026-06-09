@@ -26,54 +26,22 @@
     return uniq([manual, saved, origin, ...fallbacks]);
   }
 
-  // 当前页面挂在 /trace_sever/ 网关前缀下时，API 也要带同样的前缀（注意 sever 是网关侧的实际拼写）。
-  function apiPrefix() {
-    return window.location.pathname.startsWith('/trace_sever/') ? '/trace_sever' : '';
+  // 基础 path：取当前页面所在目录，用于把 "/api/..." 拼到正确的网关前缀下
+  // （例如在 /trace_sever/sessions 页面下基础 path 为 "/trace_sever/"）。
+  // 让浏览器原生处理，避免硬编码网关名。
+  function basePath() {
+    const p = window.location.pathname;
+    const idx = p.lastIndexOf('/');
+    return idx >= 0 ? p.slice(0, idx + 1) : '/';
   }
-
-  // 页面所有以 "/xxx" 开头的导航链接（明细/异常/详情等）需要改写成 "/trace_sever/xxx"，
-  // 否则浏览器会跳到主域根路径，被网关以默认页接管，看上去像"回到主菜单"。
-  function rewriteNavLinks(root) {
-    const prefix = apiPrefix();
-    if (!prefix) return;
-    const scope = root || document;
-    const apply = (el, attr) => {
-      const raw = el.getAttribute(attr);
-      if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return;
-      if (raw.startsWith(prefix + '/') || raw === prefix) return;
-      el.setAttribute(attr, prefix + raw);
-    };
-    scope.querySelectorAll('a[href^="/"]:not([href^="//"])').forEach(a => apply(a, 'href'));
-    // 列表行的 data-href 也要一并处理（点击后由 JS 跳转）。
-    scope.querySelectorAll('[data-href^="/"]:not([data-href^="//"])').forEach(el => apply(el, 'data-href'));
-  }
-  function startNavRewriter() {
-    rewriteNavLinks();
-    // 业务页面通过 innerHTML 动态生成的 <a>/<tr data-href> 也需要改写，用 MutationObserver
-    // 全局监听一次，比让每个页面手动调用更稳。
-    if (typeof MutationObserver === 'undefined') return;
-    const obs = new MutationObserver(muts => {
-      for (const m of muts) {
-        m.addedNodes.forEach(n => {
-          if (n.nodeType === 1) rewriteNavLinks(n);
-        });
-      }
-    });
-    obs.observe(document.body, { childList: true, subtree: true });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startNavRewriter);
-  } else {
-    startNavRewriter();
-  }
-  window.__rewriteNavLinks = rewriteNavLinks;
 
   let resolvedBase = null;
 
   async function fetchJSON(path) {
     const errors = [];
     const bases = resolvedBase ? [resolvedBase] : candidateBases();
-    const finalPath = apiPrefix() + path;
+    // 把 "/api/x" 转成 "<basePath>api/x"，复用浏览器原生 URL 解析。
+    const finalPath = path.startsWith('/') ? basePath() + path.slice(1) : path;
     for (const base of bases) {
       const url = base.replace(/\/$/, '') + finalPath;
       try {

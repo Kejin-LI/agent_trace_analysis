@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"code.byted.org/security/go-spiffe-v2/spiffeid"
-	"gopkg.in/square/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v3/jwt"
 )
 
 const (

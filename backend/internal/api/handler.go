@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -41,19 +42,28 @@ func New(db *gorm.DB) *Handler {
 	return h
 }
 
-// NewAPI 构造 api 模式 Handler（不依赖 DB，仅依赖上游接口）。
-// upstream 为空时返回错误，调用方决定是否降级。
-func NewAPI() (*Handler, error) {
+// NewAPI 构造 api 模式 Handler。
+// DB 为可选依赖：存在时启用 DB-backed 聚合缓存；不存在时仅保留实时上游读取。
+func NewAPI(gdb *gorm.DB) (*Handler, error) {
 	cli, err := modellog.NewClient()
 	if err != nil {
 		return nil, err
 	}
 	fetcher := tracelog.NewFetcher()
-	return &Handler{
-		fetcher:    fetcher,
-		upstream:   cli,
-		aggregator: NewAggregator(cli, fetcher),
-	}, nil
+	h := &Handler{
+		db:       gdb,
+		fetcher:  fetcher,
+		upstream: cli,
+	}
+	if gdb != nil {
+		agg, err := NewAggregator(gdb, cli, fetcher)
+		if err != nil {
+			log.Printf("api 模式 DB 聚合器初始化失败，已降级为纯实时读取: %v", err)
+		} else {
+			h.aggregator = agg
+		}
+	}
+	return h, nil
 }
 
 // backfillAllMetrics 启动时一次性扫描所有 jsonl session，缺 cached_metrics 的拉取并回写。
@@ -139,6 +149,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g := r.Group(prefix)
 		g.GET("/session-bundles", h.listSessionBundles)
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
+		g.GET("/aggregate-status", h.listAggregateStatus)
 		if dataSourceMode() == "api" {
 			continue
 		}

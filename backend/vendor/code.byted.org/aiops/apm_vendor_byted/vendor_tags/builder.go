@@ -2,6 +2,8 @@ package vendor_tags
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"code.byted.org/gopkg/apm_vendor_interface"
 	"code.byted.org/gopkg/env"
@@ -21,6 +23,7 @@ const (
 	TagImageVersion       = "_image_version"
 	TagIsSidecar          = "_is_sidecar"
 	TagPrimaryPSM         = "_primary_psm"
+	TagServiceInline      = "_service_inline_psm"
 	TagDC                 = "dc"
 	TagHost               = "host"
 )
@@ -29,6 +32,10 @@ const (
 	useDefaultValueOnly tagBehavior = iota
 	useInputValue
 	useInputValueAsFallback
+)
+
+const (
+	ServiceInline = "SERVICE_INLINE_ENABLE"
 )
 
 // Builder is used to build custom VendorTagsProvider,
@@ -197,11 +204,17 @@ func getTceVendorTags() (immutableTags map[string]string, rewritableTags map[str
 		TagImageVersion:       env.ImageVersion(),
 		TagIsSidecar:          getIsSidecar(),
 	}
+
+	// 在合并编译场景下，如果开启了合并编译，则注入 _service_inline_psm 的 tag，值为宿主服务的 PSM
+	if strings.ToLower(os.Getenv(ServiceInline)) == "true" {
+		immutableTags[TagServiceInline] = getServiceInline()
+	}
+
 	rewritableTags = map[string]string{
 		TagPSM:        env.PSM(),
 		TagIpv4:       getIPV4(),
 		TagIpv6:       getIPv6(),
-		TagPrimaryPSM: getPrimaryPSM(),
+		TagPrimaryPSM: GetPrimaryPSM(),
 	}
 	return
 }

@@ -5,7 +5,9 @@ import bt "code.byted.org/bytedtrace/interface-go"
 type stringTagName string
 
 func (t stringTagName) Set(span bt.Span, value string) {
-	span.SetTag(string(t), value)
+	if span != nil {
+		span.SetTag(string(t), value)
+	}
 }
 
 func (t stringTagName) GetTagName() string {
@@ -15,7 +17,9 @@ func (t stringTagName) GetTagName() string {
 type int64TagName string
 
 func (t int64TagName) Set(span bt.Span, value int64) {
-	span.SetTag(string(t), value)
+	if span != nil {
+		span.SetTag(string(t), value)
+	}
 }
 
 func (t int64TagName) GetTagName() string {

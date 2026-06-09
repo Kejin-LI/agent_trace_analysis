@@ -66,6 +66,9 @@ type StartSpanOptions struct {
 
 	// set span trace logger
 	SpanTraceLoggerName string
+
+	// whether this span is sync child span
+	AsyncChildSpan bool
 }
 
 type SpanReference struct {
@@ -167,6 +170,32 @@ func SetSpanTraceLogger(loggerName string) StartSpanOption {
 	return func(ops *StartSpanOptions) {
 		ops.SpanTraceLoggerName = loggerName
 	}
+}
+
+// AsAsyncChildSpan
+// Start a async child span.
+// For example:
+// 		root,ctx :=	tracer.StartServerSpan(
+// 				context.Background(),
+// 				'root')
+//		(...)
+// 		child,_ := tracer.StartClientSpan(
+// 				ctx,
+// 				'child',
+// 				bytedtracer.AsAsyncChildSpan)
+//		(...)
+// 		root.Finish()
+//		(...)
+//		child.Finish()
+// If root span finish before async child span, the child span will be reported as usual.
+// The async child span will not in the same transaction will root span, it means if SamplingTrace(root), child span will not be sampled.
+// It is same with:
+//  		child,_ := tracer.StartClientSpan(
+// 				ctx,
+// 				name,
+// 				bytedtracer.ChildOf(root.GetContext()))
+func AsAsyncChildSpan(ops *StartSpanOptions) {
+	ops.AsyncChildSpan = true
 }
 
 // 兼容opentracing的traceId规范.

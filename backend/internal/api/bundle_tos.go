@@ -19,11 +19,25 @@ type cachedMetrics struct {
 	ToolFailures  int     `json:"tool_failures"`
 	ToolFailRate  float64 `json:"tool_fail_rate"`
 	AvgTokensTurn int64   `json:"avg_tokens_per_turn"`
+	ToolRetries   int     `json:"tool_retries"`
+	HasRootFail   bool    `json:"has_root_fail"`
+	HasLoop       bool    `json:"has_loop"`
 	Turns         int     `json:"turns"`
 	TraceCount    int     `json:"trace_count"`
 	DurationMs    int64   `json:"duration_ms"`
 	InputTokens   int64   `json:"input_tokens"`
 	OutputTokens  int64   `json:"output_tokens"`
+	TotalTokens   int64   `json:"total_tokens"`
+	Score         int     `json:"score"`
+	Radar         apiRadar `json:"radar"`
+	ResponseScore int     `json:"response_score"`
+	StabilityScore int    `json:"stability_score"`
+	ThinkingScore int     `json:"thinking_score"`
+	ResourceScore int     `json:"resource_score"`
+	OrchestrationScore int `json:"orchestration_score"`
+	AbnormalLevel int     `json:"abnormal_level"`
+	HasFinalAnswer bool   `json:"has_final_answer"`
+	NoOpStreak    int     `json:"no_op_streak"`
 	// 异常标签 & 规则结果（驱动列表页"异常"列）。
 	Chip      string    `json:"chip"`
 	Rules     []apiRule `json:"rules"`
@@ -34,6 +48,7 @@ type cachedMetrics struct {
 
 // extractCachedMetrics 从 buildBundleFromTOS 已经算好的 bundle 中抽出可缓存指标。
 func extractCachedMetrics(b apiSessionBundle) cachedMetrics {
+	pre := computeBundlePrecomputedMetrics(b)
 	return cachedMetrics{
 		ToolCalls:     b.Features.ToolCalls,
 		UniqueTools:   b.Features.UniqueTools,
@@ -41,11 +56,25 @@ func extractCachedMetrics(b apiSessionBundle) cachedMetrics {
 		ToolFailures:  b.Features.ToolFailures,
 		ToolFailRate:  b.Features.ToolFailRate,
 		AvgTokensTurn: b.Features.AvgTokensPerTurn,
+		ToolRetries:   b.Features.ToolRetries,
+		HasRootFail:   b.Features.HasRootFail,
+		HasLoop:       b.Features.HasLoop,
 		Turns:         b.Turns,
 		TraceCount:    b.TraceCount,
 		DurationMs:    b.DurationMs,
 		InputTokens:   b.InputTokens,
 		OutputTokens:  b.OutputTokens,
+		TotalTokens:   b.InputTokens + b.OutputTokens,
+		Score:         pre.Score,
+		Radar:         pre.Radar,
+		ResponseScore: pre.Radar.Response,
+		StabilityScore: pre.Radar.Stability,
+		ThinkingScore: pre.Radar.Thinking,
+		ResourceScore: pre.Radar.Resource,
+		OrchestrationScore: pre.Radar.Orchestration,
+		AbnormalLevel: pre.AbnormalLevel,
+		HasFinalAnswer: pre.HasFinalAnswer,
+		NoOpStreak:    pre.NoOpStreak,
 		Chip:          b.Chip,
 		Rules:         b.Rules,
 		Title:         b.Title,

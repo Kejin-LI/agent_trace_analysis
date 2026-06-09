@@ -34,15 +34,51 @@ func (l *logReader) Recycle() {
 		l.time = osTime.Time{}
 		l.loc = nil
 		l.padding = l.padding[:0]
+		l.loggerDefaultCallDepthOffset = v2DefaultCallDepthOffset
+		l.injectedLocation = ""
+		l.injectedFullLocation = ""
 		for _, kv := range l.kvlist {
 			kv.Recycle()
 		}
 		l.kvlist = l.kvlist[:0]
 		l.stackInfo = NoPrint
+		l.enableDynamicLevel = false
 		logPool.Put(&l.Log)
 	} else {
 		atomic.AddInt64(&l.writingCount, -1)
 	}
+}
+
+func recycle(l *Log) {
+	switch {
+	case cap(l.buf)+cap(l.bodyBuf) <= 1<<16:
+		l.strikes = 0
+	case cap(l.buf)/2+cap(l.bodyBuf) <= len(l.buf)+len(l.bodyBuf):
+		l.strikes = 0
+	case l.strikes < 4:
+		l.strikes++
+	default:
+		return
+	}
+	l.buf = l.buf[:0]
+	l.bodyBuf = l.bodyBuf[:0]
+	l.executors = l.executors[:0]
+	l.ctx = nil
+	l.psm = l.psm[:0]
+	l.line = nil
+	l.time = osTime.Time{}
+	l.loc = nil
+	l.padding = l.padding[:0]
+	l.injectedLocation = ""
+	l.injectedFullLocation = ""
+	l.loggerDefaultCallDepthOffset = v2DefaultCallDepthOffset
+	for _, kv := range l.kvlist {
+		kv.Recycle()
+	}
+	l.kvlist = l.kvlist[:0]
+	l.stackInfo = NoPrint
+	l.enableDynamicLevel = false
+	logPool.Put(l)
 }
 
 func (l *logReader) GetContent() []byte {

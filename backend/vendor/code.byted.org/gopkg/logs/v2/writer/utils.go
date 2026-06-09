@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -125,10 +126,30 @@ func spanIDFromContext(ctx context.Context) uint64 {
 	return 0
 }
 
-func getFileDate(name string) osTime.Time {
+type logFileTime struct {
+	timeSeg osTime.Time
+	seqNum  int
+}
+
+// After reports whether the log file time instant t is after u.
+func (t logFileTime) After(u logFileTime) bool {
+	return t.timeSeg.After(u.timeSeg) || (t.timeSeg.Equal(u.timeSeg) && t.seqNum > u.seqNum)
+}
+
+func getFileDate(name string) logFileTime {
+	var t osTime.Time
+	var n int
+	var err error
 	sn := strings.Split(name, ".")
-	t, _ := osTime.Parse(dateFormat, sn[len(sn)-1])
-	return t
+	t, err = osTime.Parse(dateFormat, sn[len(sn)-1])
+	if err != nil {
+		t, _ = osTime.Parse(dateFormat, sn[len(sn)-2])
+		n, _ = strconv.Atoi(sn[len(sn)-1])
+	}
+	return logFileTime{
+		timeSeg: t,
+		seqNum:  n,
+	}
 }
 
 // The parameter is a string unsafely converted from byte slice
@@ -205,4 +226,131 @@ func (m *RateLimiterMap) put(location string, bucket *rate.Limiter) {
 	}
 	newMap[location] = bucket
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&m.limiterMap)), unsafe.Pointer(&newMap))
+}
+
+type CounterLimiterSyncMap struct {
+	sMap sync.Map
+}
+
+func NewCountLimiterSyncMap() *CounterLimiterSyncMap {
+	return &CounterLimiterSyncMap{sMap: sync.Map{}}
+}
+
+func (m *CounterLimiterSyncMap) Allow(key string, limit int) bool {
+	if limit < 1 {
+		return false
+	}
+
+	if limit == 1 {
+		return true
+	}
+
+	var count uint64 = 1
+	if countI, loaded := m.sMap.LoadOrStore(key, &count); loaded {
+		if countI != nil {
+			if count, ok := countI.(*uint64); ok {
+				if atomic.AddUint64(count, 1)%uint64(limit) == 1 {
+					return true
+				}
+			}
+
+		}
+		return false
+	}
+	return true
+}
+
+// CounterLimiterMap is an implementation of RateLimiters.
+// It makes sure that only 1 log can be output every n logs.
+type CounterLimiterMap struct {
+	counterMap *map[string]*uint64
+	sync.Mutex
+}
+
+func NewCountLimiterMap() *CounterLimiterMap {
+	m := make(map[string]*uint64)
+	return &CounterLimiterMap{
+		counterMap: &m,
+		Mutex:      sync.Mutex{},
+	}
+}
+
+func (m *CounterLimiterMap) Allow(key string, limit int) bool {
+	if limit < 1 {
+		return false
+	}
+
+	if limit == 1 {
+		return true
+	}
+
+	if count, ok := m.get(key); ok {
+		if count != nil {
+			if atomic.AddUint64(count, 1)%uint64(limit) == 1 {
+				return true
+			}
+			return false
+		}
+	}
+	return m.put(key)
+}
+
+func (m *CounterLimiterMap) get(location string) (*uint64, bool) {
+	countMap := (*(map[string]*uint64))(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&m.counterMap))))
+	if b, ok := (*countMap)[location]; ok {
+		return b, ok
+	}
+	return nil, false
+}
+
+func (m *CounterLimiterMap) put(location string) bool {
+	m.Lock()
+	defer m.Unlock()
+	if countP, ok := m.get(location); ok {
+		atomic.AddUint64(countP, 1)
+		return false
+	}
+
+	newMap := make(map[string]*uint64, len(*m.counterMap)+1)
+	if m.counterMap != nil {
+		for k, v := range *m.counterMap {
+			newMap[k] = v
+		}
+	}
+	var value uint64 = 1
+	newMap[location] = &value
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&m.counterMap)), unsafe.Pointer(&newMap))
+	return true
+}
+
+func (m *CounterLimiterMap) contains(location string) bool {
+	bucketMap := (*map[string]*uint64)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&m.counterMap))))
+	if _, ok := (*bucketMap)[location]; ok {
+		return true
+	}
+	return false
+}
+
+type Packet *[]byte
+
+// NewPacket gets a usable byte slice.
+func NewPacket(length int) Packet {
+	p := packetPool.Get().(Packet)
+	*p = (*p)[:0]
+	if length > 0 {
+		*p = append(*p, make([]byte, length)...)
+	}
+	return p
+}
+
+func PutPacket(p Packet) {
+	*p = (*p)[:0]
+	packetPool.Put(p)
+}
+
+var packetPool = &sync.Pool{
+	New: func() interface{} {
+		data := make([]byte, 0, 32)
+		return Packet(&data)
+	},
 }

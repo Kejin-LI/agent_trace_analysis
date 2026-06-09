@@ -401,7 +401,7 @@ func (r RuleElement) Match(data Element) bool {
 		return false
 	}
 	switch r.Key {
-	case "name":
+	case "name", "names.0":
 		return f(data.Key, r.Value, r.Pattern)
 	case "value":
 		if len(data.Value) == 0 {
@@ -414,12 +414,12 @@ func (r RuleElement) Match(data Element) bool {
 			}
 		}
 		return float64(validCount)/float64(len(data.Value)) >= 0.5
-	case "description":
+	case "description", "descriptions.0":
 		return f(data.Description, r.Value, r.Pattern)
 	case "type":
 		return f(data.Type, r.Value, r.Pattern)
 	default:
-		utils.LogsWarnf("unknown match kind: %v", r.Key)
+		//utils.LogsWarnf("unknown match kind: %v", r.Key)
 	}
 	return false
 }
