@@ -12,13 +12,12 @@ import (
 
 type backfillDayResponse struct {
 	Date               string                 `json:"date"`
+	Started            bool                   `json:"started"`
+	Message            string                 `json:"message"`
 	UsedTempRunner     bool                   `json:"used_temp_runner"`
 	AggregatorEnabled  bool                   `json:"aggregator_enabled"`
 	SessionCountBefore int64                  `json:"session_count_before"`
-	SessionCountAfter  int64                  `json:"session_count_after"`
-	InsertedCount      int64                  `json:"inserted_count"`
 	DayStatus          *apiAggregateStatusRow `json:"day_status,omitempty"`
-	DailySummaryExists bool                   `json:"daily_summary_exists"`
 }
 
 func (h *Handler) backfillDay(c *gin.Context) {
@@ -59,6 +58,7 @@ func (h *Handler) backfillDay(c *gin.Context) {
 		}
 		usedTempRunner = true
 	}
+	// 单日期互斥：拿不到 flight 说明该日期补库正在进行中。
 	if !runner.acquireDateFlight(date) {
 		row, _ := loadAggregateStatusRow(h, date)
 		c.JSON(http.StatusConflict, gin.H{
@@ -68,31 +68,24 @@ func (h *Handler) backfillDay(c *gin.Context) {
 		})
 		return
 	}
-	defer runner.releaseDateFlight(date)
-	runner.runAggregate(cookie, date)
 
-	after, err := countAggregatesByDate(h, date)
-	if err != nil {
-		fail(c, err)
-		return
-	}
+	// 异步执行：补库是重操作（拉全天 session + 下载解析 TOS，可达数分钟），
+	// 同步执行会撞网关超时（504）。这里后台跑，接口立即返回，
+	// 前端通过 /api/aggregate-status 轮询该日期 status 进度。
+	go func() {
+		defer runner.releaseDateFlight(date)
+		runner.runAggregate(cookie, date)
+	}()
 
 	row, _ := loadAggregateStatusRow(h, date)
-	exists, err := hasDailySummary(h, date)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, backfillDayResponse{
+	c.JSON(http.StatusAccepted, backfillDayResponse{
 		Date:               date,
+		Started:            true,
+		Message:            "backfill started in background, poll /api/aggregate-status for progress",
 		UsedTempRunner:     usedTempRunner,
 		AggregatorEnabled:  h.aggregator != nil,
 		SessionCountBefore: before,
-		SessionCountAfter:  after,
-		InsertedCount:      after - before,
 		DayStatus:          row,
-		DailySummaryExists: exists,
 	})
 }
 
@@ -114,14 +107,6 @@ func countAggregatesByDate(h *Handler, date string) (int64, error) {
 		Where("aggregate_date = ?", parseAggregateDate(date)).
 		Count(&total).Error
 	return total, err
-}
-
-func hasDailySummary(h *Handler, date string) (bool, error) {
-	var total int64
-	err := h.db.Model(&model.APIDailySummary{}).
-		Where("aggregate_date = ?", parseAggregateDate(date)).
-		Count(&total).Error
-	return total > 0, err
 }
 
 func loadAggregateStatusRow(h *Handler, date string) (*apiAggregateStatusRow, error) {
