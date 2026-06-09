@@ -130,7 +130,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if err != nil {
 		log.Printf("session detail cached lookup failed key=%s err=%v", key, err)
 	}
-	if hasCached {
+	if hasCached && hasDetailTraces(cachedBundle) {
 		// DB 已有完整 bundle 时直接返回，避免详情页再走一次最近 7 天的上游扫描。
 		c.JSON(http.StatusOK, cachedBundle)
 		return
@@ -364,6 +364,10 @@ func buildDetailBundleFromAggregateRow(row model.APISessionAggregate) apiSession
 		bundle.ID = pickFirstNonEmpty(bundle.SessionID, bundle.ArtifactID, row.SessionID, row.ArtifactID)
 	}
 	return mergeBundleWithCachedBundle(bundle, cached)
+}
+
+func hasDetailTraces(bundle apiSessionBundle) bool {
+	return len(bundle.Traces) > 0
 }
 
 func mergeBundleWithCachedBundle(bundle, cached apiSessionBundle) apiSessionBundle {

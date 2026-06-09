@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,32 +93,51 @@ func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	if a.isDateCompleted(date) {
 		return
 	}
-
-	a.flightMu.Lock()
-	if a.flight[date] {
-		a.flightMu.Unlock()
+	if !a.acquireDateFlight(date) {
 		return
 	}
-	a.flight[date] = true
-	a.flightMu.Unlock()
 
 	select {
 	case a.jobs <- aggregateJob{cookie: cookie, date: date}:
 	default:
 		log.Printf("aggregator: queue full, skip date=%s", date)
-		a.flightMu.Lock()
-		delete(a.flight, date)
-		a.flightMu.Unlock()
+		a.releaseDateFlight(date)
 	}
 }
 
 func (a *Aggregator) worker() {
 	for job := range a.jobs {
 		a.runAggregate(job.cookie, job.date)
-		a.flightMu.Lock()
-		delete(a.flight, job.date)
-		a.flightMu.Unlock()
+		a.releaseDateFlight(job.date)
 	}
+}
+
+func (a *Aggregator) acquireDateFlight(date string) bool {
+	if a == nil || strings.TrimSpace(date) == "" {
+		return false
+	}
+	a.flightMu.Lock()
+	defer a.flightMu.Unlock()
+	if a.flight == nil {
+		a.flight = make(map[string]bool)
+	}
+	if a.flight[date] {
+		return false
+	}
+	a.flight[date] = true
+	return true
+}
+
+func (a *Aggregator) releaseDateFlight(date string) {
+	if a == nil || strings.TrimSpace(date) == "" {
+		return
+	}
+	a.flightMu.Lock()
+	defer a.flightMu.Unlock()
+	if a.flight == nil {
+		return
+	}
+	delete(a.flight, date)
 }
 
 // runAggregate 拉指定日期所有 session list -> 低并发拉 TOS JSONL -> 解析 -> 直接写 DB。

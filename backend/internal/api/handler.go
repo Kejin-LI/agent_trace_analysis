@@ -157,7 +157,6 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
-		g.GET("/backfill-day", h.backfillDay)
 		g.POST("/backfill-day", h.backfillDay)
 		if dataSourceMode() == "api" {
 			continue
