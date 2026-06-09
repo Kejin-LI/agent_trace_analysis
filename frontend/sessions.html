@@ -602,10 +602,10 @@
 
     // ----- 渲染单行 -----
     function renderRow(s) {
-      // 指标未聚合判定：列表项来自上游 light bundle 时无任何已解析指标
-      // （耗时/步数/traces/tokens 全 0、无规则与雷达）。此时展示"聚合中"占位，
-      // 避免用户把"尚未算出"误读为"真的是 0"。
-      const isPending = !((s.duration_ms > 0) || (s.turns > 0) || (s.trace_count > 0)
+      // 指标未聚合判定：列表项来自上游 light bundle 时无任何已解析指标。
+      // 注意 trace_count 不能作为判据——light bundle 默认带 trace_count=1，
+      // 真正的"已聚合"信号是耗时/步数/tokens/规则中至少有一个非空。
+      const isPending = !((s.duration_ms > 0) || (s.turns > 0)
         || (s.input_tokens > 0) || (s.output_tokens > 0)
         || (Array.isArray(s.rules) && s.rules.length > 0));
 
