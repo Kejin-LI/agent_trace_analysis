@@ -26,10 +26,12 @@ import (
 //   - tos：   新表 stg_session_sources + 实时拉 obj_url JSONL（依赖 db + fetcher）
 //   - api：   完全不落库，直接调上游模型日志接口 + 实时拉 JSONL（依赖 upstream + fetcher）
 type Handler struct {
-	db         *gorm.DB
-	fetcher    *tracelog.Fetcher
-	upstream   *modellog.Client
-	aggregator *Aggregator
+	db                  *gorm.DB
+	fetcher             *tracelog.Fetcher
+	upstream            *modellog.Client
+	aggregator          *Aggregator
+	dbOpenError         string
+	aggregatorInitError string
 }
 
 // New 构造依赖 DB 的 Handler（fornax / tos 模式）。
@@ -44,7 +46,7 @@ func New(db *gorm.DB) *Handler {
 
 // NewAPI 构造 api 模式 Handler。
 // DB 为可选依赖：存在时启用 DB-backed 聚合缓存；不存在时仅保留实时上游读取。
-func NewAPI(gdb *gorm.DB) (*Handler, error) {
+func NewAPI(gdb *gorm.DB, dbOpenErr error) (*Handler, error) {
 	cli, err := modellog.NewClient()
 	if err != nil {
 		return nil, err
@@ -55,9 +57,13 @@ func NewAPI(gdb *gorm.DB) (*Handler, error) {
 		fetcher:  fetcher,
 		upstream: cli,
 	}
+	if dbOpenErr != nil {
+		h.dbOpenError = dbOpenErr.Error()
+	}
 	if gdb != nil {
 		agg, err := NewAggregator(gdb, cli, fetcher)
 		if err != nil {
+			h.aggregatorInitError = err.Error()
 			log.Printf("api 模式 DB 聚合器初始化失败，已降级为纯实时读取: %v", err)
 		} else {
 			h.aggregator = agg
@@ -150,6 +156,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/session-bundles", h.listSessionBundles)
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
 		g.GET("/aggregate-status", h.listAggregateStatus)
+		g.GET("/self-check", h.selfCheck)
 		if dataSourceMode() == "api" {
 			continue
 		}

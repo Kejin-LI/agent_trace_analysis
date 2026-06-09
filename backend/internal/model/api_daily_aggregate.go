@@ -3,7 +3,7 @@ package model
 import "time"
 
 // APISessionAggregate 对应 API 模式下按 session 粒度缓存的聚合结果。
-// 仅存列表/大盘 join 所需的预计算指标，不存完整对话内容。
+// 同时缓存列表指标与详情页 bundle，避免实时解析失败时整页为空。
 type APISessionAggregate struct {
 	ID                 uint64     `gorm:"column:id;primaryKey;autoIncrement;comment:自增主键"`
 	SessionID          string     `gorm:"column:session_id;type:varchar(128);not null;uniqueIndex:uk_session_id;comment:session 唯一标识"`
@@ -42,6 +42,7 @@ type APISessionAggregate struct {
 	AbnormalLevel      int        `gorm:"column:abnormal_level;not null;default:0;index:idx_abnormal_level;comment:异常等级"`
 	RulesJSON          string     `gorm:"column:rules_json;type:longtext;comment:规则检查结果JSON"`
 	FeaturesJSON       string     `gorm:"column:features_json;type:longtext;comment:特征明细JSON"`
+	BundleJSON         string     `gorm:"column:bundle_json;type:longtext;comment:详情页完整bundle缓存JSON"`
 	SourceCreateAt     *time.Time `gorm:"column:source_create_at;type:datetime(3);comment:上游 create_at"`
 	SourceUpdateAt     *time.Time `gorm:"column:source_update_at;type:datetime(3);comment:上游 update_at"`
 	AggregatedAt       time.Time  `gorm:"column:aggregated_at;type:datetime(3);not null;comment:聚合完成时间"`
