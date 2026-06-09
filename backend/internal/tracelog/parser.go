@@ -134,6 +134,13 @@ func Parse(raw []byte) (*ParseResult, error) {
 	if raw[0] == '[' {
 		var events []rawEvent
 		if err := json.Unmarshal(raw, &events); err == nil {
+			// 新版 Neeko/Responses 事件流：顶层数组，每组 REQUEST_BODY + STREAM_RESPONSE。
+			// 无 logId/promptId/sessionID，必须用专用解析器，否则会退化成 fallback 脏数据。
+			if isNeekoResponsesLog(events) {
+				if out := parseNeekoResponsesLog(events); len(out.Rounds) > 0 {
+					return out, nil
+				}
+			}
 			out := parseStructuredEvents(events)
 			if len(out.Rounds) > 0 {
 				return out, nil
@@ -1026,6 +1033,190 @@ func contentText(raw json.RawMessage) string {
 		return strings.TrimSpace(b.String())
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+// isNeekoResponsesLog 识别新版 Neeko/Responses 事件流：
+// 顶层 JSON 数组，事件以 type 区分（REQUEST_BODY / STREAM_RESPONSE 等），
+// 且没有 logId/promptId/sessionID 字段（老版解析器据此聚合，这里聚合不出来）。
+func isNeekoResponsesLog(events []rawEvent) bool {
+	hasReq, hasStream := false, false
+	for _, ev := range events {
+		switch ev.Type {
+		case "REQUEST_BODY":
+			hasReq = true
+		case "STREAM_RESPONSE":
+			hasStream = true
+		}
+		if hasReq && hasStream {
+			return true
+		}
+	}
+	return false
+}
+
+// parseNeekoResponsesLog 解析新版事件流。
+//
+// 关键事实（基于真实样本验证）：
+//   - 事件按组出现：REQUEST_BODY 之后紧跟 STREAM_RESPONSE，构成一次 LLM 调用。
+//   - REQUEST_BODY.data = {model, input:[{role,content},...]}；用户问题取 input 中
+//     最后一条 role==user 的 input_text（developer 是 system prompt，不能当用户问题）。
+//   - STREAM_RESPONSE.data = {durationMs, allChunks:[...], finalContent}；
+//     usage / 最终 output 在 allChunks 里 type==response.completed 的 response 内。
+//   - Agent 多步调工具时，同一个用户问题会连发多次调用（input_tokens 递增）；
+//     这些调用应合并为同一个 Round（按 userPrompt 连续相同分组），而非多轮。
+func parseNeekoResponsesLog(events []rawEvent) *ParseResult {
+	out := &ParseResult{}
+	var pendingReq json.RawMessage
+	var pendingReqTS string
+
+	flushPair := func(req json.RawMessage, reqTS string, sr json.RawMessage, srTS string) {
+		if len(req) == 0 {
+			return
+		}
+		userPrompt, model := decodeNeekoRequest(req)
+		call := callRec{Model: model}
+		call.StartedMs = parseTSMillis(reqTS)
+		decodeNeekoStream(sr, &call)
+		if call.StartedMs == 0 {
+			call.StartedMs = parseTSMillis(srTS)
+		}
+		if call.DurationMs > 0 {
+			call.EndedMs = call.StartedMs + call.DurationMs
+		} else {
+			call.EndedMs = call.StartedMs
+		}
+
+		// 同一用户问题的连续调用合并进同一 Round。
+		var round *Round
+		if n := len(out.Rounds); n > 0 && (userPrompt == "" || out.Rounds[n-1].UserPrompt == userPrompt) {
+			round = &out.Rounds[n-1]
+		} else {
+			out.Rounds = append(out.Rounds, Round{
+				PromptID:   fmt.Sprintf("round-%d", len(out.Rounds)+1),
+				UserPrompt: userPrompt,
+				StartedMs:  call.StartedMs,
+			})
+			round = &out.Rounds[len(out.Rounds)-1]
+		}
+		if round.StartedMs == 0 || (call.StartedMs > 0 && call.StartedMs < round.StartedMs) {
+			round.StartedMs = call.StartedMs
+		}
+		if call.EndedMs > round.EndedMs {
+			round.EndedMs = call.EndedMs
+		}
+		round.InputTokens += call.UsageIn
+		round.OutputTokens += call.UsageOut
+		round.ReasoningTokens += call.UsageReason
+		round.Calls = append(round.Calls, call)
+	}
+
+	for _, ev := range events {
+		switch ev.Type {
+		case "REQUEST_BODY":
+			// 若上一组只有 REQUEST 没等到 STREAM，也先落一笔。
+			if len(pendingReq) > 0 {
+				flushPair(pendingReq, pendingReqTS, nil, "")
+			}
+			pendingReq = ev.Data
+			pendingReqTS = ev.ts()
+		case "STREAM_RESPONSE":
+			flushPair(pendingReq, pendingReqTS, ev.Data, ev.ts())
+			pendingReq = nil
+			pendingReqTS = ""
+		}
+	}
+	if len(pendingReq) > 0 {
+		flushPair(pendingReq, pendingReqTS, nil, "")
+	}
+	return out
+}
+
+// decodeNeekoRequest 从 REQUEST_BODY.data 提取真实用户问题与模型名。
+func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
+	var body struct {
+		Model string `json:"model"`
+		Input []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return "", ""
+	}
+	model = body.Model
+	for i := len(body.Input) - 1; i >= 0; i-- {
+		if strings.ToLower(body.Input[i].Role) != "user" {
+			continue
+		}
+		if t := neekoContentText(body.Input[i].Content); t != "" {
+			return t, model
+		}
+	}
+	return "", model
+}
+
+// neekoContentText 解析 Responses 风格 content：string 或 [{type,text}]。
+func neekoContentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	var arr []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		var b strings.Builder
+		for _, p := range arr {
+			if p.Text != "" {
+				b.WriteString(p.Text)
+				b.WriteByte('\n')
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
+	return ""
+}
+
+// decodeNeekoStream 从 STREAM_RESPONSE.data 提取耗时、usage、模型回复与工具调用。
+func decodeNeekoStream(raw json.RawMessage, c *callRec) {
+	if len(raw) == 0 {
+		return
+	}
+	var sr struct {
+		LogID      string                   `json:"logId"`
+		DurationMs int64                    `json:"durationMs"`
+		AllChunks  []map[string]interface{} `json:"allChunks"`
+	}
+	if err := json.Unmarshal(raw, &sr); err != nil {
+		return
+	}
+	if c.LogID == "" {
+		c.LogID = sr.LogID
+	}
+	c.DurationMs = sr.DurationMs
+	for _, chunk := range sr.AllChunks {
+		if strings.ToLower(stringAny(chunk["type"])) != "response.completed" {
+			continue
+		}
+		resp, _ := chunk["response"].(map[string]interface{})
+		if len(resp) == 0 {
+			continue
+		}
+		if c.Model == "" {
+			c.Model = stringAny(firstAny(resp, "model", "model_name"))
+		}
+		c.UsageIn, c.UsageOut, c.UsageReason = extractUsage(resp)
+		payload := payloadFromResponseMap(resp)
+		c.Text = firstNonEmptyString(c.Text, payload.Text)
+		c.Reasoning = firstNonEmptyString(c.Reasoning, payload.Reasoning)
+		if len(c.Tools) == 0 {
+			c.Tools = payload.Tools
+		}
+	}
 }
 
 // parseTSMillis 把 ISO8601 / 含毫秒时间戳转成毫秒。
