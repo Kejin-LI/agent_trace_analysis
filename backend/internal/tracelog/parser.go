@@ -132,8 +132,8 @@ func Parse(raw []byte) (*ParseResult, error) {
 	}
 
 	if raw[0] == '[' {
-		var events []rawEvent
-		if err := json.Unmarshal(raw, &events); err == nil {
+		events, ok := decodeEventArray(raw)
+		if ok {
 			// 新版 Neeko/Responses 事件流：顶层数组，每组 REQUEST_BODY + STREAM_RESPONSE。
 			// 无 logId/promptId/sessionID，必须用专用解析器，否则会退化成 fallback 脏数据。
 			if isNeekoResponsesLog(events) {
@@ -1035,6 +1035,51 @@ func contentText(raw json.RawMessage) string {
 	return strings.TrimSpace(string(raw))
 }
 
+// decodeEventArray 把顶层 JSON 数组解码为事件列表，并尽量容错：
+//  1. 先严格 Unmarshal；
+//  2. 失败则裁掉数组外的前后噪声（如末尾多余的 "解释" 文本、BOM 等）后重试；
+//  3. 仍失败则用流式 Decoder 逐元素解析，保留能解出的有效事件，
+//     避免数组外/末尾噪声导致整份日志解析失败、详情页整页空白。
+func decodeEventArray(raw []byte) ([]rawEvent, bool) {
+	var events []rawEvent
+	if err := json.Unmarshal(raw, &events); err == nil {
+		return events, true
+	}
+
+	// 裁剪到第一个 '[' 与最后一个 ']' 之间，去掉数组外噪声后再试一次。
+	if start := bytes.IndexByte(raw, '['); start >= 0 {
+		if end := bytes.LastIndexByte(raw, ']'); end > start {
+			trimmed := raw[start : end+1]
+			events = nil
+			if err := json.Unmarshal(trimmed, &events); err == nil {
+				return events, true
+			}
+		}
+	}
+
+	// 逐元素流式解析：保留能解出的有效事件，遇到损坏元素则停止（已收集的仍可用）。
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token() // 期望 '['
+	if err != nil {
+		return nil, false
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '[' {
+		return nil, false
+	}
+	collected := make([]rawEvent, 0, 64)
+	for dec.More() {
+		var ev rawEvent
+		if err := dec.Decode(&ev); err != nil {
+			break
+		}
+		collected = append(collected, ev)
+	}
+	if len(collected) > 0 {
+		return collected, true
+	}
+	return nil, false
+}
+
 // isNeekoResponsesLog 识别新版 Neeko/Responses 事件流：
 // 顶层 JSON 数组，事件以 type 区分（REQUEST_BODY / STREAM_RESPONSE 等），
 // 且没有 logId/promptId/sessionID 字段（老版解析器据此聚合，这里聚合不出来）。
@@ -1132,27 +1177,39 @@ func parseNeekoResponsesLog(events []rawEvent) *ParseResult {
 }
 
 // decodeNeekoRequest 从 REQUEST_BODY.data 提取真实用户问题与模型名。
+// 兼容两种线上格式：
+//   - Responses 风格：data.input = [{role, content}]
+//   - Chat Completions 风格：data.messages = [{role, content}]
+//
+// 用户问题取最后一条 role==user 的文本（system/developer 是系统提示词，不能当用户问题）。
 func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
 	var body struct {
-		Model string `json:"model"`
-		Input []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"input"`
+		Model    string         `json:"model"`
+		Input    []neekoMessage `json:"input"`
+		Messages []neekoMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return "", ""
 	}
 	model = body.Model
-	for i := len(body.Input) - 1; i >= 0; i-- {
-		if strings.ToLower(body.Input[i].Role) != "user" {
+	msgs := body.Input
+	if len(msgs) == 0 {
+		msgs = body.Messages
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.ToLower(msgs[i].Role) != "user" {
 			continue
 		}
-		if t := neekoContentText(body.Input[i].Content); t != "" {
+		if t := neekoContentText(msgs[i].Content); t != "" {
 			return t, model
 		}
 	}
 	return "", model
+}
+
+type neekoMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
 }
 
 // neekoContentText 解析 Responses 风格 content：string 或 [{type,text}]。
@@ -1187,9 +1244,10 @@ func decodeNeekoStream(raw json.RawMessage, c *callRec) {
 		return
 	}
 	var sr struct {
-		LogID      string                   `json:"logId"`
-		DurationMs int64                    `json:"durationMs"`
-		AllChunks  []map[string]interface{} `json:"allChunks"`
+		LogID        string                   `json:"logId"`
+		DurationMs   int64                    `json:"durationMs"`
+		AllChunks    []map[string]interface{} `json:"allChunks"`
+		FinalContent string                   `json:"finalContent"`
 	}
 	if err := json.Unmarshal(raw, &sr); err != nil {
 		return
@@ -1199,23 +1257,40 @@ func decodeNeekoStream(raw json.RawMessage, c *callRec) {
 	}
 	c.DurationMs = sr.DurationMs
 	for _, chunk := range sr.AllChunks {
-		if strings.ToLower(stringAny(chunk["type"])) != "response.completed" {
+		// Responses 风格：usage 与最终 output 在 type==response.completed 的 response 内。
+		if strings.ToLower(stringAny(chunk["type"])) == "response.completed" {
+			resp, _ := chunk["response"].(map[string]interface{})
+			if len(resp) > 0 {
+				if c.Model == "" {
+					c.Model = stringAny(firstAny(resp, "model", "model_name"))
+				}
+				in, out, reason := extractUsage(resp)
+				if in > 0 || out > 0 || reason > 0 {
+					c.UsageIn, c.UsageOut, c.UsageReason = in, out, reason
+				}
+				payload := payloadFromResponseMap(resp)
+				c.Text = firstNonEmptyString(c.Text, payload.Text)
+				c.Reasoning = firstNonEmptyString(c.Reasoning, payload.Reasoning)
+				if len(c.Tools) == 0 {
+					c.Tools = payload.Tools
+				}
+			}
 			continue
 		}
-		resp, _ := chunk["response"].(map[string]interface{})
-		if len(resp) == 0 {
-			continue
+		// Chat Completions 风格：usage 直接挂在 chunk 顶层，回复在 choices[].delta/message。
+		if chunk["usage"] != nil {
+			if c.Model == "" {
+				c.Model = stringAny(firstAny(chunk, "model", "model_name"))
+			}
+			in, out, reason := extractUsage(chunk)
+			if in > 0 || out > 0 || reason > 0 {
+				c.UsageIn, c.UsageOut, c.UsageReason = in, out, reason
+			}
 		}
-		if c.Model == "" {
-			c.Model = stringAny(firstAny(resp, "model", "model_name"))
-		}
-		c.UsageIn, c.UsageOut, c.UsageReason = extractUsage(resp)
-		payload := payloadFromResponseMap(resp)
-		c.Text = firstNonEmptyString(c.Text, payload.Text)
-		c.Reasoning = firstNonEmptyString(c.Reasoning, payload.Reasoning)
-		if len(c.Tools) == 0 {
-			c.Tools = payload.Tools
-		}
+	}
+	// finalContent 作为模型回复的兜底（Chat 风格常把完整回复放在这里）。
+	if c.Text == "" {
+		c.Text = strings.TrimSpace(sr.FinalContent)
 	}
 }
 

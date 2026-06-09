@@ -78,10 +78,29 @@ func main() {
 	fmt.Printf("duration_ms = %d\n", totalDur)
 	fmt.Printf("tokens      = in:%d out:%d reason:%d\n", totalIn, totalOut, totalReason)
 
+	// DB 写入预览：模拟 buildBundleFromTOS -> api_session_aggregates 的核心列。
+	// turns = 各轮 LLM 调用数之和（每次调用对应一个 model span）。
+	totalTurns := totalCalls
+	totalTokens := totalIn + totalOut
+	fmt.Println("\n== 即将写入 api_session_aggregates 的核心列(预览) ==")
+	fmt.Printf("  turns        = %d\n", totalTurns)
+	fmt.Printf("  duration_ms  = %d\n", totalDur)
+	fmt.Printf("  input_tokens = %d\n", totalIn)
+	fmt.Printf("  output_tokens= %d\n", totalOut)
+	fmt.Printf("  total_tokens = %d\n", totalTokens)
+
+	// 全零脏数据校验：这正是历史上污染 DB、导致 0ms/0步、详情页卡死的元凶。
+	if totalDur == 0 && totalTurns == 0 && totalTokens == 0 {
+		fmt.Println("\n[拦截] 该 session 解析出全零(duration/turns/tokens 均为 0) —— 属于脏数据，")
+		fmt.Println("       严禁入库。线上补库逻辑应跳过此类记录。请检查解析是否未匹配真实格式。")
+		os.Exit(3)
+	}
+
 	if totalDur == 0 && totalIn == 0 && totalOut == 0 && totalCalls == 0 {
 		fmt.Println("\n[诊断] 有 rounds 但指标全 0 —— 说明轮次被识别了，但内部 LLM 调用/usage 没被提取。")
 		fmt.Println("重点检查：RESPONSE_BODY_FINAL.data.final.usage 与 logId 关联逻辑。")
 	} else {
-		fmt.Println("\n[诊断] 解析链路正常，指标非 0。若线上仍空白，问题在 DB 写入或前端渲染，不在解析层。")
+		fmt.Println("\n[诊断] 解析链路正常，指标非 0、非全零脏数据。")
+		fmt.Println("        即将写入 DB 的核心列均有有效值，发版后 DB 应能看到对应数据。")
 	}
 }

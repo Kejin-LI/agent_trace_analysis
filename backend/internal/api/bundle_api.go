@@ -136,11 +136,37 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		return
 	}
 
+	// 指标秒出：前端两段式加载，第一段带 meta_only=1 只要 DB 里的指标骨架
+	// （分数/tokens/雷达），立即渲染头部与卡片，不等下载解析大文件。
+	// 第二段再请求完整 bundle 拉对话流（traces）。
+	if isTruthy(c.Query("meta_only")) {
+		if hasCached {
+			c.JSON(http.StatusOK, cachedBundle)
+			return
+		}
+		c.JSON(http.StatusNoContent, nil)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
+	// 详情页用尽量窄的时间窗在上游定位这条 session，避免默认最近 7 天 ×500 的大扫描。
+	// 优先用 query 里显式传的窗；没有就用缓存里这条 session 的起始时间 ±2h 收窄。
+	detailTR := tr
+	if c.Query("start_time") == "" && c.Query("end_time") == "" {
+		if hasCached && cachedBundle.StartedAtMs > 0 {
+			st := time.UnixMilli(cachedBundle.StartedAtMs).Add(-2 * time.Hour)
+			et := time.UnixMilli(cachedBundle.StartedAtMs).Add(2 * time.Hour)
+			detailTR = modellog.TimeRange{
+				StartTime: st.Format("2006-01-02 15:04:05"),
+				EndTime:   et.Format("2006-01-02 15:04:05"),
+			}
+		}
+	}
+
 	resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-		TimeRange: tr,
+		TimeRange: detailTR,
 		Page:      modellog.Page{PageNo: 1, PageSize: 500},
 	})
 	if err != nil {
@@ -194,10 +220,18 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if hasCached {
 		bundle = mergeBundleWithCachedBundle(bundle, cachedBundle)
 	}
+	// 写库异步化：详情解析完立即返回，写 DB 缓存放后台，不让用户为落库白等。
 	if h.aggregator != nil {
-		if err := h.aggregator.PersistBundle(src, bundle); err != nil {
-			log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
-		}
+		go func(src model.StgSessionSource, bundle apiSessionBundle) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("session detail persist panic session=%s: %v", src.SessionID, r)
+				}
+			}()
+			if err := h.aggregator.PersistBundle(src, bundle); err != nil {
+				log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
+			}
+		}(src, bundle)
 	}
 	c.JSON(http.StatusOK, bundle)
 }

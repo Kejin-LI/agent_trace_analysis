@@ -2026,9 +2026,9 @@
       'a2c094': { title: '行为死循环 · 路由 Agent 卡顿 (已拦截)', score: 81, color: 'purple', chip: '行为死循环', user: 'huachen', trace: 'a2c09478-22bb-4119-9f23-9a4bd7f1e504' }
     };
 
-    async function loadRealData(sessionId) {
+    async function loadRealData(sessionId, opts) {
       try {
-        return await window.AgentTraceDB.loadSession(sessionId);
+        return await window.AgentTraceDB.loadSession(sessionId, opts);
       } catch (e) {
         return null;
       }
@@ -2038,7 +2038,7 @@
     const id = params.get('id');
     if (!id) { hideGlobalLoader(); return; }
 
-    const real = await loadRealData(id);
+    function renderSession(real, stage) {
     let s;
     if (real) {
       // 真实数据：将后端字段映射到前端展示字段
@@ -2747,21 +2747,45 @@
         `).join('');
       }
 
-      // ===== 左侧对话流：从真实 spans 渲染 =====
-      renderChatStream(s._real);
-      // 渲染完成后挂载折叠交互
-      setupChatCollapse();
-      // ===== 中间：DAG 甘特图（从真实 spans 渲染） =====
-      renderGantt(s._real);
+      // ===== 左侧对话流 / 甘特图：仅在拿到完整 traces 后渲染（meta 骨架阶段跳过）=====
+      if (stage === 'full' || (s._real && s._real.traces && s._real.traces.length)) {
+        renderChatStream(s._real);
+        renderGantt(s._real);
+      }
+      // 折叠交互只绑定一次，避免两段式渲染重复绑定
+      if (!window.__chatCollapseBound) {
+        setupChatCollapse();
+        window.__chatCollapseBound = true;
+      }
       // 暴露真实数据给产物 tab IIFE 读取
       window.SESSION = Object.assign(window.SESSION || {}, { _real: s._real });
     }
 
     // 文档标题
     document.title = s.title.slice(0, 24) + ' · Session 详情';
-    
-    hideGlobalLoader();
+    }
+
+    // ===== 两段式加载：先 meta_only 拿指标骨架"秒出"，再异步拉完整 traces 渲染对话流 =====
+    (async function () {
+      // 第一段：DB 指标骨架（命中即秒出头部/分数/卡片；未命中返回 null）
+      const meta = await loadRealData(id, { metaOnly: true });
+      let metaRendered = false;
+      if (meta) {
+        renderSession(meta, 'meta');
+        metaRendered = true;
+        hideGlobalLoader(); // 指标已出，先把遮罩去掉，对话流稍后填充
+      }
+      // 第二段：完整 bundle（含对话流）
+      const real = await loadRealData(id);
+      if (real) {
+        renderSession(real, 'full');
+      } else if (!metaRendered && FALLBACK_MOCK[id]) {
+        renderSession(null, 'full');
+      }
+      hideGlobalLoader();
+    })();
   })();
+
 
   // 工具：安全提取 JSON 字段
   function safeJSON(str) {

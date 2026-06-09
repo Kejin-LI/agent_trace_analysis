@@ -57,6 +57,13 @@
   .scroll-x::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 9999px; }
   .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; font-size: 11px; font-weight: 500; letter-spacing: 0.01em; }
+
+  /* 指标未聚合占位：轻量脉冲，避免用户误读为 0 */
+  .pending-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 10.5px; font-weight: 500; color: var(--text-tertiary); background: rgba(120,120,128,0.10); letter-spacing: 0.01em; white-space: nowrap; }
+  .pending-pill .pending-dot { width: 5px; height: 5px; border-radius: 9999px; background: var(--apple-blue); opacity: 0.85; animation: pending-pulse 1.4s ease-in-out infinite; }
+  .pending-dash { color: var(--text-tertiary); opacity: 0.55; }
+  @keyframes pending-pulse { 0%, 100% { opacity: 0.25; transform: scale(0.85); } 50% { opacity: 0.9; transform: scale(1.15); } }
+  @media (prefers-reduced-motion: reduce) { .pending-pill .pending-dot { animation: none; } }
   .seg { background: rgba(120,120,128,0.12); border-radius: 9px; padding: 2px; display: inline-flex; }
   .seg button { padding: 4px 12px; font-size: 12px; border-radius: 7px; color: var(--text-secondary); }
   .seg button.active { background: white; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
@@ -595,14 +602,25 @@
 
     // ----- 渲染单行 -----
     function renderRow(s) {
+      // 指标未聚合判定：列表项来自上游 light bundle 时无任何已解析指标
+      // （耗时/步数/traces/tokens 全 0、无规则与雷达）。此时展示"聚合中"占位，
+      // 避免用户把"尚未算出"误读为"真的是 0"。
+      const isPending = !((s.duration_ms > 0) || (s.turns > 0) || (s.trace_count > 0)
+        || (s.input_tokens > 0) || (s.output_tokens > 0)
+        || (Array.isArray(s.rules) && s.rules.length > 0));
+
       const score = window.AgentTraceEfficiency.adjustedScore(s);
       const scoreColor = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
       const userInitial = (s.user || 'A').charAt(0).toUpperCase();
-      const ano = buildAnomalies(s);
+      const ano = isPending ? null : buildAnomalies(s);
+
+      const pendingPill = '<span class="pending-pill"><span class="pending-dot"></span>聚合中</span>';
 
       let chipsCellHtml = '<span class="text-[--text-tertiary]">—</span>';
-      if (ano) {
+      if (isPending) {
+        chipsCellHtml = pendingPill;
+      } else if (ano) {
         const main = ano.list[0];
         const extra = ano.list.length - 1;
         const tipHtml = `<div class="chips-list">${ano.list.map(it => `<span class="chip"><span class="badge-dot bg-[--apple-${ano.color}]"></span>${escapeHtml(it.label)}${it.detail ? ` <span style="opacity:.6;margin-left:4px">· ${escapeHtml(it.detail)}</span>` : ''}</span>`).join('')}</div>`;
@@ -615,11 +633,25 @@
           </div>`;
       }
 
+      const metaLine = isPending
+        ? `${s.id} · <span class="pending-dash">指标聚合中…</span>`
+        : `${s.id} · ${s.turns || 0} turns · ${s.trace_count || 1} traces`;
       const titleCellHtml = `
         <div class="min-w-0 cell-tip" data-tip='${encodeURIComponent(titleEsc)}'>
           <div class="session-title font-medium truncate">${titleEsc}</div>
-          <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5">${s.id} · ${s.turns || 0} turns · ${s.trace_count || 1} traces</div>
+          <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5">${metaLine}</div>
         </div>`;
+
+      const scoreCellHtml = isPending
+        ? '<span class="pending-dash num-mono">—</span>'
+        : `<div class="flex items-center gap-2">
+            <div class="score-bar"><span style="width:${score}%; background:var(--apple-${scoreColor});"></span></div>
+            <span class="num-mono font-semibold text-[--apple-${scoreColor}]">${score}</span>
+          </div>`;
+
+      const durationCellHtml = isPending
+        ? '<span class="pending-dash num-mono">—</span>'
+        : fmtDuration(s.duration_ms);
 
       return `<tr class="row-hover cursor-pointer" data-href="./session-detail?id=${encodeURIComponent(s.id)}">
         <td class="px-5 py-3.5">${titleCellHtml}</td>
@@ -629,14 +661,9 @@
             <span class="text-[--text-secondary] truncate">${escapeHtml(s.user || 'anonymous')}</span>
           </div>
         </td>
-        <td class="py-3.5">
-          <div class="flex items-center gap-2">
-            <div class="score-bar"><span style="width:${score}%; background:var(--apple-${scoreColor});"></span></div>
-            <span class="num-mono font-semibold text-[--apple-${scoreColor}]">${score}</span>
-          </div>
-        </td>
+        <td class="py-3.5">${scoreCellHtml}</td>
         <td class="py-3.5">${chipsCellHtml}</td>
-        <td class="text-right py-3.5 num-mono">${fmtDuration(s.duration_ms)}</td>
+        <td class="text-right py-3.5 num-mono">${durationCellHtml}</td>
         <td class="text-right py-3.5 pr-5 text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
       </tr>`;
     }

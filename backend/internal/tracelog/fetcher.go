@@ -2,9 +2,9 @@
 //
 // 详情页每次打开都需拉取一份 TOS JSONL（10-30MB 不等）。
 // 优化点：
-//   1. 请求带 Accept-Encoding: gzip，TOS 通常支持，下载量砍 80%。
-//   2. 5 分钟 TTL + LRU 容量上限（防 OOM）。
-//   3. Prewarm 接口给列表页异步预热前 N 条 obj_url。
+//  1. 请求带 Accept-Encoding: gzip，TOS 通常支持，下载量砍 80%。
+//  2. 5 分钟 TTL + LRU 容量上限（防 OOM）。
+//  3. Prewarm 接口给列表页异步预热前 N 条 obj_url。
 package tracelog
 
 import (
@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -22,10 +23,14 @@ import (
 const DefaultCacheTTL = 5 * time.Minute
 
 // DefaultHTTPTimeout 拉单个 JSONL 的最长容忍时间。
-const DefaultHTTPTimeout = 30 * time.Second
+// 详情页在网关超时（约 60s）内必须返回，留 5s 余量给解析+写响应。
+const DefaultHTTPTimeout = 55 * time.Second
 
-// MaxJSONLBytes 单文件最大 64MB，超出直接报错保护内存。
-const MaxJSONLBytes = 64 * 1024 * 1024
+// MaxJSONLBytes 单文件最多读取 128MB。线上存在 600MB~2GB 的超大 session，
+// 整文件读入会撑爆内存（OOM）也下不完。超过上限时优雅截断：保留已读部分，
+// 解析器对截断的数组尾部可容忍（只丢最后一个不完整事件），详情页展示前半段
+// 对话，远好于一直转圈 / 502。
+const MaxJSONLBytes = 128 * 1024 * 1024
 
 // MaxCacheEntries LRU 容量上限，超过后淘汰最久未访问的。
 const MaxCacheEntries = 200
@@ -203,12 +208,15 @@ func (f *Fetcher) download(url string) ([]byte, error) {
 		reader = gr
 	}
 
-	body, err := io.ReadAll(io.LimitReader(reader, MaxJSONLBytes+1))
+	// 优雅截断：最多读 MaxJSONLBytes。超大文件保留已读部分交给解析器，
+	// 而不是整文件读入内存（OOM）或直接报错（详情页转圈）。
+	body, err := io.ReadAll(io.LimitReader(reader, MaxJSONLBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-	if len(body) > MaxJSONLBytes {
-		return nil, fmt.Errorf("jsonl too large: > %d bytes", MaxJSONLBytes)
+		// 已读到内容时不致命：截断后仍可解析出前半段对话。
+		if len(body) == 0 {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
+		log.Printf("tracelog: read %s truncated after %d bytes: %v", url, len(body), err)
 	}
 	return body, nil
 }
