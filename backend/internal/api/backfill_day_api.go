@@ -55,9 +55,20 @@ func (h *Handler) backfillDay(c *gin.Context) {
 			db:       h.db,
 			upstream: h.upstream,
 			fetcher:  h.fetcher,
+			flight:   make(map[string]bool),
 		}
 		usedTempRunner = true
 	}
+	if !runner.acquireDateFlight(date) {
+		row, _ := loadAggregateStatusRow(h, date)
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      "backfill already running for date",
+			"date":       date,
+			"day_status": row,
+		})
+		return
+	}
+	defer runner.releaseDateFlight(date)
 	runner.runAggregate(cookie, date)
 
 	after, err := countAggregatesByDate(h, date)
