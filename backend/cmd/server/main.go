@@ -73,7 +73,7 @@ func main() {
 			log.Printf("api 模式数据库未连接，DB-backed 聚合缓存已禁用: %v", err)
 		}
 
-		h, err := api.NewAPI(gdb)
+		h, err := api.NewAPI(gdb, err)
 		if err != nil {
 			log.Printf("api 模式初始化失败，读库 API 已禁用: %v", err)
 		} else {

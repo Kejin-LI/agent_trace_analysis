@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
@@ -35,6 +37,29 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 
 	tr := timeRangeFromQuery(c)
 	cookie := c.GetHeader("Cookie")
+	uid := c.Query("user_id")
+	uname := c.Query("user_name")
+	sid := c.Query("session_id")
+	aid := c.Query("artifact_id")
+
+	if bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); err != nil {
+		fail(c, fmt.Errorf("db list session bundles: %w", err))
+		return
+	} else if ok {
+		if h.aggregator != nil {
+			days := daysFromQueryRange(tr)
+			if day, ok := mostRecentDay(days); ok {
+				h.aggregator.EnsureDays(cookie, []string{day})
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"data":   bundles,
+			"limit":  limit,
+			"offset": offset,
+			"total":  total,
+		})
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -47,11 +72,6 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		fail(c, fmt.Errorf("upstream list: %w", err))
 		return
 	}
-
-	uid := c.Query("user_id")
-	uname := c.Query("user_name")
-	sid := c.Query("session_id")
-	aid := c.Query("artifact_id")
 
 	bundles := make([]apiSessionBundle, 0, len(resp.Data))
 	for _, s := range resp.Data {
@@ -106,6 +126,10 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	key := c.Param("session_id")
 	tr := timeRangeFromQuery(c)
 	cookie := c.GetHeader("Cookie")
+	cachedBundle, hasCached, err := h.getCachedSessionBundle(key)
+	if err != nil {
+		log.Printf("session detail cached lookup failed key=%s err=%v", key, err)
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -115,6 +139,10 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		Page:      modellog.Page{PageNo: 1, PageSize: 500},
 	})
 	if err != nil {
+		if hasCached {
+			c.JSON(http.StatusOK, cachedBundle)
+			return
+		}
 		fail(c, fmt.Errorf("upstream list: %w", err))
 		return
 	}
@@ -128,10 +156,18 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		}
 	}
 	if hit == nil {
+		if hasCached {
+			c.JSON(http.StatusOK, cachedBundle)
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found in upstream window"})
 		return
 	}
 	if len(hit.FileList) == 0 || hit.FileList[0].URL == "" {
+		if hasCached {
+			c.JSON(http.StatusOK, cachedBundle)
+			return
+		}
 		c.JSON(http.StatusUnsupportedMediaType, gin.H{
 			"error":      "no jsonl file in upstream record",
 			"session_id": hit.SessionID,
@@ -141,17 +177,259 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 
 	pr, err := h.fetcher.FetchAndParse(hit.FileList[0].URL)
 	if err != nil {
+		if hasCached {
+			c.JSON(http.StatusOK, cachedBundle)
+			return
+		}
 		fail(c, fmt.Errorf("fetch jsonl: %w", err))
 		return
 	}
 	src := sessionToStgSource(*hit)
 	bundle := buildBundleFromTOS(src, pr)
+	if hasCached {
+		bundle = mergeBundleWithCachedBundle(bundle, cachedBundle)
+	}
 	if h.aggregator != nil {
 		if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 			log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 		}
 	}
 	c.JSON(http.StatusOK, bundle)
+}
+
+func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, sid, aid string, limit, offset int) ([]apiSessionBundle, int64, bool, error) {
+	if h == nil || h.db == nil {
+		return nil, 0, false, nil
+	}
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return nil, 0, false, nil
+	}
+	startDate := startOfLocalDay(startAt)
+	endDate := startOfLocalDay(endAt)
+	q := h.db.Model(&model.APISessionAggregate{}).
+		Where("(started_at_ms BETWEEN ? AND ?) OR (started_at_ms = 0 AND aggregate_date BETWEEN ? AND ?)",
+			startAt.UnixMilli(), endAt.UnixMilli(), startDate, endDate)
+	if uid != "" {
+		q = q.Where("user_id = ?", uid)
+	}
+	if uname != "" {
+		q = q.Where("user_name = ?", uname)
+	}
+	if sid != "" {
+		q = q.Where("session_id = ?", sid)
+	}
+	if aid != "" {
+		q = q.Where("artifact_id = ?", aid)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, false, err
+	}
+	if total == 0 {
+		return nil, 0, false, nil
+	}
+	var rows []model.APISessionAggregate
+	if err := q.
+		Select([]string{
+			"id",
+			"session_id",
+			"artifact_id",
+			"aggregate_date",
+			"user_id",
+			"user_name",
+			"started_at_ms",
+			"started_at",
+			"duration_ms",
+			"trace_id",
+			"title",
+			"chip",
+			"input_tokens",
+			"output_tokens",
+			"total_tokens",
+			"avg_tokens_per_turn",
+			"turns",
+			"trace_count",
+			"tool_calls",
+			"unique_tools",
+			"tool_failures",
+			"tool_fail_rate_bp",
+			"tool_retries",
+			"max_serial_run",
+			"has_root_fail",
+			"has_loop",
+			"score",
+			"response_score",
+			"stability_score",
+			"thinking_score",
+			"resource_score",
+			"orchestration_score",
+			"abnormal_level",
+			"rules_json",
+			"features_json",
+			"created_at",
+			"updated_at",
+		}).
+		Order("started_at_ms DESC, updated_at DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, false, err
+	}
+	bundles := make([]apiSessionBundle, 0, len(rows))
+	for _, row := range rows {
+		bundles = append(bundles, buildBundleFromAggregateRow(row))
+	}
+	return bundles, total, true, nil
+}
+
+func (h *Handler) getCachedSessionBundle(key string) (apiSessionBundle, bool, error) {
+	if h == nil || h.db == nil || key == "" {
+		return apiSessionBundle{}, false, nil
+	}
+	var row model.APISessionAggregate
+	err := h.db.
+		Where("session_id = ? OR artifact_id = ?", key, key).
+		Order("updated_at DESC").
+		First(&row).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apiSessionBundle{}, false, nil
+		}
+		return apiSessionBundle{}, false, err
+	}
+	return buildDetailBundleFromAggregateRow(row), true, nil
+}
+
+func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle {
+	rules := []apiRule{}
+	if row.RulesJSON != "" {
+		_ = json.Unmarshal([]byte(row.RulesJSON), &rules)
+	}
+	features := apiFeatures{
+		ToolCalls:        row.ToolCalls,
+		UniqueTools:      row.UniqueTools,
+		MaxSerialRun:     row.MaxSerialRun,
+		ToolFailures:     row.ToolFailures,
+		ToolFailRate:     float64(row.ToolFailRateBP) / 10000,
+		AvgTokensPerTurn: row.AvgTokensPerTurn,
+		ToolRetries:      row.ToolRetries,
+		HasRootFail:      row.HasRootFail,
+		HasLoop:          row.HasLoop,
+	}
+	return apiSessionBundle{
+		ID:           pickFirstNonEmpty(row.SessionID, row.ArtifactID),
+		SessionID:    row.SessionID,
+		ArtifactID:   row.ArtifactID,
+		User:         row.UserName,
+		UserID:       row.UserID,
+		Title:        pickFirstNonEmpty(row.Title, "Session "+pickFirstNonEmpty(row.SessionID, row.ArtifactID)),
+		Trace:        row.TraceID,
+		StartedAtMs:  row.StartedAtMs,
+		StartedAt:    msToString(row.StartedAtMs),
+		DurationMs:   row.DurationMs,
+		InputTokens:  row.InputTokens,
+		OutputTokens: row.OutputTokens,
+		ToolCalls:    row.ToolCalls,
+		Turns:        row.Turns,
+		TraceCount:   row.TraceCount,
+		Score:        row.Score,
+		Color:        "green",
+		Chip:         row.Chip,
+		Features:     features,
+		Radar: apiRadar{
+			Response:      row.ResponseScore,
+			Stability:     row.StabilityScore,
+			Thinking:      row.ThinkingScore,
+			Resource:      row.ResourceScore,
+			Orchestration: row.OrchestrationScore,
+		},
+		Rules:  rules,
+		Traces: []apiTrace{},
+	}
+}
+
+func buildDetailBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle {
+	cached := buildBundleFromAggregateRow(row)
+	if row.BundleJSON == "" || row.BundleJSON == "{}" {
+		return cached
+	}
+	var bundle apiSessionBundle
+	if err := json.Unmarshal([]byte(row.BundleJSON), &bundle); err != nil {
+		return cached
+	}
+	if bundle.ID == "" {
+		bundle.ID = pickFirstNonEmpty(bundle.SessionID, bundle.ArtifactID, row.SessionID, row.ArtifactID)
+	}
+	return mergeBundleWithCachedBundle(bundle, cached)
+}
+
+func mergeBundleWithCachedBundle(bundle, cached apiSessionBundle) apiSessionBundle {
+	if bundle.SessionID == "" {
+		bundle.SessionID = cached.SessionID
+	}
+	if bundle.ArtifactID == "" {
+		bundle.ArtifactID = cached.ArtifactID
+	}
+	if bundle.User == "" {
+		bundle.User = cached.User
+	}
+	if bundle.UserID == "" {
+		bundle.UserID = cached.UserID
+	}
+	if bundle.Title == "" {
+		bundle.Title = cached.Title
+	}
+	if bundle.Trace == "" {
+		bundle.Trace = cached.Trace
+	}
+	if bundle.StartedAtMs == 0 {
+		bundle.StartedAtMs = cached.StartedAtMs
+		bundle.StartedAt = cached.StartedAt
+	}
+	if bundle.DurationMs == 0 {
+		bundle.DurationMs = cached.DurationMs
+	}
+	if bundle.InputTokens == 0 {
+		bundle.InputTokens = cached.InputTokens
+	}
+	if bundle.OutputTokens == 0 {
+		bundle.OutputTokens = cached.OutputTokens
+	}
+	if bundle.ToolCalls == 0 {
+		bundle.ToolCalls = cached.ToolCalls
+	}
+	if bundle.Turns == 0 {
+		bundle.Turns = cached.Turns
+	}
+	if bundle.TraceCount == 0 {
+		bundle.TraceCount = cached.TraceCount
+	}
+	if bundle.Score == 0 {
+		bundle.Score = cached.Score
+	}
+	if bundle.Chip == "" {
+		bundle.Chip = cached.Chip
+	}
+	if bundle.Features == (apiFeatures{}) {
+		bundle.Features = cached.Features
+	}
+	if bundle.Radar == (apiRadar{}) {
+		bundle.Radar = cached.Radar
+	}
+	if len(bundle.Rules) == 0 {
+		bundle.Rules = cached.Rules
+	}
+	if len(bundle.Traces) == 0 {
+		bundle.Traces = cached.Traces
+	}
+	return bundle
+}
+
+func parseTimeRangeBounds(tr modellog.TimeRange) (time.Time, time.Time, bool) {
+	st, err1 := time.ParseInLocation("2006-01-02 15:04:05", tr.StartTime, time.Local)
+	et, err2 := time.ParseInLocation("2006-01-02 15:04:05", tr.EndTime, time.Local)
+	if err1 != nil || err2 != nil || et.Before(st) {
+		return time.Time{}, time.Time{}, false
+	}
+	return st, et, true
 }
 
 // timeRangeFromQuery 从 query 解析时间窗，缺省最近 7 天。

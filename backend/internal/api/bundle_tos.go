@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
@@ -13,31 +15,31 @@ import (
 // cachedMetrics 写回到 stg_session_sources.extra.cached_metrics 的字段子集。
 // 仅缓存列表页雷达计算所需的特征，不缓存对话内容。
 type cachedMetrics struct {
-	ToolCalls     int     `json:"tool_calls"`
-	UniqueTools   int     `json:"unique_tools"`
-	MaxSerialRun  int     `json:"max_serial_run"`
-	ToolFailures  int     `json:"tool_failures"`
-	ToolFailRate  float64 `json:"tool_fail_rate"`
-	AvgTokensTurn int64   `json:"avg_tokens_per_turn"`
-	ToolRetries   int     `json:"tool_retries"`
-	HasRootFail   bool    `json:"has_root_fail"`
-	HasLoop       bool    `json:"has_loop"`
-	Turns         int     `json:"turns"`
-	TraceCount    int     `json:"trace_count"`
-	DurationMs    int64   `json:"duration_ms"`
-	InputTokens   int64   `json:"input_tokens"`
-	OutputTokens  int64   `json:"output_tokens"`
-	TotalTokens   int64   `json:"total_tokens"`
-	Score         int     `json:"score"`
-	Radar         apiRadar `json:"radar"`
-	ResponseScore int     `json:"response_score"`
-	StabilityScore int    `json:"stability_score"`
-	ThinkingScore int     `json:"thinking_score"`
-	ResourceScore int     `json:"resource_score"`
-	OrchestrationScore int `json:"orchestration_score"`
-	AbnormalLevel int     `json:"abnormal_level"`
-	HasFinalAnswer bool   `json:"has_final_answer"`
-	NoOpStreak    int     `json:"no_op_streak"`
+	ToolCalls          int      `json:"tool_calls"`
+	UniqueTools        int      `json:"unique_tools"`
+	MaxSerialRun       int      `json:"max_serial_run"`
+	ToolFailures       int      `json:"tool_failures"`
+	ToolFailRate       float64  `json:"tool_fail_rate"`
+	AvgTokensTurn      int64    `json:"avg_tokens_per_turn"`
+	ToolRetries        int      `json:"tool_retries"`
+	HasRootFail        bool     `json:"has_root_fail"`
+	HasLoop            bool     `json:"has_loop"`
+	Turns              int      `json:"turns"`
+	TraceCount         int      `json:"trace_count"`
+	DurationMs         int64    `json:"duration_ms"`
+	InputTokens        int64    `json:"input_tokens"`
+	OutputTokens       int64    `json:"output_tokens"`
+	TotalTokens        int64    `json:"total_tokens"`
+	Score              int      `json:"score"`
+	Radar              apiRadar `json:"radar"`
+	ResponseScore      int      `json:"response_score"`
+	StabilityScore     int      `json:"stability_score"`
+	ThinkingScore      int      `json:"thinking_score"`
+	ResourceScore      int      `json:"resource_score"`
+	OrchestrationScore int      `json:"orchestration_score"`
+	AbnormalLevel      int      `json:"abnormal_level"`
+	HasFinalAnswer     bool     `json:"has_final_answer"`
+	NoOpStreak         int      `json:"no_op_streak"`
 	// 异常标签 & 规则结果（驱动列表页"异常"列）。
 	Chip      string    `json:"chip"`
 	Rules     []apiRule `json:"rules"`
@@ -50,36 +52,36 @@ type cachedMetrics struct {
 func extractCachedMetrics(b apiSessionBundle) cachedMetrics {
 	pre := computeBundlePrecomputedMetrics(b)
 	return cachedMetrics{
-		ToolCalls:     b.Features.ToolCalls,
-		UniqueTools:   b.Features.UniqueTools,
-		MaxSerialRun:  b.Features.MaxSerialRun,
-		ToolFailures:  b.Features.ToolFailures,
-		ToolFailRate:  b.Features.ToolFailRate,
-		AvgTokensTurn: b.Features.AvgTokensPerTurn,
-		ToolRetries:   b.Features.ToolRetries,
-		HasRootFail:   b.Features.HasRootFail,
-		HasLoop:       b.Features.HasLoop,
-		Turns:         b.Turns,
-		TraceCount:    b.TraceCount,
-		DurationMs:    b.DurationMs,
-		InputTokens:   b.InputTokens,
-		OutputTokens:  b.OutputTokens,
-		TotalTokens:   b.InputTokens + b.OutputTokens,
-		Score:         pre.Score,
-		Radar:         pre.Radar,
-		ResponseScore: pre.Radar.Response,
-		StabilityScore: pre.Radar.Stability,
-		ThinkingScore: pre.Radar.Thinking,
-		ResourceScore: pre.Radar.Resource,
+		ToolCalls:          b.Features.ToolCalls,
+		UniqueTools:        b.Features.UniqueTools,
+		MaxSerialRun:       b.Features.MaxSerialRun,
+		ToolFailures:       b.Features.ToolFailures,
+		ToolFailRate:       b.Features.ToolFailRate,
+		AvgTokensTurn:      b.Features.AvgTokensPerTurn,
+		ToolRetries:        b.Features.ToolRetries,
+		HasRootFail:        b.Features.HasRootFail,
+		HasLoop:            b.Features.HasLoop,
+		Turns:              b.Turns,
+		TraceCount:         b.TraceCount,
+		DurationMs:         b.DurationMs,
+		InputTokens:        b.InputTokens,
+		OutputTokens:       b.OutputTokens,
+		TotalTokens:        b.InputTokens + b.OutputTokens,
+		Score:              pre.Score,
+		Radar:              pre.Radar,
+		ResponseScore:      pre.Radar.Response,
+		StabilityScore:     pre.Radar.Stability,
+		ThinkingScore:      pre.Radar.Thinking,
+		ResourceScore:      pre.Radar.Resource,
 		OrchestrationScore: pre.Radar.Orchestration,
-		AbnormalLevel: pre.AbnormalLevel,
-		HasFinalAnswer: pre.HasFinalAnswer,
-		NoOpStreak:    pre.NoOpStreak,
-		Chip:          b.Chip,
-		Rules:         b.Rules,
-		Title:         b.Title,
-		Trace:         b.Trace,
-		UpdatedAt:     time.Now().Unix(),
+		AbnormalLevel:      pre.AbnormalLevel,
+		HasFinalAnswer:     pre.HasFinalAnswer,
+		NoOpStreak:         pre.NoOpStreak,
+		Chip:               b.Chip,
+		Rules:              b.Rules,
+		Title:              b.Title,
+		Trace:              b.Trace,
+		UpdatedAt:          time.Now().Unix(),
 	}
 }
 
@@ -224,7 +226,7 @@ func buildSpansFromRound(r tracelog.Round, roundIdx int) []apiSpan {
 	for ci, c := range r.Calls {
 		modelSpanID := fmt.Sprintf("%s-c%d", r.PromptID, ci)
 		// model span：input 用首条 user 消息预览，output 用 final.text + reasoning。
-		modelOut := assembleModelOutput(c.Text, c.Reasoning)
+		modelOut := assembleModelOutput(c.Text, c.Reasoning, c.Tools)
 		modelInput := r.UserPrompt
 		if ci > 0 {
 			// 后续调用通常是工具结果回填，input 用 messages 末尾整体序列化便于审查。
@@ -286,20 +288,82 @@ func buildSpansFromRound(r tracelog.Round, roundIdx int) []apiSpan {
 	return out
 }
 
-// assembleModelOutput 把 reasoning + text 组装成可读的 output 预览。
-// 前端会按已有逻辑识别并渲染（兼容 reasoning/reasoning_content 字段）。
-func assembleModelOutput(text, reasoning string) string {
-	payload := map[string]string{}
-	if text != "" {
-		payload["text"] = text
-	}
-	if reasoning != "" {
-		payload["reasoning"] = reasoning
-	}
-	if len(payload) == 0 {
+// assembleModelOutput 把模型输出组装成前端详情页可直接消费的 choices.message 结构。
+func assembleModelOutput(text, reasoning string, tools interface{}) string {
+	payloadTools := buildToolCallPayloads(tools)
+	if text == "" && reasoning == "" && len(payloadTools) == 0 {
 		return ""
 	}
+	type toolFn struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	}
+	type toolCallPayload struct {
+		ID       string `json:"id,omitempty"`
+		Type     string `json:"type,omitempty"`
+		Function toolFn `json:"function"`
+	}
+	msg := map[string]interface{}{}
+	if text != "" {
+		msg["content"] = text
+	}
+	if reasoning != "" {
+		msg["reasoning_content"] = reasoning
+	}
+	if len(payloadTools) > 0 {
+		msg["tool_calls"] = payloadTools
+	}
+	payload := map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{"message": msg},
+		},
+	}
 	return mustJSON(payload)
+}
+
+func buildToolCallPayloads(raw interface{}) []interface{} {
+	v := reflect.ValueOf(raw)
+	if !v.IsValid() || v.Kind() != reflect.Slice {
+		return nil
+	}
+	out := make([]interface{}, 0, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		item := v.Index(i)
+		if item.Kind() == reflect.Pointer && !item.IsNil() {
+			item = item.Elem()
+		}
+		if item.Kind() != reflect.Struct {
+			continue
+		}
+		callID := fieldString(item, "CallID")
+		toolName := fieldString(item, "Tool")
+		args := strings.TrimSpace(fieldString(item, "Input"))
+		out = append(out, map[string]interface{}{
+			"id":   callID,
+			"type": "function",
+			"function": map[string]string{
+				"name":      toolName,
+				"arguments": args,
+			},
+		})
+	}
+	return out
+}
+
+func fieldString(v reflect.Value, name string) string {
+	f := v.FieldByName(name)
+	if !f.IsValid() {
+		return ""
+	}
+	switch f.Kind() {
+	case reflect.String:
+		return f.String()
+	case reflect.Slice:
+		if f.Type().Elem().Kind() == reflect.Uint8 {
+			return string(f.Bytes())
+		}
+	}
+	return ""
 }
 
 func mustJSON(v interface{}) string {

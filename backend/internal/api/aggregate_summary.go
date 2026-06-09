@@ -42,8 +42,8 @@ type dailySummaryAccumulator struct {
 
 func newDailySummaryAccumulator() *dailySummaryAccumulator {
 	return &dailySummaryAccumulator{
-		userIDs:    make(map[string]struct{}),
-		durations:  make([]int64, 0, 256),
+		userIDs:   make(map[string]struct{}),
+		durations: make([]int64, 0, 256),
 	}
 }
 
@@ -103,27 +103,27 @@ func (a *dailySummaryAccumulator) ToModel(date time.Time) model.APIDailySummary 
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 
 	summary := model.APIDailySummary{
-		AggregateDate:         date,
-		SessionCount:          sessionCount,
-		ActiveUserCount:       len(a.userIDs),
-		AbnormalSessionCount:  a.abnormalSessionCount,
-		FailedSessionCount:    a.failedSessionCount,
-		LoopSessionCount:      a.loopSessionCount,
-		TotalInputTokens:      a.totalInputTokens,
-		TotalOutputTokens:     a.totalOutputTokens,
-		TotalTokens:           a.totalTokens,
-		TotalToolCalls:        a.totalToolCalls,
-		TotalToolFailures:     a.totalToolFailures,
-		AvgDurationMs:         int64(math.Round(float64(a.totalDurationMs) / float64(sessionCount))),
-		AvgTurns:              round2(float64(a.totalTurns) / float64(sessionCount)),
-		AvgScore:              round2(float64(a.totalScore) / float64(sessionCount)),
-		P50DurationMs:         percentile(durations, 0.50),
-		P90DurationMs:         percentile(durations, 0.90),
-		P95DurationMs:         percentile(durations, 0.95),
-		ResponseScoreAvg:      round2(float64(a.totalResponse) / float64(sessionCount)),
-		ThinkingScoreAvg:      round2(float64(a.totalThinking) / float64(sessionCount)),
-		ResourceScoreAvg:      round2(float64(a.totalResource) / float64(sessionCount)),
-		AggregatedAt:          time.Now(),
+		AggregateDate:        date,
+		SessionCount:         sessionCount,
+		ActiveUserCount:      len(a.userIDs),
+		AbnormalSessionCount: a.abnormalSessionCount,
+		FailedSessionCount:   a.failedSessionCount,
+		LoopSessionCount:     a.loopSessionCount,
+		TotalInputTokens:     a.totalInputTokens,
+		TotalOutputTokens:    a.totalOutputTokens,
+		TotalTokens:          a.totalTokens,
+		TotalToolCalls:       a.totalToolCalls,
+		TotalToolFailures:    a.totalToolFailures,
+		AvgDurationMs:        int64(math.Round(float64(a.totalDurationMs) / float64(sessionCount))),
+		AvgTurns:             round2(float64(a.totalTurns) / float64(sessionCount)),
+		AvgScore:             round2(float64(a.totalScore) / float64(sessionCount)),
+		P50DurationMs:        percentile(durations, 0.50),
+		P90DurationMs:        percentile(durations, 0.90),
+		P95DurationMs:        percentile(durations, 0.95),
+		ResponseScoreAvg:     round2(float64(a.totalResponse) / float64(sessionCount)),
+		ThinkingScoreAvg:     round2(float64(a.totalThinking) / float64(sessionCount)),
+		ResourceScoreAvg:     round2(float64(a.totalResource) / float64(sessionCount)),
+		AggregatedAt:         time.Now(),
 	}
 	if a.stabilityCount > 0 {
 		summary.StabilityScoreAvg = round2(float64(a.totalStability) / float64(a.stabilityCount))
@@ -203,27 +203,27 @@ func buildDailySummaryFromAggregateRows(date time.Time, rows []model.APISessionA
 
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	summary := model.APIDailySummary{
-		AggregateDate:         date,
-		SessionCount:          len(rows),
-		ActiveUserCount:       len(userIDs),
-		AbnormalSessionCount:  abnormalSessionCount,
-		FailedSessionCount:    failedSessionCount,
-		LoopSessionCount:      loopSessionCount,
-		TotalInputTokens:      totalInputTokens,
-		TotalOutputTokens:     totalOutputTokens,
-		TotalTokens:           totalTokens,
-		TotalToolCalls:        totalToolCalls,
-		TotalToolFailures:     totalToolFailures,
-		AvgDurationMs:         int64(math.Round(float64(totalDurationMs) / float64(len(rows)))),
-		AvgTurns:              round2(float64(totalTurns) / float64(len(rows))),
-		AvgScore:              round2(float64(totalScore) / float64(len(rows))),
-		P50DurationMs:         percentile(durations, 0.50),
-		P90DurationMs:         percentile(durations, 0.90),
-		P95DurationMs:         percentile(durations, 0.95),
-		ResponseScoreAvg:      round2(float64(totalResponse) / float64(len(rows))),
-		ThinkingScoreAvg:      round2(float64(totalThinking) / float64(len(rows))),
-		ResourceScoreAvg:      round2(float64(totalResource) / float64(len(rows))),
-		AggregatedAt:          time.Now(),
+		AggregateDate:        date,
+		SessionCount:         len(rows),
+		ActiveUserCount:      len(userIDs),
+		AbnormalSessionCount: abnormalSessionCount,
+		FailedSessionCount:   failedSessionCount,
+		LoopSessionCount:     loopSessionCount,
+		TotalInputTokens:     totalInputTokens,
+		TotalOutputTokens:    totalOutputTokens,
+		TotalTokens:          totalTokens,
+		TotalToolCalls:       totalToolCalls,
+		TotalToolFailures:    totalToolFailures,
+		AvgDurationMs:        int64(math.Round(float64(totalDurationMs) / float64(len(rows)))),
+		AvgTurns:             round2(float64(totalTurns) / float64(len(rows))),
+		AvgScore:             round2(float64(totalScore) / float64(len(rows))),
+		P50DurationMs:        percentile(durations, 0.50),
+		P90DurationMs:        percentile(durations, 0.90),
+		P95DurationMs:        percentile(durations, 0.95),
+		ResponseScoreAvg:     round2(float64(totalResponse) / float64(len(rows))),
+		ThinkingScoreAvg:     round2(float64(totalThinking) / float64(len(rows))),
+		ResourceScoreAvg:     round2(float64(totalResource) / float64(len(rows))),
+		AggregatedAt:         time.Now(),
 	}
 	if stabilityCount > 0 {
 		summary.StabilityScoreAvg = round2(float64(totalStability) / float64(stabilityCount))
@@ -233,7 +233,6 @@ func buildDailySummaryFromAggregateRows(date time.Time, rows []model.APISessionA
 	}
 	return summary
 }
-
 func percentile(sorted []int64, p float64) int64 {
 	if len(sorted) == 0 {
 		return 0

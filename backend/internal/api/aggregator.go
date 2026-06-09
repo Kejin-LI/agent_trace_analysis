@@ -290,6 +290,10 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 	if buf, err := json.Marshal(bundle.Features); err == nil {
 		featuresJSON = string(buf)
 	}
+	bundleJSON := "{}"
+	if buf, err := json.Marshal(bundle); err == nil {
+		bundleJSON = string(buf)
+	}
 	row := model.APISessionAggregate{
 		SessionID:          src.SessionID,
 		ArtifactID:         src.ArtifactID,
@@ -327,6 +331,7 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		AbnormalLevel:      m.AbnormalLevel,
 		RulesJSON:          rulesJSON,
 		FeaturesJSON:       featuresJSON,
+		BundleJSON:         bundleJSON,
 		SourceCreateAt:     src.SourceCreatedAt,
 		SourceUpdateAt:     src.SourceUpdatedAt,
 		AggregatedAt:       time.Now(),
@@ -367,6 +372,7 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 			"chip",
 			"rules_json",
 			"features_json",
+			"bundle_json",
 			"title",
 			"trace_id",
 			"source_create_at",
@@ -435,7 +441,6 @@ func (a *Aggregator) refreshDailySummary(date time.Time) error {
 	}
 	return a.upsertDailySummary(buildDailySummaryFromAggregateRows(date, rows))
 }
-
 func aggregateRowToCachedMetrics(row model.APISessionAggregate) cachedMetrics {
 	var rules []apiRule
 	if row.RulesJSON != "" {
@@ -492,7 +497,6 @@ func startOfLocalDay(t time.Time) time.Time {
 	y, m, d := t.In(time.Local).Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
-
 func mostRecentDay(dates []string) (string, bool) {
 	if len(dates) == 0 {
 		return "", false
