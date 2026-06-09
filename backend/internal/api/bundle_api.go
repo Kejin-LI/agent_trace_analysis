@@ -130,6 +130,11 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if err != nil {
 		log.Printf("session detail cached lookup failed key=%s err=%v", key, err)
 	}
+	if hasCached {
+		// DB 已有完整 bundle 时直接返回，避免详情页再走一次最近 7 天的上游扫描。
+		c.JSON(http.StatusOK, cachedBundle)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
