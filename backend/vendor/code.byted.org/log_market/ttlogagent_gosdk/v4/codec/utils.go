@@ -2,6 +2,7 @@ package codec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -17,7 +18,11 @@ type VarString struct {
 	content string
 }
 
-const hextable = "0123456789abcdef"
+const (
+	hextable                   = "0123456789abcdef"
+	equalByte                  = '='
+	kvRecycleCapacityThreshold = 1024
+)
 
 func EncodeUint8(buf []byte, i uint8) []byte {
 	return append(buf, i)
@@ -78,6 +83,9 @@ func WriteUint64Hex(buf []byte, pos int, value uint64) {
 }
 
 func WriteBytes(buf []byte, pos int, value []byte, len int) {
+	if len == 0 {
+		return
+	}
 	_, _ = value[len-1], buf[pos+len-1]
 	for i := 0; i < len; i++ {
 		buf[pos+i] = value[i]
@@ -85,6 +93,21 @@ func WriteBytes(buf []byte, pos int, value []byte, len int) {
 }
 
 func EncodeKeyValueStr(buf []byte, k, v string) []byte {
+	buf = encodeStr(buf, k)
+	buf = encodeStr(buf, v)
+	return buf
+}
+
+func EncodeKeyValueText(buf []byte, k, v string) []byte {
+	buf = encodeStr(buf, k)
+	buf = encodeLongStr(buf, v)
+	return buf
+}
+
+func EncodeKeyValueStrIfNecessary(buf []byte, k, v string) []byte {
+	if len(v) == 0 || len(k) == 0 {
+		return buf
+	}
 	buf = encodeStr(buf, k)
 	buf = encodeStr(buf, v)
 	return buf
@@ -104,6 +127,12 @@ func EncodeKeyValueUint64(buf []byte, k string, value uint64) []byte {
 	return buf
 }
 
+func EncodeKeyValueUint32(buf []byte, k string, value uint32) []byte {
+	buf = encodeStr(buf, k)
+	buf = encodeInt(buf, value)
+	return buf
+}
+
 // EncodedStringSize computes the actual size of a string after encoding.
 func EncodedStringSize(s string) int {
 	strLen := len(s)
@@ -115,9 +144,15 @@ func EncodedStringSize(s string) int {
 }
 
 // EncodedKVSizeStr computes the actual size of a key-value pair after encoding.
-// But the value must be a string, e.g., {"_psm", "toutiao.service.log"}
+// The value is a string, e.g., {"_psm", "toutiao.service.log"}
 func EncodedKVSizeStr(k, v string) int {
 	return EncodedStringSize(k) + EncodedStringSize(v)
+}
+
+// EncodedKVSizeText computes the actual size of a key-value pair after encoding.
+// But the value must be a text, e.g., {"_msg", "my message"}
+func EncodedKVSizeText(k, v string) int {
+	return EncodedStringSize(k) + encodedLongStringSize(v)
 }
 
 // EncodedKVIPv4Size computes the actual size of a key-value pair when the value is ipv4.
@@ -133,8 +168,8 @@ func EncodedKVIPv6Size(key string) int {
 }
 
 // EncodedKVIBatchIDSize computes the actual size of a key-value pair when the value is batchid
-func EncodedKVIBatchIDSize(key string) int {
-	return EncodedStringSize(key) + 3 + BATCH_ID_LENGTH
+func EncodedKVIBatchIDSize(key string, value string) int {
+	return EncodedStringSize(key) + EncodedStringSize(value) + SEQ_ID_LENGTH
 }
 
 // EncodedKVFlagSize computes the actual size of a key-value pair when the value is ipv4.
@@ -150,28 +185,86 @@ func EncodedKVFlagSize(key string) int {
  * Then we can process the remaining bytes from there.
  */
 
-func DecodeUint8(data []byte) uint8 {
-	return data[0]
+func decodeBytes(data []byte, offset int) (value []byte, readLength int, err error) {
+	length, l, err := decodeUint32(data, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	end := l + int(length)
+	if end > len(data)-offset {
+		return nil, 0, ErrNoEnoughBytes
+	}
+	// bytes type not end of '\x00'
+	return data[offset+l : offset+end], end, nil
 }
 
-func DecodeUint16(data []byte) uint16 {
-	_ = data[1]
-	return uint16(data[0]) | uint16(data[1])<<8
+func decodeByteRaw(data []byte, offset int) (value byte, readLength int, err error) {
+	if len(data) < 1+offset {
+		return 0, 0, ErrNoEnoughBytes
+	}
+	return data[offset], 1, nil
 }
 
-func DecodeUint32(data []byte) uint32 {
-	_ = data[3]
-	return uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
+func decodeUint8(data []byte, offset int) (value uint8, readLength int, err error) {
+	if len(data) < 1+offset {
+		return 0, 0, ErrNoEnoughBytes
+	}
+	return data[offset], 1, nil
 }
 
-func DecodeUint64(b []byte) uint64 {
-	_ = b[7]
+func decodeUint16(data []byte, offset int) (value uint16, readLength int, err error) {
+	if len(data) < 2+offset {
+		return 0, 0, ErrNoEnoughBytes
+	}
+	return uint16(data[offset]) | uint16(data[offset+1])<<8, 2, nil
+}
+
+func decodeUint32(data []byte, offset int) (value uint32, readLength int, err error) {
+	if len(data) < 4+offset {
+		return 0, 0, ErrNoEnoughBytes
+	}
+	return uint32(data[offset]) | uint32(data[offset+1])<<8 | uint32(data[offset+2])<<16 | uint32(data[offset+3])<<24, 4, nil
+}
+
+func decodeUint64(data []byte, offset int) (value uint64, readLength int, err error) {
+	if len(data) < 8+offset {
+		return 0, 0, ErrNoEnoughBytes
+	}
+	return uint64(data[offset]) | uint64(data[offset+1])<<8 | uint64(data[offset+2])<<16 | uint64(data[offset+3])<<24 |
+		uint64(data[offset+4])<<32 | uint64(data[offset+5])<<40 | uint64(data[offset+6])<<48 | uint64(data[offset+7])<<56, 8, nil
+}
+
+func DecodeUint8(data []byte) (uint8, error) {
+	if len(data) < 1 {
+		return 0, ErrNoEnoughBytes
+	}
+	return data[0], nil
+}
+
+func DecodeUint16(data []byte) (uint16, error) {
+	if len(data) < 2 {
+		return 0, ErrNoEnoughBytes
+	}
+	return uint16(data[0]) | uint16(data[1])<<8, nil
+}
+
+func DecodeUint32(data []byte) (uint32, error) {
+	if len(data) < 4 {
+		return 0, ErrNoEnoughBytes
+	}
+	return uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24, nil
+}
+
+func DecodeUint64(b []byte) (uint64, error) {
+	if len(b) < 8 {
+		return 0, ErrNoEnoughBytes
+	}
 	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
-		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
+		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56, nil
 }
 
 func StringToUint32(s string) (uint32, error) {
-	return DecodeUint32(StringToSliceByte(s)), nil
+	return DecodeUint32(StringToSliceByte(s))
 }
 
 func StringToSliceByte(s string) []byte {
@@ -330,6 +423,8 @@ func encodeVarWithType(buf []byte, value []byte, valueType byte) []byte {
 		return encodeShortStr(buf, SliceByteToString(value))
 	} else if valueType == TextType {
 		return encodeLongStr(buf, SliceByteToString(value))
+	} else if valueType == BytesType {
+		return encodeBytes(buf, value)
 	} else {
 		buf = append(buf, valueType)
 		switch valueType {
@@ -417,6 +512,16 @@ func encodeVarStr(buf []byte, vs VarString) []byte {
 	return buf
 }
 
+func encodeBytes(buf []byte, data []byte) []byte {
+	if len(data) >= math.MaxInt32 {
+		data = data[:math.MaxInt32]
+	}
+	buf = append(buf, BytesType)
+	buf = EncodeUint32(buf, uint32(len(data)))
+	buf = append(buf, data...)
+	return buf
+}
+
 func encodeUint64(buf []byte, value uint64) []byte {
 	buf = append(buf, Uint64Type)
 	return EncodeUint64(buf, value)
@@ -470,6 +575,318 @@ func encodedLongStringSize(s string) int {
 	return strLen + 6
 }
 
+func decodeMultiValueLength(data []byte, offset, count int) (readLength int, err error) {
+	pos := 0
+	for i := 0; i < count; i++ {
+		readLength, err = decodeValueLengthWithUnknownType(data, offset+pos)
+		if err != nil {
+			return 0, err
+		}
+		pos += readLength
+	}
+	return pos, nil
+}
+
+func bytesToShortStrings(data []byte, count int) ([]string, int) {
+	res := make([]string, count)
+	pos := 0
+	for i := 0; i < count; i++ {
+		shortStr, readLength, err := decodeShortStrWithType(data, pos)
+		if err != nil || readLength == 0 {
+			return nil, 0
+		}
+		pos += readLength
+		res[i] = shortStr
+	}
+
+	return res, pos
+}
+
+func bytesToShortKVs(data []byte, length int) ([]*KeyValue, int, error) {
+	pos := 0
+	res := make([]*KeyValue, 0, 10)
+
+	for pos < length {
+		key, readLength, err := decodeValueWithUnknownType(data, pos)
+		if err != nil || readLength == 0 {
+			return nil, 0, err
+		}
+		pos += readLength
+		value, readLength, err := decodeValueWithUnknownType(data, pos)
+		if err != nil || readLength == 0 {
+			return nil, 0, err
+		}
+		pos += readLength
+		kv, _ := NewKeyValue(key, value)
+		res = append(res, kv)
+	}
+	if pos != length {
+		return res, pos, errors.New(" length not match in short string list")
+	}
+	return res, pos, nil
+}
+
+func decodeShortStrWithType(data []byte, offset int) (res string, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return "", 0, err
+	}
+	if valueType != StringType {
+		return "", 0, errors.New("not a short string")
+	}
+	res, readLength, err = decodeShortStr(data, offset+l)
+	if err != nil {
+		return "", 0, err
+	}
+	return res, readLength + l, nil
+}
+
+func decodeShortStr(data []byte, offset int) (res string, readLength int, err error) {
+	length, l, err := decodeUint8(data, offset)
+	if err != nil {
+		return "", 0, err
+	}
+	end := l + int(length)
+	if end > len(data)-offset {
+		return "", 0, ErrNoEnoughBytes
+	}
+	return string(data[offset+l : offset+end]), end + 1, nil
+}
+
+func decodeLongStr(data []byte, offset int) (res string, readLength int, err error) {
+	length, l, err := decodeUint32(data, offset)
+	if err != nil {
+		return "", 0, err
+	}
+	end := l + int(length)
+	if end > len(data)-offset {
+		return "", 0, ErrNoEnoughBytes
+	}
+	return string(data[offset+l : offset+end]), end + 1, nil // Note that there is '\x00' at the end of this string
+}
+
+func decodeLongStrWithType(data []byte, offset int) (res string, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return "", 0, err
+	}
+	if valueType != TextType {
+		return "", 0, errors.New("not a long string")
+	}
+	res, readLength, err = decodeLongStr(data, offset+l)
+	if err != nil {
+		return "", 0, err
+	}
+	return res, readLength + l, nil // Note that there is '\x00' at the end of this string
+}
+
+// decodeValueWithUnknownType decodes an unknown object with its type
+func decodeValueWithUnknownType(data []byte, offset int) (value interface{}, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return "", 0, err
+	}
+	value, readLength, err = decodeValueWithType(data, offset+l, valueType)
+	if err != nil {
+		return "", 0, err
+	}
+	return value, readLength + l, nil
+}
+
+// decodeValueLengthWithUnknownType decode an unknown object length with its type
+func decodeValueLengthWithUnknownType(data []byte, offset int) (readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return 0, err
+	}
+	readLength, err = decodeValueLengthWithType(data, offset+l, valueType)
+	if err != nil {
+		return 0, err
+	}
+	return readLength + l, nil
+}
+
+func decodeValueLengthWithType(data []byte, offset int, valueType byte) (readLength int, err error) {
+	switch valueType {
+	case StringType:
+		length, l, err := decodeUint8(data, offset)
+		if err != nil {
+			return 0, err
+		}
+		return int(length) + l + 1, nil
+	case BoolType:
+		return 1, nil
+	case TextType:
+		length, l, err := decodeUint32(data, offset)
+		if err != nil {
+			return 0, err
+		}
+		return int(length) + l + 1, nil
+	case LongType:
+		return 8, nil
+	case IntType:
+		return 4, nil
+	case Uint64Type:
+		return 8, nil
+	case DoubleType:
+		return 8, nil
+	case Ipv4Type:
+		return 4, nil
+	case Ipv6Type:
+		return 16, nil
+	}
+	return 0, fmt.Errorf("unsupported value, data: %v", data)
+}
+
+func decodeValueWithType(data []byte, offset int, valueType byte) (value interface{}, readLength int, err error) {
+	switch valueType {
+	case StringType:
+		return decodeShortStr(data, offset)
+	case BoolType:
+		value = false
+		if len(data) < 1+offset {
+			return value, 0, err
+		}
+		if data[offset] == 1 {
+			value = true
+		}
+		return value, 1, nil
+	case BytesType:
+		return decodeBytes(data, offset)
+	case TextType:
+		return decodeLongStr(data, offset)
+	case LongType:
+		val, readLength, err := decodeUint64(data, offset)
+		return int(val), readLength, err
+	case IntType:
+		return decodeUint32(data, offset)
+	case Uint64Type:
+		return decodeUint64(data, offset)
+	case DoubleType:
+		return decodeDouble(data, offset)
+	case Ipv4Type:
+		return decodeIpv4(data, offset)
+	case Ipv6Type:
+		return decodeIpv6(data, offset)
+	}
+	return nil, 0, fmt.Errorf("unsupported value, data: %v", data)
+}
+
+func decodeIpv4(data []byte, offset int) (value Ipv4, readLength int, err error) {
+	ipv4, l, err := decodeUint32(data, offset)
+	if err != nil {
+		return 0, 0, err
+	}
+	return Ipv4(ipv4), l, nil
+}
+
+func decodeIpv4WithType(data []byte, offset int) (value Ipv4, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return 0, 0, err
+	}
+	if valueType != Ipv4Type {
+		return 0, 0, errors.New("not a Ipv4 variable")
+	}
+	value, readLength, err = decodeIpv4(data, offset+l)
+	if err != nil {
+		return 0, 0, err
+	}
+	return value, readLength + l, nil
+}
+
+func decodeIpv6(data []byte, offset int) (value Ipv6, readLength int, err error) {
+	if len(data) < offset+16 {
+		return value, 0, ErrNoEnoughBytes
+	}
+	copy(value[:], data[offset:offset+16])
+	return value, 16, nil
+}
+
+func decodeIpv6WithType(data []byte, offset int) (value Ipv6, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return value, 0, err
+	}
+	if valueType != Ipv6Type {
+		return value, 0, errors.New("not a Ipv6 variable")
+	}
+	value, readLength, err = decodeIpv6(data, offset+l)
+	if err != nil {
+		return value, 0, err
+	}
+	return value, readLength + l, nil
+}
+
+func decodeUint64WithType(data []byte, offset int) (value uint64, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return 0, 0, err
+	}
+	if valueType != LongType && valueType != Uint64Type {
+		return 0, 0, errors.New("not a long variable")
+	}
+	value, readLength, err = decodeUint64(data, offset+l)
+	if err != nil {
+		return 0, 0, err
+	}
+	return value, readLength + l, nil
+}
+
+func decodeUint32WithType(data []byte, offset int) (value uint32, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return 0, 0, err
+	}
+	if valueType != IntType {
+		return 0, 0, errors.New("not a long variable")
+	}
+	value, readLength, err = decodeUint32(data, offset+l)
+	if err != nil {
+		return 0, 0, err
+	}
+	return value, readLength + l, nil
+}
+
+func decodeDouble(data []byte, offset int) (value float64, readLength int, err error) {
+	bits, l, err := decodeUint64(data, offset)
+	if err != nil {
+		return 0, 0, err
+	}
+	value = math.Float64frombits(bits)
+	return value, l, nil
+}
+
+func decodeDoubleWithType(data []byte, offset int) (value float64, readLength int, err error) {
+	valueType, l, err := decodeByteRaw(data, offset)
+	if err != nil {
+		return 0, 0, err
+	}
+	if valueType != DoubleType {
+		return 0, 0, errors.New("not a long variable")
+	}
+
+	value, readLength, err = decodeDouble(data, offset+l)
+	if err != nil {
+		return 0, 0, err
+	}
+	return value, readLength + l, nil
+}
+
+func sliceByteArray(data []byte, low, high int) (value []byte, err error) {
+	if low > high {
+		return nil, errors.New("invalid index")
+	}
+	if low < 0 {
+		return nil, errors.New("invalid index")
+	}
+	length := len(data)
+	if low > length || high > length {
+		return nil, errors.New("index ouf of range")
+	}
+	return data[low:high], nil
+}
+
 func usToMinute(timeStampInUs uint64) uint64 {
 	return timeStampInUs / uint64(time.Minute/time.Microsecond)
 }
@@ -484,14 +901,15 @@ func (b *jsonBuf) Write(p []byte) (n int, err error) {
 }
 
 // KeyValue represents a key-value pair.
-// The key must be a string and the value type may be string, int, or float. The value data is stored in bytes.
 // For available types, please check https://code.byted.org/bytedtrace/serializer-go/blob/master/types.go
+// If the key-value are indexable, the key must be a short string and the value type may be short string, bool, int, or float.
+// The value data is stored in bytes.
 type KeyValue struct {
-	Key       string
-	Value     []byte
-	ValueType byte
-	isLong    bool
-	refCount  int64
+	Key       string // Key is a string
+	Value     []byte // Value is bytes.
+	ValueType byte   // String, Int, Long, Bool, Double....
+	isLong    bool   // Is this a long key-value. Only Short KeyValues can be indexed.
+	refCount  int64  // reference count for recycle purpose.
 }
 
 // NewKeyValue creates a key-value instance. It also does some necessary checks and encodes the value.
@@ -510,7 +928,12 @@ func NewKeyValue(key, value interface{}, isLong ...bool) (*KeyValue, error) {
 	case string:
 		kv.Key = v
 	case fmt.Stringer:
-		kv.Key = v.String()
+		vp := reflect.ValueOf(key)
+		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
+			kv.Key = fmt.Sprintf("%#v", key)
+		} else {
+			kv.Key = v.String()
+		}
 	default:
 		kv.Recycle()
 		return nil, fmt.Errorf("invalid key: %v", key)
@@ -524,7 +947,12 @@ func NewKeyValue(key, value interface{}, isLong ...bool) (*KeyValue, error) {
 			kv.ValueType = TextType
 		}
 	case fmt.Stringer:
-		kv.Value = append(kv.Value, v.String()...)
+		vp := reflect.ValueOf(value)
+		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
+			kv.Value = append(kv.Value, fmt.Sprintf("%#v", value)...)
+		} else {
+			kv.Value = append(kv.Value, v.String()...)
+		}
 		kv.ValueType = StringType
 		if len(kv.Value) > math.MaxUint8 {
 			kv.ValueType = TextType
@@ -572,16 +1000,20 @@ func NewKeyValue(key, value interface{}, isLong ...bool) (*KeyValue, error) {
 	case float64:
 		kv.ValueType = DoubleType
 		kv.Value = EncodeUint64(kv.Value, math.Float64bits(v))
+	case []byte:
+		kv.ValueType = BytesType
+		kv.Value = append(kv.Value, v...)
 	default:
 		kv.Recycle()
 		return nil, fmt.Errorf("invalid key: %v", value)
 	}
 
+	if len(kv.Key) > SHORT_STRING_MAX_LEN {
+		kv.Key = kv.Key[:SHORT_STRING_MAX_LEN]
+	}
+
 	// Check whether the short kv is too long. If it is too long, then trim the key and value.
 	if !kv.isLong {
-		if len(kv.Key) > SHORT_STRING_MAX_LEN {
-			kv.Key = kv.Key[:SHORT_STRING_MAX_LEN]
-		}
 		if len(kv.Value) > SHORT_STRING_MAX_LEN {
 			kv.Value = kv.Value[:SHORT_STRING_MAX_LEN]
 			if kv.ValueType == TextType {
@@ -593,7 +1025,41 @@ func NewKeyValue(key, value interface{}, isLong ...bool) (*KeyValue, error) {
 	return kv, nil
 }
 
-// NewOmniKeyValue create a KeyValue instance for any type of key and value.
+// NewStrKeyValue creates a key-value instance for a string kv-pair.
+// It also does some necessary checks and encodes the value.
+// This KeyValue is short by default: The lengths of the key and value cannot exceed 0xFF.
+// You can pass an extra bool argument to mark it as a long KV.
+func NewStrKeyValue(key, value string, isLong ...bool) *KeyValue {
+	isLongKV := false
+	if len(isLong) > 0 && isLong[0] {
+		isLongKV = true
+	}
+	kv := keyValuePool.Get().(*KeyValue)
+	atomic.StoreInt64(&kv.refCount, 1)
+	kv.isLong = isLongKV
+	kv.Key = key
+
+	kv.Value = append(kv.Value, value...)
+	kv.ValueType = StringType
+	if len(kv.Value) > math.MaxUint8 {
+		kv.ValueType = TextType
+	}
+
+	// Check whether the short kv is too long. If it is too long, then trim the key and value.
+	if !kv.isLong {
+		if len(kv.Value) > SHORT_STRING_MAX_LEN {
+			kv.Value = kv.Value[:SHORT_STRING_MAX_LEN]
+			if kv.ValueType == TextType {
+				kv.ValueType = StringType
+			}
+		}
+	}
+	return kv
+}
+
+// NewOmniKeyValue create a long KeyValue instance for any type of key and value.
+// This is just for compatibility with log 1.0.
+// Long KVs are put in the content area in the log batch.
 func NewOmniKeyValue(key, value interface{}) *KeyValue {
 	kv := keyValuePool.Get().(*KeyValue)
 	atomic.StoreInt64(&kv.refCount, 1)
@@ -603,7 +1069,12 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 	case string:
 		kv.Key = v
 	case fmt.Stringer:
-		kv.Key = v.String()
+		vp := reflect.ValueOf(key)
+		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
+			kv.Key = fmt.Sprintf("%#v", key)
+		} else {
+			kv.Key = v.String()
+		}
 	default:
 		byteBuf := make([]byte, 0, 32)
 		tmpBuf := (*jsonBuf)(unsafe.Pointer(&byteBuf))
@@ -616,6 +1087,10 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 		kv.Key = string(byteBuf[:len(byteBuf)-1])
 	}
 
+	if len(kv.Key) > SHORT_STRING_MAX_LEN {
+		kv.Key = kv.Key[:SHORT_STRING_MAX_LEN]
+	}
+
 	switch v := value.(type) {
 	case string:
 		kv.Value = append(kv.Value, v...)
@@ -624,8 +1099,24 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 			kv.ValueType = TextType
 		}
 	case fmt.Stringer:
-		kv.Value = append(kv.Value, v.String()...)
+		vp := reflect.ValueOf(value)
+		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
+			kv.Value = append(kv.Value, fmt.Sprintf("%#v", value)...)
+		} else {
+			kv.Value = append(kv.Value, v.String()...)
+		}
 		kv.ValueType = StringType
+		if len(kv.Value) > math.MaxUint8 {
+			kv.ValueType = TextType
+		}
+	case error:
+		valueErr := reflect.ValueOf(value)
+		kv.ValueType = StringType
+		if !valueErr.IsValid() || valueErr.Kind() == reflect.Ptr && valueErr.IsNil() {
+			kv.Value = append(kv.Value, fmt.Sprintf("%#v", value)...)
+		} else {
+			kv.Value = append(kv.Value, v.Error()...)
+		}
 		if len(kv.Value) > math.MaxUint8 {
 			kv.ValueType = TextType
 		}
@@ -672,6 +1163,9 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 	case float64:
 		kv.ValueType = DoubleType
 		kv.Value = EncodeUint64(kv.Value, math.Float64bits(v))
+	case []byte:
+		kv.ValueType = BytesType
+		kv.Value = append(kv.Value, v...)
 	default:
 		kv.ValueType = StringType
 		byteBuf := make([]byte, 0, 32)
@@ -706,6 +1200,8 @@ func (kv *KeyValue) Size() int {
 		return EncodedKVSizeStr(kv.Key, SliceByteToString(kv.Value))
 	case StringType:
 		return EncodedKVSizeStr(kv.Key, SliceByteToString(kv.Value))
+	case BytesType:
+		return EncodedStringSize(kv.Key) + len(kv.Value) + 5
 	default:
 		return EncodedStringSize(kv.Key) + len(kv.Value) + 1
 	}
@@ -722,18 +1218,21 @@ func (kv *KeyValue) String() string {
 			valueStr = "false"
 		}
 	case IntType:
-		valInt := DecodeUint32(kv.Value)
-		valueStr = strconv.FormatInt(int64(valInt), 10)
+		valInt, _ := DecodeUint32(kv.Value)
+		varInt64 := int64(int32(valInt))
+		valueStr = strconv.FormatInt(varInt64, 10)
 	case LongType:
-		valLong := DecodeUint64(kv.Value)
+		valLong, _ := DecodeUint64(kv.Value)
 		valueStr = strconv.FormatInt(int64(valLong), 10)
 	case Uint64Type:
-		valUint64 := DecodeUint64(kv.Value)
+		valUint64, _ := DecodeUint64(kv.Value)
 		valueStr = strconv.FormatUint(valUint64, 10)
 	case DoubleType:
-		valInt64 := DecodeUint64(kv.Value)
+		valInt64, _ := DecodeUint64(kv.Value)
 		valDouble := math.Float64frombits(valInt64)
 		valueStr = strconv.FormatFloat(valDouble, 'f', -1, 64)
+	case BytesType:
+		valueStr = fmt.Sprintf("%v", kv.Value)
 	default:
 		valueStr = string(kv.Value)
 	}
@@ -751,22 +1250,59 @@ func (kv *KeyValue) ToKV() (string, string) {
 			valueStr = "false"
 		}
 	case IntType:
-		valInt := DecodeUint32(kv.Value)
-		valueStr = strconv.FormatInt(int64(valInt), 10)
+		valInt, _ := DecodeUint32(kv.Value)
+		valueStr = strconv.FormatInt(int64(int32(valInt)), 10)
 	case LongType:
-		valLong := DecodeUint64(kv.Value)
+		valLong, _ := DecodeUint64(kv.Value)
 		valueStr = strconv.FormatInt(int64(valLong), 10)
 	case Uint64Type:
-		valUint64 := DecodeUint64(kv.Value)
+		valUint64, _ := DecodeUint64(kv.Value)
 		valueStr = strconv.FormatUint(valUint64, 10)
 	case DoubleType:
-		valInt64 := DecodeUint64(kv.Value)
+		valInt64, _ := DecodeUint64(kv.Value)
 		valDouble := math.Float64frombits(valInt64)
 		valueStr = strconv.FormatFloat(valDouble, 'f', -1, 64)
+	case BytesType:
+		valueStr = fmt.Sprintf("%v", kv.Value)
 	default:
 		valueStr = string(kv.Value)
 	}
 	return kv.Key, valueStr
+}
+
+func (kv *KeyValue) EncodeAsStr(buf []byte) []byte {
+	buf = append(buf, kv.Key...)
+	buf = append(buf, equalByte)
+	var valueStr string
+	switch kv.ValueType {
+	case BoolType:
+		if len(kv.Value) > 0 && kv.Value[0] == 1 {
+			valueStr = "true"
+		} else {
+			valueStr = "false"
+		}
+	case IntType:
+		valInt, _ := DecodeUint32(kv.Value)
+		valueStr = strconv.FormatInt(int64(int32(valInt)), 10)
+	case LongType:
+		valLong, _ := DecodeUint64(kv.Value)
+		valueStr = strconv.FormatInt(int64(valLong), 10)
+	case Uint64Type:
+		valUint64, _ := DecodeUint64(kv.Value)
+		valueStr = strconv.FormatUint(valUint64, 10)
+	case DoubleType:
+		valInt64, _ := DecodeUint64(kv.Value)
+		valDouble := math.Float64frombits(valInt64)
+		valueStr = strconv.FormatFloat(valDouble, 'f', -1, 64)
+	case BytesType:
+		valueStr = fmt.Sprintf("%v", kv.Value)
+	case StringType, TextType:
+		valueStr = SliceByteToString(kv.Value)
+	default:
+		valueStr = string(kv.Value)
+	}
+	buf = append(buf, valueStr...)
+	return buf
 }
 
 func (kv *KeyValue) Clone() *KeyValue {
@@ -774,13 +1310,19 @@ func (kv *KeyValue) Clone() *KeyValue {
 	return kv
 }
 
+// Recycle puts the kv back the kv pool.
+// Users should not call this function unless they understand what they are doing.
 func (kv *KeyValue) Recycle() {
 	if atomic.CompareAndSwapInt64(&kv.refCount, 1, 0) {
 		kv.Key = ""
 		kv.Value = kv.Value[:0]
 		kv.ValueType = 0
 		kv.isLong = false
-		keyValuePool.Put(kv)
+
+		// avoid recycling kvs that exceed the threshold.
+		if cap(kv.Value) < kvRecycleCapacityThreshold {
+			keyValuePool.Put(kv)
+		}
 	} else {
 		atomic.AddInt64(&kv.refCount, -1)
 	}
@@ -796,4 +1338,34 @@ var keyValuePool = &sync.Pool{
 			refCount:  0,
 		}
 	},
+}
+
+type Packet *[]byte
+
+// NewPacket gets a usable byte slice.
+func NewPacket(length int) Packet {
+	p := packetPool.Get().(Packet)
+	*p = (*p)[:0]
+	*p = append(*p, make([]byte, length)...)
+	return p
+}
+
+func PutPacket(p Packet) {
+	*p = (*p)[:0]
+	packetPool.Put(p)
+}
+
+var packetPool = &sync.Pool{
+	New: func() interface{} {
+		data := make([]byte, 0, 256)
+		return Packet(&data)
+	},
+}
+
+func DecodeVarString(data []byte) (VarString, error) {
+	if len(data) < 2 {
+		return VarString{}, ErrNoEnoughBytes
+	}
+	lenStr, _ := DecodeUint8(data)
+	return VarString{lenStr, string(data[1 : lenStr+1])}, nil
 }

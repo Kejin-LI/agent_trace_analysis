@@ -1,5 +1,11 @@
 package env
 
+import (
+	"strings"
+	"sync/atomic"
+	"time"
+)
+
 // vdc
 const (
 	VDC_AGCQ            = "agcq"
@@ -25,6 +31,7 @@ const (
 	VDC_SYKA3LARK       = "syka3lark"
 	VDC_LFTOBIAAS       = "lftobiaas"
 	VDC_BOE             = "boe"
+	VDC_BOE2            = "boe2"
 	VDC_COF             = "cof"
 	VDC_DEVBOX          = "devbox"
 	VDC_BOEI18N         = "boei18n"
@@ -63,9 +70,11 @@ const (
 	VDC_GCPUSIAD        = "gcpusiad"
 	VDC_ALIVA           = "aliva"
 	VDC_USEAST2A        = "useast2a"
+	VDC_USEAST9A        = "useast9a"
 	VDC_USWEST1A        = "uswest1a"
 	VDC_CA              = "ca"
 	VDC_AWSUSWEST2      = "awsuswest2"
+	VDC_USWEST2         = "uswest2"
 	VDC_GCPUNUSE        = "gcpunuse"
 	VDC_GCPUSCBF        = "gcpuscbf"
 	VDC_GCPCA           = "gcpca"
@@ -201,9 +210,19 @@ const (
 	VDC_SINFONLINEC     = "sinfonlinec"
 	VDC_SINFSHA         = "sinfsha"
 	VDC_SINFSHC         = "sinfshc"
-	VDC_IE2             = "ie2" // EU-Compliance2
-	VDC_DE              = "de"  // EU-Compliance
-	VDC_HJ              = "hj"
+	VDC_IE2             = "ie2"       // EU-Compliance2
+	VDC_DE              = "de"        // EU-Compliance
+	VDC_ID1A            = "id1a"      // ID-Compliance pipo at Indonesia
+	VDC_ID2A            = "id2a"      // ID-Compliance2 pipo at Indonesia
+	VDC_USEAST11A       = "useast11a" // US-Compliance pipo at useast
+	VDC_IEDT            = "iedt"      // EU-TTP DT
+	VDC_DEDT            = "dedt"      // EU-TTP DT backup
+	VDC_NO1A            = "no1a"      // EU-TTP2 Norway
+	VDC_MYA             = "mya"
+	VDC_HJ              = "hj"   // China-East
+	VDC_HJZG            = "hjzg" // caijing zg dc in china east
+	VDC_MY2             = "my2"
+	VDC_USEAST10A       = "useast10a" // 2nd VDC in US-EAST VRegion for TikTok
 )
 
 // vregion
@@ -212,6 +231,7 @@ const (
 	VREGION_CHINAAGGREGATION    = "China-Aggregation"
 	VREGION_CHINAENTERPRISE     = "China-Enterprise"
 	VREGION_CHINABOE            = "China-BOE"
+	VREGION_CHINABOE2           = "China-BOE2"
 	VREGION_USBOE               = "US-BOE"
 	VREGION_SINGAPOREBOE        = "Singapore-BOE"
 	VREGION_CHINANORTH          = "China-North"
@@ -256,12 +276,32 @@ const (
 	VREGION_CHINAPAY            = "China-Pay"
 	VREGION_SINFCHINANORTH      = "ChinaSinf-North"
 	VREGION_SINFCHINAEAST       = "ChinaSinf-East"
+	VREGION_ASIASOUTHEASTBD     = "Asia-SouthEastBD"
+	VREGION_USEASTBD            = "US-EastBD"
 	VREGION_EUCOMPLIANCE2       = "EU-Compliance2"
 	VREGION_EUCOMPLIANCE        = "EU-Compliance"
+	VREGION_IDCOMPLIANCE2       = "ID-Compliance2"
+	VREGION_IDCOMPLIANCE        = "ID-Compliance"
+	VREGION_USCOMPLIANCE        = "US-Compliance"
+	VREGION_EUTTP2              = "EU-TTP2"
+	VREGION_CHINAPAY2           = "China-Pay2"
 )
 
+const (
+	vRegionFile = "/opt/tmp/consul_agent/vregion"
+
+	vRegionRefreshDur = regionRefreshDur
+)
+
+var (
+	vdcToVRegion  atomic.Value // vdc - vregion : map[string]string
+	vRegionToVDCs atomic.Value // vregion - vdc : map[string][]string
+)
+
+var vRegionToVDCsMap map[string][]string
+
 // vdc -> vregion
-var vdcToVregionMap = map[string]string{
+var vdcToVRegionMap = map[string]string{
 	VDC_AGCQ:            VREGION_CHINAAGGREGATION,
 	VDC_AGGDSZ:          VREGION_CHINAAGGREGATION,
 	VDC_AGHBWH:          VREGION_CHINAAGGREGATION,
@@ -287,6 +327,7 @@ var vdcToVregionMap = map[string]string{
 	VDC_BOE:             VREGION_CHINABOE,
 	VDC_COF:             VREGION_CHINABOE,
 	VDC_DEVBOX:          VREGION_CHINABOE,
+	VDC_BOE2:            VREGION_CHINABOE2,
 	VDC_BOEI18N:         VREGION_USBOE,
 	VDC_DEVBOXI18N:      VREGION_USBOE,
 	VDC_BOESG:           VREGION_SINGAPOREBOE,
@@ -322,10 +363,13 @@ var vdcToVregionMap = map[string]string{
 	VDC_AWSVAGM:         VREGION_USEAST,
 	VDC_GCPUSIAD:        VREGION_USEAST,
 	VDC_ALIVA:           VREGION_USEAST,
+	VDC_USEAST10A:       VREGION_USEAST,
 	VDC_USEAST2A:        VREGION_USEASTRED,
+	VDC_USEAST9A:        VREGION_USEASTBD,
 	VDC_USWEST1A:        VREGION_USWEST,
 	VDC_CA:              VREGION_USWEST,
 	VDC_AWSUSWEST2:      VREGION_USWEST,
+	VDC_USWEST2:         VREGION_USWEST,
 	VDC_GCPUNUSE:        VREGION_USCENTRAL,
 	VDC_GCPUSCBF:        VREGION_USCENTRAL,
 	VDC_GCPCA:           VREGION_USNORTHEAST,
@@ -451,6 +495,7 @@ var vdcToVregionMap = map[string]string{
 	VDC_FRACOMPLIANCE:   VREGION_EUROPECENTRAL,
 	VDC_BOETTP:          VREGION_USBOE,
 	VDC_MY:              VREGION_SINGAPORECENTRAL,
+	VDC_MY2:             VREGION_SINGAPORECENTRAL,
 	VDC_PD:              VREGION_CHINAEAST,
 	VDC_USEAST8:         VREGION_USTTP2,
 	VDC_IE:              VREGION_EUTTP,
@@ -461,18 +506,44 @@ var vdcToVregionMap = map[string]string{
 	VDC_SINFONLINEC:     VREGION_SINFCHINANORTH,
 	VDC_SINFSHA:         VREGION_SINFCHINAEAST,
 	VDC_SINFSHC:         VREGION_SINFCHINAEAST,
+	VDC_MYA:             VREGION_ASIASOUTHEASTBD,
 	VDC_IE2:             VREGION_EUCOMPLIANCE2,
 	VDC_DE:              VREGION_EUCOMPLIANCE,
+	VDC_ID1A:            VREGION_IDCOMPLIANCE,
+	VDC_ID2A:            VREGION_IDCOMPLIANCE2,
+	VDC_USEAST11A:       VREGION_USCOMPLIANCE,
+	VDC_IEDT:            VREGION_EUTTP,
+	VDC_DEDT:            VREGION_EUTTP,
+	VDC_NO1A:            VREGION_EUTTP2,
 	VDC_HJ:              VREGION_CHINAEAST,
+	VDC_HJZG:            VREGION_CHINAPAY2,
 }
 
 // GetVRegionFromVDC gets VRegion that VDC belongs to
 func GetVRegionFromVDC(vdc string) string {
-	vRegion, ok := vdcToVregionMap[vdc]
+	vRegion, ok := vdcToVRegionMap[vdc]
 	if ok {
 		return vRegion
 	}
+	if m, ok := vdcToVRegion.Load().(map[string]string); ok {
+		if vRegion, ok := m[vdc]; ok {
+			return vRegion
+		}
+	}
 	return VREGION_UNKNOWN
+}
+
+// GetVDCsFromVRegion gets all VDCs that belong to given VRegion
+func GetVDCsFromVRegion(vRegion string) []string {
+	m, ok := vRegionToVDCs.Load().(map[string][]string)
+	if !ok {
+		return nil
+	}
+	vdcs, ok := m[vRegion]
+	if ok {
+		return vdcs
+	}
+	return vRegionToVDCsMap[vRegion]
 }
 
 // GetCurrentVRegion locates current service's VRegion
@@ -499,4 +570,32 @@ func GetGovernanceVRegionFromVDC(vdc string) string {
 		return ret
 	}
 	return vRegion
+}
+
+// ATTENTION: IT COMES WITH A LOOP, DON'T CALL IT AGAIN.
+func refreshVRegions() {
+	defer time.AfterFunc(vRegionRefreshDur, refreshVRegions)
+
+	lines := readFile(vRegionFile)
+	vRegionToVDCsMap := make(map[string][]string)
+	vdcToVRegionMap := make(map[string]string)
+	for _, line := range lines {
+		s := strings.Split(line, " ")
+		if len(s) != 2 {
+			continue
+		}
+		vRegion, vdc := s[0], s[1]
+		vRegionToVDCsMap[vRegion] = append(vRegionToVDCsMap[vRegion], vdc)
+		vdcToVRegionMap[vdc] = vRegion
+	}
+	vRegionToVDCs.Store(vRegionToVDCsMap)
+	vdcToVRegion.Store(vdcToVRegionMap)
+}
+
+func init() {
+	vRegionToVDCsMap = make(map[string][]string)
+	for vdc, vRegion := range vdcToVRegionMap {
+		vRegionToVDCsMap[vRegion] = append(vRegionToVDCsMap[vRegion], vdc)
+	}
+	refreshVRegions()
 }

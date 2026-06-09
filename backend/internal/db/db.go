@@ -1,207 +1,91 @@
 package db
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net"
 	"os"
+	"strings"
 	"time"
 
-	_ "code.byted.org/gopkg/bytedmysql"
-	mysqlDriver "github.com/go-sql-driver/mysql"
+	"code.byted.org/gorm/bytedgorm"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-
-	"code.byted.org/aidp-playground/agentic_trace_server/internal/secret"
 )
 
-// defaultTCCDBConfigItem 是存放完整 DB 配置的 TCC 配置项名（地址元数据，非敏感）。
-// 可由 DB_TCC_CONFIG env 覆盖。TCC 上该配置项内容为 JSON：
-//
-//	{
-//	  "db_psm":      "toutiao.mysql.agent_trace_staging_write",
-//	  "db_name":     "agent_trace_staging",
-//	  "db_user":     "age...w-...",
-//	  "db_password": "xxxx"
-//	}
-const defaultTCCDBConfigItem = "agentic_trace_server.db.config"
+const (
+	defaultTargetRDSPSM = "toutiao.mysql.aids_design_d2c"
+	defaultDBName       = "aids_design_d2c"
+)
 
-// dbConf 是连库所需的四元组凭证。
-type dbConf struct {
-	psm  string
-	name string
-	user string
-	pass string
-}
-
-// Open 建立 Gorm 连接。凭证按以下优先级加载，绝不硬编码：
+// Open 建立 Gorm 连接。
 //
-//  1. TCC 加密配置（推荐，合规首选）：从 TCC 配置项读完整 DB 配置 JSON
-//     （db_psm/db_name/db_user/db_password），通过 PSM 服务发现 + RDS 鉴权连接。
-//     TCC Space 由 TCC_SERVICE 控制（默认 aidp.turing.config），配置项名由
-//     DB_TCC_CONFIG 控制（默认 agentic_trace_server.db.config）。
+// 默认采用 figma tracker 同款 bytedgorm SDK 连接方式：
+//   - PSM 前缀：`toutiao.mysql.aids_design_d2c`
+//   - 库名：`aids_design_d2c`
+//   - `.WithReadReplicas()` 自动派生 `_read / _write`
 //
-//  2. 环境变量兜底（本地调试）：
-//     - PSM 模式：DB_PSM + DB_USER + DB_PASSWORD + DB_NAME
-//     - 直连模式：DB_DSN，或 DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME
+// 允许通过环境变量覆盖：
+//   - `DB_PSM_PREFIX`
+//   - `DB_NAME`
+//   - `DB_READ_TIMEOUT_MS`
+//   - `DB_WRITE_TIMEOUT_MS`
+//
+// 若显式提供 `DB_DSN`，则仍保留直连模式作为本地调试兜底。
 func Open() (*gorm.DB, error) {
-	// 优先尝试 TCC：读到完整 PSM 四元组则直接用。
-	if conf, ok := loadDBConfFromTCC(); ok {
-		log.Printf("✅ [DB] 使用 TCC 加密配置连接 (psm=%s, db=%s)", conf.psm, conf.name)
-		return openPSM(conf)
+	if strings.TrimSpace(os.Getenv("DB_DSN")) != "" {
+		log.Printf("⚠️ [DB] 检测到 DB_DSN，使用直连模式（仅建议本地调试）")
+		return openDirect()
 	}
-
-	// 兜底：环境变量。
-	if psm := os.Getenv("DB_PSM"); psm != "" {
-		conf := dbConf{
-			psm:  psm,
-			user: os.Getenv("DB_USER"),
-			pass: os.Getenv("DB_PASSWORD"),
-			name: os.Getenv("DB_NAME"),
-		}
-		if miss := conf.missing(); len(miss) > 0 {
-			return nil, fmt.Errorf("PSM 模式缺少环境变量: %v", miss)
-		}
-		log.Printf("⚠️ [DB] 使用环境变量 PSM 模式连接（建议改用 TCC 加密配置）")
-		return openPSM(conf)
-	}
-	return openDirect()
+	return openSDK()
 }
 
-// loadDBConfFromTCC 尝试从 TCC 读取完整 DB 配置。
-// 成功且四元组齐全才返回 ok=true，否则交由环境变量兜底。
-func loadDBConfFromTCC() (dbConf, bool) {
-	secret.InitTCC()
-	if !secret.TCCReady() {
-		return dbConf{}, false
-	}
+func openSDK() (*gorm.DB, error) {
+	targetPSM := getEnvDefault("DB_PSM_PREFIX", defaultTargetRDSPSM)
+	dbName := getEnvDefault("DB_NAME", defaultDBName)
+	readTimeout := getDurationMS("DB_READ_TIMEOUT_MS", 3000)
+	writeTimeout := getDurationMS("DB_WRITE_TIMEOUT_MS", 3000)
 
-	configKey := os.Getenv("DB_TCC_CONFIG")
-	if configKey == "" {
-		configKey = defaultTCCDBConfigItem
-	}
+	log.Printf("🔌 [bytedgorm] 初始化 RDS 连接, TargetRDSPSM=%s, DB=%s", targetPSM, dbName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+	dialector := bytedgorm.MySQL(targetPSM, dbName).
+		With(func(conf *bytedgorm.DBConfig) {
+			conf.ReadTimeout = readTimeout
+			conf.WriteTimeout = writeTimeout
+		}).
+		WithReadReplicas()
 
-	m, err := secret.GetEncryptedJSON(ctx, configKey)
+	gdb, err := gorm.Open(
+		dialector,
+		bytedgorm.ConnPool{
+			MaxIdleConns: 50,
+			MaxOpenConns: 100,
+		},
+		&gorm.Config{
+			Logger: logger.Default.LogMode(logger.Warn),
+		},
+	)
 	if err != nil {
-		log.Printf("⚠️ [DB] TCC 拉取 %s 失败: %v，fallback 到环境变量", configKey, err)
-		return dbConf{}, false
+		return nil, fmt.Errorf("bytedgorm 初始化失败: %w", err)
 	}
-
-	conf := dbConf{
-		psm:  m["db_psm"],
-		name: m["db_name"],
-		user: m["db_user"],
-		pass: m["db_password"],
-	}
-	if miss := conf.missing(); len(miss) > 0 {
-		log.Printf("⚠️ [DB] TCC 配置 %s 缺少字段: %v，fallback 到环境变量", configKey, miss)
-		return dbConf{}, false
-	}
-	return conf, true
-}
-
-// missing 返回四元组中为空的字段名。
-func (c dbConf) missing() []string {
-	var miss []string
-	if c.psm == "" {
-		miss = append(miss, "db_psm")
-	}
-	if c.user == "" {
-		miss = append(miss, "db_user")
-	}
-	if c.pass == "" {
-		miss = append(miss, "db_password")
-	}
-	if c.name == "" {
-		miss = append(miss, "db_name")
-	}
-	return miss
-}
-
-// openPSM 通过 bytedmysql 驱动 + PSM 服务发现连接。
-func openPSM(conf dbConf) (*gorm.DB, error) {
-	psm := conf.psm
-	user := conf.user
-	pass := conf.pass
-	name := conf.name
-
-	// 使用 mysql.Config 生成 DSN，避免密码中的特殊字符破坏连接串解析。
-	cfg := mysqlDriver.NewConfig()
-	cfg.User = user
-	cfg.Passwd = pass
-	cfg.Net = "sd"
-	cfg.Addr = psm
-	cfg.DBName = name
-	cfg.ParseTime = true
-	cfg.Loc = time.Local
-	cfg.Timeout = 10 * time.Second
-	cfg.Params = map[string]string{
-		"charset":       "utf8mb4",
-		"use_gdpr_auth": "true",
-	}
-	dsn := cfg.FormatDSN()
-
-	gdb, err := gorm.Open(gormmysql.New(gormmysql.Config{
-		DriverName: "bytedmysql",
-		DSN:        dsn,
-	}), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
-	})
+	sqlDB, err := gdb.DB()
 	if err != nil {
-		return nil, fmt.Errorf("PSM 连接数据库失败: %w", err)
+		return nil, fmt.Errorf("获取底层 *sql.DB 失败: %w", err)
 	}
-	return tune(gdb)
+	sqlDB.SetConnMaxLifetime(3 * time.Minute)
+	if err := sqlDB.Ping(); err != nil {
+		return nil, fmt.Errorf("ping RDS 失败 (PSM 鉴权或网络): %w", err)
+	}
+	log.Printf("✅ [bytedgorm] 成功连接 RDS（读写分离已启用）")
+	return gdb, nil
 }
 
-// openDirect 通过标准 tcp DSN 连接（本地端口转发或显式 host:port）。
+// openDirect 保留给本地端口转发/显式 host:port 调试，不用于线上。
 func openDirect() (*gorm.DB, error) {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
-		host := os.Getenv("DB_HOST")
-		port := getEnvDefault("DB_PORT", "3306")
-		user := os.Getenv("DB_USER")
-		pass := os.Getenv("DB_PASSWORD")
-		name := os.Getenv("DB_NAME")
-
-		var missing []string
-		if host == "" {
-			missing = append(missing, "DB_HOST")
-		}
-		if user == "" {
-			missing = append(missing, "DB_USER")
-		}
-		if pass == "" {
-			missing = append(missing, "DB_PASSWORD")
-		}
-		if name == "" {
-			missing = append(missing, "DB_NAME")
-		}
-		if len(missing) > 0 {
-			return nil, fmt.Errorf("缺少数据库环境变量: %v（或设置 DB_PSM / DB_DSN）", missing)
-		}
-
-		cfg := mysqlDriver.NewConfig()
-		cfg.User = user
-		cfg.Passwd = pass
-		cfg.Net = "tcp"
-		cfg.Addr = net.JoinHostPort(host, port)
-		cfg.DBName = name
-		cfg.ParseTime = true
-		cfg.Loc = time.Local
-		cfg.Timeout = 10 * time.Second
-		cfg.ReadTimeout = 30 * time.Second
-		cfg.WriteTimeout = 30 * time.Second
-		cfg.Params = map[string]string{
-			"charset": "utf8mb4",
-		}
-		dsn = cfg.FormatDSN()
+		return nil, fmt.Errorf("缺少 DB_DSN；线上请使用 bytedgorm SDK 模式")
 	}
-
 	gdb, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
@@ -227,4 +111,16 @@ func getEnvDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func getDurationMS(key string, def int) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return time.Duration(def) * time.Millisecond
+	}
+	var ms int
+	if _, err := fmt.Sscanf(v, "%d", &ms); err != nil || ms <= 0 {
+		return time.Duration(def) * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
 }

@@ -65,15 +65,24 @@ func main() {
 	})
 
 	// 读库 API：根据 DATA_SOURCE 决定数据源。
-	//   DATA_SOURCE=api ：上游接口模式，不依赖 DB
+	//   DATA_SOURCE=api ：上游接口模式，优先启用 DB-backed 聚合缓存（DB 失败则降级）
 	//   其他          ：依赖 DB 的 fornax / tos 模式（DB 不可用则跳过 API）
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("DATA_SOURCE")), "api") {
-		h, err := api.NewAPI()
+		gdb, err := db.Open()
+		if err != nil {
+			log.Printf("api 模式数据库未连接，DB-backed 聚合缓存已禁用: %v", err)
+		}
+
+		h, err := api.NewAPI(gdb)
 		if err != nil {
 			log.Printf("api 模式初始化失败，读库 API 已禁用: %v", err)
 		} else {
 			h.Register(r)
-			log.Printf("读库 API 已启用（DATA_SOURCE=api，直连上游模型日志接口）")
+			if gdb != nil {
+				log.Printf("读库 API 已启用（DATA_SOURCE=api，直连上游模型日志接口，DB 聚合缓存已启用）")
+			} else {
+				log.Printf("读库 API 已启用（DATA_SOURCE=api，直连上游模型日志接口，DB 聚合缓存未启用）")
+			}
 		}
 	} else if gdb, err := db.Open(); err != nil {
 		log.Printf("数据库未连接，读库 API 已禁用: %v", err)

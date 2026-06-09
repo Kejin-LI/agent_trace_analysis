@@ -32,6 +32,14 @@ type FileWriter struct {
 	fileCountLimit int
 
 	currentTimeSeg osTime.Time
+
+	currentFileName string
+	currentSeqNum   int
+	currentFileSize int
+	fileSizeLimit   int
+
+	writeRawLog bool
+
 	sync.RWMutex
 }
 
@@ -41,19 +49,19 @@ func NewFileWriter(filename string, window RotationWindow, options ...FileOption
 		filename:       filename,
 		rotationWindow: window,
 	}
-	file, err := w.loadFile()
+	for _, op := range options {
+		op(w)
+	}
+	file, err := w.loadFile(true)
 	if err != nil {
 		panic(err)
 	}
 	w.file = newRotatedFile(file)
-	for _, op := range options {
-		op(w)
-	}
 	return w
 }
 
-func (w *FileWriter) loadFile() (io.WriteCloser, error) {
-	timedName, currentTimeSeg, err := timedFilename(w.filename)
+func (w *FileWriter) loadFile(initState bool) (io.WriteCloser, error) {
+	timedName, currentTimeSeg, currentSeqNum, err := w.timedFilename(initState)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +83,14 @@ func (w *FileWriter) loadFile() (io.WriteCloser, error) {
 	}
 	_ = os.Symlink(filepath.Base(timedName), w.filename)
 	w.currentTimeSeg = currentTimeSeg
+	w.currentFileName = timedName
+	w.currentSeqNum = currentSeqNum
+	if initState {
+		stat, _ := file.Stat()
+		if stat != nil {
+			w.currentFileSize = int(stat.Size())
+		}
+	}
 	return file, nil
 }
 
@@ -90,6 +106,10 @@ func (w *FileWriter) checkIfNeedRotate(logTime osTime.Time) error {
 		if w.currentTimeSeg.Hour() != logTime.Hour() || w.currentTimeSeg.YearDay() != logTime.YearDay() {
 			needRotate = true
 		}
+	}
+
+	if w.fileSizeLimit > 0 && w.currentFileSize > w.fileSizeLimit {
+		needRotate = true
 	}
 
 	if needRotate {
@@ -127,11 +147,12 @@ func (w *FileWriter) cleanFiles(limit int) {
 }
 
 func (w *FileWriter) rotate() error {
-	file, err := w.loadFile()
+	file, err := w.loadFile(false)
 	if err != nil {
 		return err
 	}
 	w.file.Rotate(file)
+	w.currentFileSize = 0
 	return nil
 }
 
@@ -143,7 +164,17 @@ func (w *FileWriter) Write(log RecyclableLog) error {
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "write file %s error: %s\n", w.filename, err)
 	}
-	_, err = w.file.Write(log.GetContent())
+
+	var logBytes []byte
+	if w.writeRawLog {
+		logBytes = log.GetBody()
+	} else {
+		logBytes = log.GetContent()
+	}
+	n, err := w.file.Write(logBytes)
+	w.Lock()
+	w.currentFileSize += n
+	w.Unlock()
 	return err
 }
 
@@ -155,14 +186,38 @@ func (w *FileWriter) Flush() error {
 	return w.file.Flush()
 }
 
-func timedFilename(filename string) (string, osTime.Time, error) {
+func (w *FileWriter) timedFilename(initState bool) (string, osTime.Time, int, error) {
 	var now osTime.Time
-	absPath, err := filepath.Abs(filename)
+	absPath, err := filepath.Abs(w.filename)
 	if err != nil {
-		return "", now, err
+		return "", now, 0, err
 	}
 	now = osTime.Now()
-	return absPath + "." + now.Format(dateFormat), now, nil
+	timedName := absPath + "." + now.Format(dateFormat)
+	if w.fileSizeLimit <= 0 {
+		return timedName, now, 0, nil
+	}
+
+	if initState {
+		seqFileName := timedName
+		seqNum := 0
+		_ = filepath.Walk(filepath.Dir(timedName), func(path string, info os.FileInfo, err error) error {
+			if strings.HasPrefix(path, timedName) {
+				logTime := getFileDate(path)
+				if logTime.seqNum > seqNum {
+					seqFileName = path
+					seqNum = logTime.seqNum
+				}
+			}
+			return nil
+		})
+		return seqFileName, now, seqNum, nil
+	}
+
+	if !strings.HasPrefix(w.currentFileName, timedName) {
+		return timedName, now, 0, nil
+	}
+	return fmt.Sprintf("%s.%d", timedName, w.currentSeqNum+1), now, w.currentSeqNum + 1, nil
 }
 
 type FileOption func(writer *FileWriter)
@@ -170,5 +225,17 @@ type FileOption func(writer *FileWriter)
 func SetKeepFiles(n int) FileOption {
 	return func(writer *FileWriter) {
 		writer.fileCountLimit = n
+	}
+}
+
+func SetFileSizeLimit(size int) FileOption {
+	return func(writer *FileWriter) {
+		writer.fileSizeLimit = size
+	}
+}
+
+func WriteRawFileLog(writeRawLog bool) FileOption {
+	return func(writer *FileWriter) {
+		writer.writeRawLog = writeRawLog
 	}
 }

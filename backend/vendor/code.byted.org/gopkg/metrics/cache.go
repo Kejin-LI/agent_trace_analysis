@@ -69,7 +69,7 @@ func (c *tagCache) Get(key []byte) *cachedTags {
 }
 
 func (c *tagCache) Set(key []byte, tt *cachedTags) {
-	if atomic.AddUint64(&c.setn, 1)&cacheCapacity == 0 {
+	if atomic.AddUint64(&c.setn, 1)%cacheCapacity == 0 {
 		// every cacheCapacity times call, we clear the map for memory leak issue
 		// there is no reason to have so many tags
 		// FIXME: sync.Map don't have Len method and `setn` may not equal to the len in concurrency env
@@ -100,14 +100,17 @@ func (c *tagCache) GetOrCreate(tags []T, extTagBytes []byte) *cachedTags {
 			if len(b) > 0 {
 				b = append(b, '|')
 			}
+			gTags.RLock()
 			b = append(b, extTagBytes...)
+			gTags.RUnlock()
 		}
 		e := &cachedTags{b}
 		return e
 	}
 	actual, loaded := c.m.LoadOrStoreLazy(string(k), valuef)
 	if !loaded {
-		if atomic.AddUint64(&c.setn, 1)&cacheCapacity == 0 {
+		// use % instead of &.
+		if atomic.AddUint64(&c.setn, 1)%cacheCapacity == 0 {
 			// every cacheCapacity times call, we clear the map for memory leak issue
 			// there is no reason to have so many tags
 			samples := make([]interface{}, 0, 3)

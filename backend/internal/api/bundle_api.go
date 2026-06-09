@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -75,11 +76,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		bundles = append(bundles, b)
 	}
 
-	// 异步触发缺失日期的聚合：当前时间窗涉及的所有自然日。
+	// 异步触发缺失日期的聚合，但后端会强制收敛为最近 1 天，避免随查询窗口放大。
 	if h.aggregator != nil {
 		days := daysFromQueryRange(tr)
-		if len(days) > 0 {
-			h.aggregator.EnsureDays(cookie, days)
+		if day, ok := mostRecentDay(days); ok {
+			h.aggregator.EnsureDays(cookie, []string{day})
 		}
 	}
 
@@ -96,6 +97,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 //
 // 由于上游接口不支持按 ID 直查，这里用同样的时间窗 + page_size 兜底拉一批，
 // 在内存里 match。前端正常使用时间窗很紧（详情页在列表的同一时段内），命中率足够。
+// 当 DB-backed aggregator 已启用时，会在成功解析后顺手把这条 session 写入聚合表。
 func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if h.upstream == nil {
 		fail(c, fmt.Errorf("upstream client not initialized"))
@@ -144,6 +146,11 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	}
 	src := sessionToStgSource(*hit)
 	bundle := buildBundleFromTOS(src, pr)
+	if h.aggregator != nil {
+		if err := h.aggregator.PersistBundle(src, bundle); err != nil {
+			log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
+		}
+	}
 	c.JSON(http.StatusOK, bundle)
 }
 

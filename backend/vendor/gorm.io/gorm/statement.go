@@ -30,9 +30,8 @@ type Statement struct {
 	Clauses              map[string]clause.Clause
 	BuildClauses         []string
 	Distinct             bool
-	Selects              []string          // selected columns
-	Omits                []string          // omit columns
-	ColumnMapping        map[string]string // map columns
+	Selects              []string // selected columns
+	Omits                []string // omit columns
 	Joins                []join
 	Preloads             map[string][]interface{}
 	Settings             sync.Map
@@ -327,7 +326,7 @@ func (stmt *Statement) BuildCondition(query interface{}, args ...interface{}) []
 		case *DB:
 			v.executeScopes()
 
-			if cs, ok := v.Statement.Clauses["WHERE"]; ok {
+			if cs, ok := v.Statement.Clauses["WHERE"]; ok && cs.Expression != nil {
 				if where, ok := cs.Expression.(clause.Where); ok {
 					if len(where.Exprs) == 1 {
 						if orConds, ok := where.Exprs[0].(clause.OrConditions); ok {
@@ -335,8 +334,12 @@ func (stmt *Statement) BuildCondition(query interface{}, args ...interface{}) []
 						}
 					}
 					conds = append(conds, clause.And(where.Exprs...))
-				} else if cs.Expression != nil {
+				} else {
 					conds = append(conds, cs.Expression)
+				}
+				if v.Statement == stmt {
+					cs.Expression = nil
+					stmt.Statement.Clauses["WHERE"] = cs
 				}
 			}
 		case map[interface{}]interface{}:
@@ -448,9 +451,8 @@ func (stmt *Statement) BuildCondition(query interface{}, args ...interface{}) []
 
 						if len(values) > 0 {
 							conds = append(conds, clause.IN{Column: clause.PrimaryColumn, Values: values})
-							return []clause.Expression{clause.And(conds...)}
 						}
-						return nil
+						return conds
 					}
 				}
 
@@ -459,10 +461,7 @@ func (stmt *Statement) BuildCondition(query interface{}, args ...interface{}) []
 		}
 	}
 
-	if len(conds) > 0 {
-		return []clause.Expression{clause.And(conds...)}
-	}
-	return nil
+	return conds
 }
 
 // Build build sql with clauses names
@@ -514,7 +513,6 @@ func (stmt *Statement) clone() *Statement {
 		Distinct:             stmt.Distinct,
 		Selects:              stmt.Selects,
 		Omits:                stmt.Omits,
-		ColumnMapping:        stmt.ColumnMapping,
 		Preloads:             map[string][]interface{}{},
 		ConnPool:             stmt.ConnPool,
 		Schema:               stmt.Schema,
@@ -667,21 +665,7 @@ func (stmt *Statement) Changed(fields ...string) bool {
 	return false
 }
 
-var matchName = func() func(tableColumn string) (table, column string) {
-	nameMatcher := regexp.MustCompile(`^(?:\W?(\w+?)\W?\.)?(?:(\*)|\W?(\w+?)\W?)$`)
-	return func(tableColumn string) (table, column string) {
-		if matches := nameMatcher.FindStringSubmatch(tableColumn); len(matches) == 4 {
-			table = matches[1]
-			star := matches[2]
-			columnName := matches[3]
-			if star != "" {
-				return table, star
-			}
-			return table, columnName
-		}
-		return "", ""
-	}
-}()
+var nameMatcher = regexp.MustCompile(`^(?:\W?(\w+?)\W?\.)?\W?(\w+?)\W?$`)
 
 // SelectAndOmitColumns get select and omit columns, select -> true, omit -> false
 func (stmt *Statement) SelectAndOmitColumns(requireCreate, requireUpdate bool) (map[string]bool, bool) {
@@ -702,13 +686,13 @@ func (stmt *Statement) SelectAndOmitColumns(requireCreate, requireUpdate bool) (
 			}
 		} else if field := stmt.Schema.LookUpField(column); field != nil && field.DBName != "" {
 			results[field.DBName] = result
-		} else if table, col := matchName(column); col != "" && (table == stmt.Table || table == "") {
-			if col == "*" {
+		} else if matches := nameMatcher.FindStringSubmatch(column); len(matches) == 3 && (matches[1] == stmt.Table || matches[1] == "") {
+			if matches[2] == "*" {
 				for _, dbName := range stmt.Schema.DBNames {
 					results[dbName] = result
 				}
 			} else {
-				results[col] = result
+				results[matches[2]] = result
 			}
 		} else {
 			results[column] = result

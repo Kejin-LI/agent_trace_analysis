@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"unsafe"
+
+	"code.byted.org/gopkg/env"
 )
 
 // SecMark adds double brackets to the key-value pairs and return the generated string.
@@ -20,8 +23,10 @@ func SecMark(key, val interface{}) string {
 	return keyStr + "=" + valStr
 }
 
-/* This function directly modifies the buf and trim the padding or whitespace.
-   Note that the padding must be valid because it doesn't check it here.
+/*
+This function directly modifies the buf and trim the padding or whitespace.
+
+	Note that the padding must be valid because it doesn't check it here.
 */
 func trimPadding(buf *[]byte, padding []byte, trimSuffixWhitespace ...bool) {
 	lenBuf, lenPadding := len(*buf), len(padding)
@@ -101,4 +106,30 @@ type Lazier func() interface{}
 // Lazy is a helper function to avoid
 func Lazy(f func() interface{}) Lazier {
 	return f
+}
+
+func getHostEnv() string {
+	if hostEnv := os.Getenv("TCE_HOST_ENV"); hostEnv != "" {
+		return hostEnv
+	}
+	return "-"
+}
+
+type RegionType int32
+
+const (
+	REGION_NORMAL RegionType = iota
+	REGION_TTP
+	REGION_GCP
+)
+
+func DetermineRegion() RegionType {
+	if env.Region() == env.R_USTTP || env.Region() == env.R_USTTP2 ||
+		os.Getenv("LOGS_IN_TTP") == "true" {
+		return REGION_TTP
+	} else if env.IDC() == "useast2a" ||
+		os.Getenv("LOGS_IN_GCP") == "true" {
+		return REGION_GCP
+	}
+	return REGION_NORMAL
 }

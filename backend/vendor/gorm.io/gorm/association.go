@@ -396,10 +396,6 @@ func (association *Association) saveAssociation(clear bool, values ...interface{
 					}
 				}
 			case reflect.Struct:
-				if !rv.CanAddr() {
-					association.Error = ErrInvalidValue
-					return
-				}
 				association.Error = association.Relationship.Field.Set(association.DB.Statement.Context, source, rv.Addr().Interface())
 
 				if association.Relationship.Field.FieldType.Kind() == reflect.Struct {
@@ -437,10 +433,6 @@ func (association *Association) saveAssociation(clear bool, values ...interface{
 					appendToFieldValues(reflect.Indirect(rv.Index(i)).Addr())
 				}
 			case reflect.Struct:
-				if !rv.CanAddr() {
-					association.Error = ErrInvalidValue
-					return
-				}
 				appendToFieldValues(rv.Addr())
 			}
 
@@ -518,9 +510,6 @@ func (association *Association) saveAssociation(clear bool, values ...interface{
 
 		for i := 0; i < reflectValue.Len(); i++ {
 			appendToRelations(reflectValue.Index(i), reflect.Indirect(reflect.ValueOf(values[i])), clear)
-			if association.Error != nil {
-				return
-			}
 
 			// TODO support save slice data, sql with case?
 			association.Error = associationDB.Updates(reflectValue.Index(i).Addr().Interface()).Error
@@ -542,9 +531,6 @@ func (association *Association) saveAssociation(clear bool, values ...interface{
 		for idx, value := range values {
 			rv := reflect.Indirect(reflect.ValueOf(value))
 			appendToRelations(reflectValue, rv, clear && idx == 0)
-			if association.Error != nil {
-				return
-			}
 		}
 
 		if len(values) > 0 {

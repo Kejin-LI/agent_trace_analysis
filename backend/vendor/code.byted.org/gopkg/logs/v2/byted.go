@@ -11,18 +11,24 @@ import (
 // It is also the default logger in Log2.0 SDK
 type ByteDLogger struct {
 	logger
-	psm     string
-	options []Option
+	psm                          string
+	disableBytedMetricMiddleware bool
+	options                      []Option
 }
 
 // NewByteDLogger creates a new BytedLogger with options.
 func NewByteDLogger(options ...Option) *ByteDLogger {
-	options = append(options, SetMiddleware(metricsMiddleware))
-	logger := &ByteDLogger{*NewLogger(), env.PSM(), options}
+	logger := &ByteDLogger{logger: *NewLogger(), psm: env.PSM(), options: options}
 	logger.padding = []byte(" ")
 	for _, op := range options {
 		op(logger)
 	}
+
+	if !logger.disableBytedMetricMiddleware {
+		// Append the errorlog middleware.
+		SetMiddleware(getErrorLogMiddleware(logger.psm))(logger)
+	}
+
 	return logger
 }
 
@@ -31,38 +37,38 @@ func (l *ByteDLogger) GetOptions() []Option {
 }
 
 // Trace starts a trace level log printing.
-func (l *ByteDLogger) Trace() *Log {
-	return l.prefix(l.logger.Trace())
+func (l *ByteDLogger) Trace(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Trace(ops...))
 }
 
 // Debug starts a debug level log printing.
-func (l *ByteDLogger) Debug() *Log {
-	return l.prefix(l.logger.Debug())
+func (l *ByteDLogger) Debug(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Debug(ops...))
 }
 
 // Info starts a info level log printing.
-func (l *ByteDLogger) Info() *Log {
-	return l.prefix(l.logger.Info())
+func (l *ByteDLogger) Info(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Info(ops...))
 }
 
 // Warn starts a warning level log printing.
-func (l *ByteDLogger) Warn() *Log {
-	return l.prefix(l.logger.Warn())
+func (l *ByteDLogger) Warn(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Warn(ops...))
 }
 
 // Error starts a error level log printing.
-func (l *ByteDLogger) Error() *Log {
-	return l.prefix(l.logger.Error())
+func (l *ByteDLogger) Error(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Error(ops...))
 }
 
 // Fatal starts a fatal level log printing.
-func (l *ByteDLogger) Fatal() *Log {
-	return l.prefix(l.logger.Fatal())
+func (l *ByteDLogger) Fatal(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Fatal(ops...))
 }
 
 // Notice starts a notice level log printing.
-func (l *ByteDLogger) Notice() *Log {
-	return l.prefix(l.logger.Notice())
+func (l *ByteDLogger) Notice(ops ...loggerOption) *Log {
+	return l.prefix(l.logger.Notice(ops...))
 }
 
 func (l *ByteDLogger) CtxFlushNotice(ctx context.Context) {
@@ -74,12 +80,12 @@ func (l *ByteDLogger) CtxFlushNotice(ctx context.Context) {
 	if len(kvs) == 0 {
 		return
 	}
-	l.Notice().CallDepth(1).KVs(kvs...).Emit()
+	l.Notice().With(ctx).CallDepth(1).KVs(kvs...).Emit()
 }
 
 // This private function will set most common fields for the log instance
 func (l *ByteDLogger) prefix(log *Log) *Log {
-	return (*prefixedLog)(unsafe.Pointer(log)).Level().Time(l.includeZoneInfo).Version().Location().Host().PSM(l.psm).LogID().Cluster().Stage().SpanID().End()
+	return (*prefixedLog)(unsafe.Pointer(log)).Level().Time().Version().Location().Host().PSM(l.psm).LogID().Cluster().Stage().SpanID().End()
 }
 
 // TODO: combine getting context between v2 and v2/writer

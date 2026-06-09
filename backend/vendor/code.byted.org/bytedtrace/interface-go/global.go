@@ -2,6 +2,7 @@ package bytedtracer
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/opentracing/opentracing-go"
@@ -18,6 +19,7 @@ type predefine struct {
 	eventMetricsTags          map[string][]string
 	spanMetricsTags           map[string][]string
 	customMetrics             map[string][]string
+	globalTags                map[string]*GlobalTag
 	consumerSpanTagRegistered bool
 	lock                      sync.RWMutex
 }
@@ -26,6 +28,14 @@ var (
 	globalTracer  = registerTracer{defaultNoopTracer, false}
 	predefineTags = predefine{}
 )
+
+func (p *predefine) getGlobalTags() []*GlobalTag {
+	res := make([]*GlobalTag, 0, len(p.globalTags))
+	for _, t := range p.globalTags {
+		res = append(res, t)
+	}
+	return res
+}
 
 // Set global tracer.
 // Attention: will replace the original one so be careful.
@@ -43,6 +53,13 @@ func SetGlobalTracer(tracer Tracer) {
 
 	for key, tags := range predefineTags.customMetrics {
 		_ = tracer.AddCustomMetric(key, tags...)
+	}
+
+	globalTags := predefineTags.getGlobalTags()
+	if len(globalTags) > 0 {
+		if t, ok := tracer.(GlobalTagSetter); ok {
+			t.AddGlobalTags(globalTags)
+		}
 	}
 
 	if predefineTags.consumerSpanTagRegistered {
@@ -302,4 +319,22 @@ func GetSpanMetricsLevel() int32 {
 		return t.SpanMetricsLevel()
 	}
 	return 0
+}
+
+// Make unchanged tags as global tag, will be added into each transaction.
+// AsMetricsGlobalTag: if true, this tag will be added into global metrics tags.
+// 为了减少开销,请保证所有的globalTag一次性添加完毕.
+func AddGlobalTags(tags []*GlobalTag) error {
+	predefineTags.lock.Lock()
+	defer predefineTags.lock.Unlock()
+	if predefineTags.globalTags == nil {
+		predefineTags.globalTags = make(map[string]*GlobalTag)
+	}
+	for _, tg := range tags {
+		predefineTags.globalTags[tg.Key] = tg
+	}
+	if t, ok := globalTracer.tracer.(GlobalTagSetter); ok {
+		return t.AddGlobalTags(tags)
+	}
+	return errors.New("tracer not support add global tag")
 }

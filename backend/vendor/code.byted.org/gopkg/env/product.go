@@ -16,13 +16,13 @@ func IsTesting() bool {
 // IsBoe return true if it's in BOE by the IDC name
 func IsBoe() bool {
 	idc := IDC()
-	return idc == "boe" || idc == "boei18n" || idc == "boexfl" || idc == "boettp"
+	return idc == "boe" || idc == "boei18n" || idc == "boexfl" || idc == "boettp" || idc == "boe2"
 }
 
 // IsBoeCN return true if the idc is in China
 func IsBoeCN() bool {
 	idc := IDC()
-	return idc == "boe"
+	return idc == "boe" || idc == "boe2"
 }
 
 // IsBoeI18N return true if the idc is boei18n

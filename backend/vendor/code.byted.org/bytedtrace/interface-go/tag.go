@@ -29,3 +29,9 @@ func (t TagKV) Apply(op *opentracing.StartSpanOptions) {
 	}
 	op.Tags[t.key] = t.value
 }
+
+type GlobalTag struct {
+	Key                string
+	Value              string
+	AsMetricsGlobalTag bool
+}

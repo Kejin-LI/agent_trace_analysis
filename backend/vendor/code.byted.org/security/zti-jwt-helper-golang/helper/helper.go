@@ -18,8 +18,8 @@ import (
 	"code.byted.org/security/go-spiffe-v2/svid/jwtsvid"
 	"code.byted.org/security/go-spiffe-v2/workloadapi"
 
-	"gopkg.in/square/go-jose.v2/json"
-	"gopkg.in/square/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v3/json"
+	"github.com/go-jose/go-jose/v3/jwt"
 )
 
 const (
@@ -370,12 +370,14 @@ func getTokenFromStr() {
 }
 
 func enableFallBack(context string) bool {
-	fallbackEnabled := os.Getenv(fallbackZTIAgentEnv)
-	if fallbackEnabled == "1" {
+	if context == fallbackZTIAgentEnv {
 		return true
 	}
 
-	return context == fallbackZTIAgentEnv
+	if _, err := jwt.ParseSigned(context); err != nil {
+		return os.Getenv(fallbackZTIAgentEnv) == "1"
+	}
+	return false
 }
 
 func getTokenFromPath() (fallback bool, err error) {

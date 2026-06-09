@@ -1,6 +1,22 @@
-# code.byted.org/aiops/apm_vendor_byted v0.0.12
+# code.byted.org/aiops/apm_vendor_byted v0.0.24
 ## explicit; go 1.13
+code.byted.org/aiops/apm_vendor_byted/config_service
+code.byted.org/aiops/apm_vendor_byted/config_service/conf/gcp
+code.byted.org/aiops/apm_vendor_byted/config_service/conf/row
+code.byted.org/aiops/apm_vendor_byted/config_service/conf/ttp
 code.byted.org/aiops/apm_vendor_byted/vendor_tags
+code.byted.org/aiops/apm_vendor_byted/writer
+code.byted.org/aiops/apm_vendor_byted/writer/common
+code.byted.org/aiops/apm_vendor_byted/writer/tcp
+# code.byted.org/aiops/metrics_codec v0.0.21
+## explicit; go 1.15
+code.byted.org/aiops/metrics_codec
+code.byted.org/aiops/metrics_codec/v3
+code.byted.org/aiops/metrics_codec/v4
+# code.byted.org/aiops/monitoring-common-go v0.0.5
+## explicit; go 1.13
+code.byted.org/aiops/monitoring-common-go/connpool
+code.byted.org/aiops/monitoring-common-go/utils
 # code.byted.org/bcc/bcc-go-client v0.1.51
 ## explicit; go 1.13
 code.byted.org/bcc/bcc-go-client
@@ -48,19 +64,21 @@ code.byted.org/bcc/tools/udeep
 code.byted.org/bcc/tools/uhash
 code.byted.org/bcc/tools/uslice
 code.byted.org/bcc/tools/utime
-# code.byted.org/bytedtrace/interface-go v1.0.17
+# code.byted.org/bytedtrace/interface-go v1.0.20
 ## explicit; go 1.12
 code.byted.org/bytedtrace/interface-go
 code.byted.org/bytedtrace/interface-go/compatible
 code.byted.org/bytedtrace/interface-go/ext
 # code.byted.org/bytedtrace/serializer-go v1.0.0
 ## explicit; go 1.12
-code.byted.org/bytedtrace/serializer-go
-code.byted.org/bytedtrace/serializer-go/compress
-# code.byted.org/gopkg/apm_vendor_interface v0.0.2
+# code.byted.org/duanyi.aster/gopkg v0.0.3
+## explicit; go 1.15
+code.byted.org/duanyi.aster/gopkg/caching
+code.byted.org/duanyi.aster/gopkg/runtime
+# code.byted.org/gopkg/apm_vendor_interface v0.0.3
 ## explicit; go 1.13
 code.byted.org/gopkg/apm_vendor_interface
-# code.byted.org/gopkg/asyncache v0.0.0-20190823054814-0ab65910ff7f
+# code.byted.org/gopkg/asyncache v0.0.0-20210129072708-1df5611dba17
 ## explicit
 code.byted.org/gopkg/asyncache
 # code.byted.org/gopkg/bytedmysql v1.1.21
@@ -73,7 +91,7 @@ code.byted.org/gopkg/consul/http
 # code.byted.org/gopkg/ctxvalues v0.6.0
 ## explicit; go 1.17
 code.byted.org/gopkg/ctxvalues
-# code.byted.org/gopkg/env v1.5.13
+# code.byted.org/gopkg/env v1.6.3
 ## explicit; go 1.13
 code.byted.org/gopkg/env
 # code.byted.org/gopkg/logid v0.0.0-20211104042040-f78600e482f2
@@ -84,20 +102,34 @@ code.byted.org/gopkg/logid
 code.byted.org/gopkg/logs
 code.byted.org/gopkg/logs/clients/databus
 code.byted.org/gopkg/logs/utils
-# code.byted.org/gopkg/logs/v2 v2.1.16
+# code.byted.org/gopkg/logs/v2 v2.1.49
 ## explicit; go 1.14
 code.byted.org/gopkg/logs/v2
+code.byted.org/gopkg/logs/v2/log
 code.byted.org/gopkg/logs/v2/writer
 # code.byted.org/gopkg/metainfo v0.1.4
 ## explicit; go 1.13
 code.byted.org/gopkg/metainfo
-# code.byted.org/gopkg/metrics v1.4.21
+# code.byted.org/gopkg/metrics v1.4.23
 ## explicit; go 1.13
 code.byted.org/gopkg/metrics
 # code.byted.org/gopkg/metrics/v3 v3.1.29
 ## explicit; go 1.13
 code.byted.org/gopkg/metrics/v3
 code.byted.org/gopkg/metrics/v3/msgpack
+# code.byted.org/gopkg/metrics/v4 v4.1.0
+## explicit; go 1.13
+code.byted.org/gopkg/metrics/v4
+code.byted.org/gopkg/metrics/v4/config
+# code.byted.org/gopkg/metrics_core v0.0.32
+## explicit; go 1.13
+code.byted.org/gopkg/metrics_core
+code.byted.org/gopkg/metrics_core/config
+code.byted.org/gopkg/metrics_core/config/providers
+code.byted.org/gopkg/metrics_core/logs
+code.byted.org/gopkg/metrics_core/logs/writers
+code.byted.org/gopkg/metrics_core/utils
+code.byted.org/gopkg/metrics_core/writers
 # code.byted.org/gopkg/net2 v1.5.0
 ## explicit; go 1.13
 code.byted.org/gopkg/net2
@@ -105,20 +137,23 @@ code.byted.org/gopkg/net2
 ## explicit; go 1.13
 code.byted.org/gopkg/tccclient/v3
 code.byted.org/gopkg/tccclient/v3/common
-# code.byted.org/log_market/gosdk v0.0.0-20220328031951-809cbf0ba485
+# code.byted.org/gorm/bytedgorm v0.9.20
+## explicit; go 1.15
+code.byted.org/gorm/bytedgorm
+# code.byted.org/log_market/gosdk v0.0.0-20230524072203-e069d8367314
 ## explicit
 code.byted.org/log_market/gosdk
 # code.byted.org/log_market/ttlogagent_gosdk v0.0.6
 ## explicit; go 1.14
 code.byted.org/log_market/ttlogagent_gosdk
-# code.byted.org/log_market/ttlogagent_gosdk/v4 v4.0.7
+# code.byted.org/log_market/ttlogagent_gosdk/v4 v4.0.51
 ## explicit; go 1.14
 code.byted.org/log_market/ttlogagent_gosdk/v4/codec
 # code.byted.org/middleware/fic_client v0.2.8
 ## explicit; go 1.16
 code.byted.org/middleware/fic_client
 code.byted.org/middleware/fic_client/model
-# code.byted.org/security/go-spiffe-v2 v1.0.3
+# code.byted.org/security/go-spiffe-v2 v1.0.6
 ## explicit; go 1.13
 code.byted.org/security/go-spiffe-v2/bundle/jwtbundle
 code.byted.org/security/go-spiffe-v2/bundle/spiffebundle
@@ -137,7 +172,7 @@ code.byted.org/security/go-spiffe-v2/workloadapi
 ## explicit; go 1.19
 code.byted.org/security/memfd
 code.byted.org/security/memfd/msyscall
-# code.byted.org/security/sensitive_finder_engine v0.3.17
+# code.byted.org/security/sensitive_finder_engine v0.3.18
 ## explicit; go 1.13
 code.byted.org/security/sensitive_finder_engine
 code.byted.org/security/sensitive_finder_engine/mask_pack
@@ -149,7 +184,7 @@ code.byted.org/security/sensitive_finder_engine/string_finder/darts
 code.byted.org/security/sensitive_finder_engine/string_finder/goahocorasick
 code.byted.org/security/sensitive_finder_engine/tree_machine
 code.byted.org/security/sensitive_finder_engine/utils
-# code.byted.org/security/zti-jwt-helper-golang v1.0.15
+# code.byted.org/security/zti-jwt-helper-golang v1.0.16
 ## explicit; go 1.15
 code.byted.org/security/zti-jwt-helper-golang/helper
 # code.byted.org/ttarch/byteconf-cel-go v0.0.3
@@ -192,6 +227,9 @@ github.com/antonmedv/expr/parser
 github.com/antonmedv/expr/parser/lexer
 github.com/antonmedv/expr/vm
 github.com/antonmedv/expr/vm/runtime
+# github.com/beorn7/perks v1.0.1
+## explicit; go 1.11
+github.com/beorn7/perks/quantile
 # github.com/blang/semver/v4 v4.0.0
 ## explicit; go 1.14
 github.com/blang/semver/v4
@@ -228,6 +266,9 @@ github.com/bytedance/sonic/loader
 github.com/bytedance/sonic/option
 github.com/bytedance/sonic/unquote
 github.com/bytedance/sonic/utf8
+# github.com/caarlos0/env/v6 v6.10.1
+## explicit; go 1.17
+github.com/caarlos0/env/v6
 # github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311
 ## explicit; go 1.15
 github.com/chenzhuoyu/base64x
@@ -259,10 +300,16 @@ github.com/gin-gonic/gin/binding
 github.com/gin-gonic/gin/internal/bytesconv
 github.com/gin-gonic/gin/internal/json
 github.com/gin-gonic/gin/render
+# github.com/go-jose/go-jose/v3 v3.0.0
+## explicit; go 1.12
+github.com/go-jose/go-jose/v3
+github.com/go-jose/go-jose/v3/cipher
+github.com/go-jose/go-jose/v3/json
+github.com/go-jose/go-jose/v3/jwt
 # github.com/go-kit/log v0.2.1
 ## explicit; go 1.17
 github.com/go-kit/log
-# github.com/go-logfmt/logfmt v0.5.1
+# github.com/go-logfmt/logfmt v0.6.0
 ## explicit; go 1.17
 github.com/go-logfmt/logfmt
 # github.com/go-playground/locales v0.14.1
@@ -307,7 +354,6 @@ github.com/golang/protobuf/ptypes/timestamp
 github.com/golang/protobuf/ptypes/wrappers
 # github.com/golang/snappy v0.0.3
 ## explicit
-github.com/golang/snappy
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
@@ -324,11 +370,13 @@ github.com/jinzhu/now
 # github.com/json-iterator/go v1.1.12
 ## explicit; go 1.12
 github.com/json-iterator/go
-# github.com/klauspost/compress v1.13.3
-## explicit; go 1.13
+# github.com/klauspost/compress v1.16.7
+## explicit; go 1.18
 github.com/klauspost/compress
 github.com/klauspost/compress/fse
 github.com/klauspost/compress/huff0
+github.com/klauspost/compress/internal/cpuinfo
+github.com/klauspost/compress/internal/snapref
 github.com/klauspost/compress/zstd
 github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/klauspost/cpuid/v2 v2.2.4
@@ -346,6 +394,9 @@ github.com/modern-go/concurrent
 # github.com/modern-go/reflect2 v1.0.2
 ## explicit; go 1.12
 github.com/modern-go/reflect2
+# github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
+## explicit
+github.com/mohae/deepcopy
 # github.com/opentracing/opentracing-go v1.2.0
 ## explicit; go 1.14
 github.com/opentracing/opentracing-go
@@ -361,7 +412,7 @@ github.com/pelletier/go-toml/v2/unstable
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
-# github.com/sirupsen/logrus v1.8.1
+# github.com/sirupsen/logrus v1.9.3
 ## explicit; go 1.13
 github.com/sirupsen/logrus
 # github.com/twitchyliquid64/golang-asm v0.15.1
@@ -403,7 +454,6 @@ github.com/zeebo/errs
 golang.org/x/arch/x86/x86asm
 # golang.org/x/crypto v0.22.0
 ## explicit; go 1.18
-golang.org/x/crypto/ed25519
 golang.org/x/crypto/pbkdf2
 golang.org/x/crypto/sha3
 # golang.org/x/net v0.24.0
@@ -424,8 +474,6 @@ golang.org/x/sys/unix
 golang.org/x/sys/windows
 # golang.org/x/text v0.14.0
 ## explicit; go 1.18
-golang.org/x/text/cases
-golang.org/x/text/internal
 golang.org/x/text/internal/language
 golang.org/x/text/internal/language/compact
 golang.org/x/text/internal/tag
@@ -532,17 +580,13 @@ google.golang.org/protobuf/types/known/timestamppb
 google.golang.org/protobuf/types/known/wrapperspb
 # gopkg.in/square/go-jose.v2 v2.6.0
 ## explicit
-gopkg.in/square/go-jose.v2
-gopkg.in/square/go-jose.v2/cipher
-gopkg.in/square/go-jose.v2/json
-gopkg.in/square/go-jose.v2/jwt
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
-# gorm.io/driver/mysql v1.5.7
+# gorm.io/driver/mysql v1.5.1
 ## explicit; go 1.14
 gorm.io/driver/mysql
-# gorm.io/gorm v1.25.12
+# gorm.io/gorm v1.25.5
 ## explicit; go 1.18
 gorm.io/gorm
 gorm.io/gorm/callbacks
@@ -551,3 +595,9 @@ gorm.io/gorm/logger
 gorm.io/gorm/migrator
 gorm.io/gorm/schema
 gorm.io/gorm/utils
+# gorm.io/hints v1.1.2
+## explicit; go 1.16
+gorm.io/hints
+# gorm.io/plugin/dbresolver v1.4.7
+## explicit; go 1.14
+gorm.io/plugin/dbresolver

@@ -6,9 +6,9 @@ import (
 
 	"code.byted.org/security/go-spiffe-v2/bundle/jwtbundle"
 	"code.byted.org/security/go-spiffe-v2/spiffeid"
+	"github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/zeebo/errs"
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 var (

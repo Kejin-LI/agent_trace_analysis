@@ -9,8 +9,8 @@ import (
 
 	"code.byted.org/security/go-spiffe-v2/internal/jwtutil"
 	"code.byted.org/security/go-spiffe-v2/spiffeid"
+	"github.com/go-jose/go-jose/v3"
 	"github.com/zeebo/errs"
-	"gopkg.in/square/go-jose.v2"
 )
 
 var (

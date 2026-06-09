@@ -136,3 +136,8 @@ type DynamicController interface {
 type TracerSynchronize interface {
 	Synchronize(old Tracer)
 }
+
+// GlobalTagSetter.
+type GlobalTagSetter interface {
+	AddGlobalTags(tags []*GlobalTag) error
+}

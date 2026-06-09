@@ -3,8 +3,6 @@ package gorm
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
-	"errors"
 	"reflect"
 	"sync"
 )
@@ -17,16 +15,18 @@ type Stmt struct {
 }
 
 type PreparedStmtDB struct {
-	Stmts map[string]*Stmt
-	Mux   *sync.RWMutex
+	Stmts       map[string]*Stmt
+	PreparedSQL []string
+	Mux         *sync.RWMutex
 	ConnPool
 }
 
 func NewPreparedStmtDB(connPool ConnPool) *PreparedStmtDB {
 	return &PreparedStmtDB{
-		ConnPool: connPool,
-		Stmts:    make(map[string]*Stmt),
-		Mux:      &sync.RWMutex{},
+		ConnPool:    connPool,
+		Stmts:       make(map[string]*Stmt),
+		Mux:         &sync.RWMutex{},
+		PreparedSQL: make([]string, 0, 100),
 	}
 }
 
@@ -46,17 +46,12 @@ func (db *PreparedStmtDB) Close() {
 	db.Mux.Lock()
 	defer db.Mux.Unlock()
 
-	for _, stmt := range db.Stmts {
-		go func(s *Stmt) {
-			// make sure the stmt must finish preparation first
-			<-s.prepared
-			if s.Stmt != nil {
-				_ = s.Close()
-			}
-		}(stmt)
+	for _, query := range db.PreparedSQL {
+		if stmt, ok := db.Stmts[query]; ok {
+			delete(db.Stmts, query)
+			go stmt.Close()
+		}
 	}
-	// setting db.Stmts to nil to avoid further using
-	db.Stmts = nil
 }
 
 func (sdb *PreparedStmtDB) Reset() {
@@ -64,14 +59,9 @@ func (sdb *PreparedStmtDB) Reset() {
 	defer sdb.Mux.Unlock()
 
 	for _, stmt := range sdb.Stmts {
-		go func(s *Stmt) {
-			// make sure the stmt must finish preparation first
-			<-s.prepared
-			if s.Stmt != nil {
-				_ = s.Close()
-			}
-		}(stmt)
+		go stmt.Close()
 	}
+	sdb.PreparedSQL = make([]string, 0, 100)
 	sdb.Stmts = make(map[string]*Stmt)
 }
 
@@ -101,12 +91,7 @@ func (db *PreparedStmtDB) prepare(ctx context.Context, conn ConnPool, isTransact
 
 		return *stmt, nil
 	}
-	// check db.Stmts first to avoid Segmentation Fault(setting value to nil map)
-	// which cause by calling Close and executing SQL concurrently
-	if db.Stmts == nil {
-		db.Mux.Unlock()
-		return Stmt{}, ErrInvalidDB
-	}
+
 	// cache preparing stmt first
 	cacheStmt := Stmt{Transaction: isTransaction, prepared: make(chan struct{})}
 	db.Stmts[query] = &cacheStmt
@@ -131,6 +116,7 @@ func (db *PreparedStmtDB) prepare(ctx context.Context, conn ConnPool, isTransact
 
 	db.Mux.Lock()
 	cacheStmt.Stmt = stmt
+	db.PreparedSQL = append(db.PreparedSQL, query)
 	db.Mux.Unlock()
 
 	return cacheStmt, nil
@@ -161,7 +147,7 @@ func (db *PreparedStmtDB) ExecContext(ctx context.Context, query string, args ..
 	stmt, err := db.prepare(ctx, db.ConnPool, false, query)
 	if err == nil {
 		result, err = stmt.ExecContext(ctx, args...)
-		if errors.Is(err, driver.ErrBadConn) {
+		if err != nil {
 			db.Mux.Lock()
 			defer db.Mux.Unlock()
 			go stmt.Close()
@@ -175,7 +161,7 @@ func (db *PreparedStmtDB) QueryContext(ctx context.Context, query string, args .
 	stmt, err := db.prepare(ctx, db.ConnPool, false, query)
 	if err == nil {
 		rows, err = stmt.QueryContext(ctx, args...)
-		if errors.Is(err, driver.ErrBadConn) {
+		if err != nil {
 			db.Mux.Lock()
 			defer db.Mux.Unlock()
 
@@ -192,14 +178,6 @@ func (db *PreparedStmtDB) QueryRowContext(ctx context.Context, query string, arg
 		return stmt.QueryRowContext(ctx, args...)
 	}
 	return &sql.Row{}
-}
-
-func (db *PreparedStmtDB) Ping() error {
-	conn, err := db.GetDBConn()
-	if err != nil {
-		return err
-	}
-	return conn.Ping()
 }
 
 type PreparedStmtTX struct {
@@ -229,7 +207,7 @@ func (tx *PreparedStmtTX) ExecContext(ctx context.Context, query string, args ..
 	stmt, err := tx.PreparedStmtDB.prepare(ctx, tx.Tx, true, query)
 	if err == nil {
 		result, err = tx.Tx.StmtContext(ctx, stmt.Stmt).ExecContext(ctx, args...)
-		if errors.Is(err, driver.ErrBadConn) {
+		if err != nil {
 			tx.PreparedStmtDB.Mux.Lock()
 			defer tx.PreparedStmtDB.Mux.Unlock()
 
@@ -244,7 +222,7 @@ func (tx *PreparedStmtTX) QueryContext(ctx context.Context, query string, args .
 	stmt, err := tx.PreparedStmtDB.prepare(ctx, tx.Tx, true, query)
 	if err == nil {
 		rows, err = tx.Tx.StmtContext(ctx, stmt.Stmt).QueryContext(ctx, args...)
-		if errors.Is(err, driver.ErrBadConn) {
+		if err != nil {
 			tx.PreparedStmtDB.Mux.Lock()
 			defer tx.PreparedStmtDB.Mux.Unlock()
 
@@ -261,12 +239,4 @@ func (tx *PreparedStmtTX) QueryRowContext(ctx context.Context, query string, arg
 		return tx.Tx.StmtContext(ctx, stmt.Stmt).QueryRowContext(ctx, args...)
 	}
 	return &sql.Row{}
-}
-
-func (tx *PreparedStmtTX) Ping() error {
-	conn, err := tx.GetDBConn()
-	if err != nil {
-		return err
-	}
-	return conn.Ping()
 }

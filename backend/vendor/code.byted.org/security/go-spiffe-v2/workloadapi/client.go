@@ -103,7 +103,7 @@ func (c *Client) FetchX509Bundles(ctx context.Context) (*x509bundle.Set, error) 
 	ctx, cancel := context.WithCancel(withHeader(ctx))
 	defer cancel()
 
-	stream, err := c.wlClient.FetchX509SVID(ctx, &workload.X509SVIDRequest{})
+	stream, err := c.wlClient.FetchX509Bundles(ctx, &workload.X509BundlesRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (c *Client) FetchX509Bundles(ctx context.Context) (*x509bundle.Set, error) 
 		return nil, err
 	}
 
-	return parseX509Bundles(resp)
+	return parseX509BundlesResponse(resp)
 }
 
 // FetchX509Context fetches the X.509 context, which contains both X509-SVIDs
@@ -439,6 +439,25 @@ func parseX509Bundle(spiffeID string, bundle []byte) (*x509bundle.Bundle, error)
 		return nil, fmt.Errorf("empty X.509 bundle for trust domain %q", td)
 	}
 	return x509bundle.FromX509Authorities(td, certs), nil
+}
+
+func parseX509BundlesResponse(resp *workload.X509BundlesResponse) (*x509bundle.Set, error) {
+	bundles := []*x509bundle.Bundle{}
+
+	for tdID, b := range resp.Bundles {
+		td, err := spiffeid.TrustDomainFromString(tdID)
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := x509bundle.ParseRaw(td, b)
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, b)
+	}
+
+	return x509bundle.NewSet(bundles...), nil
 }
 
 // parseJWTSVIDs parses one or all of the SVIDs in the response. If firstOnly

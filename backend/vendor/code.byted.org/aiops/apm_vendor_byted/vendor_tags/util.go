@@ -3,10 +3,13 @@ package vendor_tags
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 
+	"code.byted.org/aiops/monitoring-common-go/utils"
 	"code.byted.org/gopkg/env"
 )
 
@@ -50,19 +53,26 @@ func getHostEnv() string {
 	return "-"
 }
 
-func isSidecar() bool {
+func IsSidecar() bool {
 	return strings.ToLower(os.Getenv("TCE_IS_INJECTED")) == "true"
 }
 
 func getIsSidecar() string {
-	if isSidecar() {
+	if IsSidecar() {
 		return "1"
 	}
 	return "0"
 }
 
-func getPrimaryPSM() string {
-	if isSidecar() {
+func getServiceInline() string {
+	if psm := os.Getenv("SERVICE_INLINE_REAL_PSM"); psm != "" {
+		return psm
+	}
+	return "-"
+}
+
+func GetPrimaryPSM() string {
+	if IsSidecar() {
 		if psm := os.Getenv("TCE_PRIMARY_PSM_IN_SIDECAR"); psm != "" {
 			return psm
 		}
@@ -72,12 +82,12 @@ func getPrimaryPSM() string {
 }
 
 func GetHost() string {
-	if hostname := os.Getenv("HOSTNAME"); hostname != "" {
-		if strings.HasPrefix(hostname, "n") ||
-			strings.HasPrefix(hostname, "p") ||
-			strings.HasPrefix(hostname, "dc") {
-			return hostname
-		}
+	if hostname := os.Getenv("HOSTNAME"); isBytedHostname(hostname) {
+		return hostname
+	}
+
+	if hostname, _ := os.Hostname(); isBytedHostname(hostname) {
+		return hostname
 	}
 
 	// if the hostname is invalid, then convert the ip.
@@ -91,7 +101,17 @@ func GetDC() string {
 		return "fake_sandbox"
 	}
 
-	dc := env.IDC()
+	// priority: BYTED_INJECT_DC env > metrics_edge_conf > consul_idc
+
+	if injectDC := os.Getenv("BYTED_INJECT_DC"); injectDC != "" {
+		return injectDC
+	}
+
+	dc := readDCFromMetricsEdgeConf(kMetricsEdgeConfFile)
+	if dc == "" {
+		dc = env.IDC()
+	}
+
 	newDC := overwriteDCForPPE(dc)
 	return newDC
 }
@@ -121,6 +141,10 @@ func ipV4ToHost(ipv4 string) string {
 		return hostname
 	}
 
+	ips := strings.Split(ipv4, ".")
+	if len(ips) == 4 {
+		return fmt.Sprintf("n%03s-%03s-%03s-%03s", ips[0], ips[1], ips[2], ips[3])
+	}
 	return ipv4
 }
 
@@ -207,33 +231,27 @@ func getByteOSIPv6() string {
 func overwriteDCForPPE(dc string) (newDC string) {
 	newDC = dc
 	ppeFlag := getPPEFlag()
-	if (ppeFlag == "PPE") || (ppeFlag == "ppe") {
-		if "lf" == dc || "hl" == dc || "lq" == dc || "yg" == dc {
+	switch ppeFlag {
+	case "PPE", "ppe":
+		switch dc {
+		case "lf", "hl", "lq", "yg", "lfzg", "hlzg":
 			newDC = "ppe"
-		}
-		if "va" == dc || "maliva" == dc {
+		case "va", "maliva":
 			newDC = "ppe-va"
-
-		}
-		if "sg" == dc || "sg1" == dc || "alisg" == dc || "sgsaas1larkidc1" == dc || "sgsaas1larkidc2" == dc ||
-			"sgsaas1larkidc3" == dc {
+		case "sg", "sg1", "alisg", "sgsaas1larkidc1", "sgsaas1larkidc2", "sgsaas1larkidc3":
 			newDC = "ppe-sig"
-		}
-		if "sg2" == dc {
+		case "sg2":
 			newDC = "ppe-sig2"
-		}
-		if "useast2a" == dc {
+		case "useast2a":
 			newDC = "ppe-useast2a"
-		}
-		if "useast5" == dc {
+		case "useast5":
 			newDC = "ppe-useast5"
+		default:
+			newDC = "ppe-" + dc
 		}
-	}
-	if "ppe-va" == ppeFlag {
+	case "ppe-va":
 		newDC = "ppe-va"
-	}
-
-	if "ppe-sig" == ppeFlag {
+	case "ppe-sig":
 		newDC = "ppe-sig"
 	}
 	return
@@ -268,6 +286,17 @@ func getPPEFlag() string {
 	return ""
 }
 
+func isBytedHostname(hostname string) bool {
+	// n112-028-209-194
+	// n148-050-105
+	// p23-080-123
+	// dc03-pff-500-28c6-641b-f93-8de2
+	// dc03-p14-tc2c-n052
+	return strings.HasPrefix(hostname, "n") ||
+		strings.HasPrefix(hostname, "p") ||
+		strings.HasPrefix(hostname, "dc")
+}
+
 func readPPEFlagFromFile(filename string) string {
 	if exists(filename) {
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0666)
@@ -282,6 +311,32 @@ func readPPEFlagFromFile(filename string) string {
 					return line[:len(line)-1]
 				}
 			}
+		}
+	}
+	return ""
+}
+
+func readDCFromMetricsEdgeConf(file string) string {
+	if exists(file) {
+		data, err := ioutil.ReadFile(file)
+		if err != nil {
+			return ""
+		}
+		str := utils.BytesToStringUnsafe(data)
+		reg := regexp.MustCompile(`^EDGE_MACHINE=edge-([^-\s]+)-([^-\s]+)`)
+		matches := reg.FindStringSubmatch(str)
+		if len(matches) == 3 && matches[2] != "" {
+			return matches[2]
+		}
+		reg = regexp.MustCompile(`^EDGE_MACHINE=external_edge-([^-\s]+)-([^-\s]+)`)
+		matches = reg.FindStringSubmatch(str)
+		if len(matches) == 3 && matches[2] != "" {
+			return matches[2]
+		}
+		reg = regexp.MustCompile(`^EDGE_MACHINE=internal_edge-([^-\s]+)-([^-\s]+)`)
+		matches = reg.FindStringSubmatch(str)
+		if len(matches) == 3 && matches[2] != "" {
+			return matches[2]
 		}
 	}
 	return ""

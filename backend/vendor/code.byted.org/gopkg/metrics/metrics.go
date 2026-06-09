@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"code.byted.org/aiops/apm_vendor_byted/vendor_tags"
+
 	"code.byted.org/gopkg/env"
 )
 
@@ -141,6 +143,9 @@ func init() {
 	AddGlobalTag("pod_name", env.PodName())
 	AddGlobalTag("_psm", os.Getenv("TCE_PSM"))
 	AddGlobalTag("deploy_stage", os.Getenv("TCE_STAGE"))
+	AddGlobalTag("_pod_ip", vendor_tags.GetPodIP())
+	AddGlobalTag("dc", vendor_tags.GetDC())
+	AddGlobalTag("host", vendor_tags.GetHost())
 
 	if env.Cluster() != "" {
 		AddGlobalTag("cluster", env.Cluster())

@@ -1,4 +1,5 @@
 .idea/
 v2/static/*.json
 v2/static/*.txt
+v2/static/update_static.sh
 /static/*.json
