@@ -186,6 +186,13 @@
     loadSessions,
     loadSession,
     getApiBase: function () { return resolvedBase || candidateBases()[0] || ''; },
+    // buildUrl 把 "/api/x" 解析成与 fetchJSON 完全一致的最终 URL（含网关前缀），
+    // 供 fetch/EventSource 等直接复用，避免本地与生产环境路径不一致。
+    buildUrl: function (path) {
+      const base = (resolvedBase || candidateBases()[0] || '').replace(/\/$/, '');
+      const finalPath = path.startsWith('/') ? basePath() + path.slice(1) : path;
+      return base + finalPath;
+    },
     scoreBand,
   };
 })();

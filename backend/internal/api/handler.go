@@ -17,6 +17,7 @@ import (
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/tracelog"
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/ark"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
@@ -30,6 +31,7 @@ type Handler struct {
 	db                  *gorm.DB
 	fetcher             *tracelog.Fetcher
 	upstream            *modellog.Client
+	ark                 *ark.Client
 	aggregator          *Aggregator
 	dbOpenError         string
 	aggregatorInitError string
@@ -37,7 +39,7 @@ type Handler struct {
 
 // New 构造依赖 DB 的 Handler（fornax / tos 模式）。
 func New(db *gorm.DB) *Handler {
-	h := &Handler{db: db, fetcher: tracelog.NewFetcher()}
+	h := &Handler{db: db, fetcher: tracelog.NewFetcher(), ark: ark.NewClient()}
 	// TOS 模式下后台批量预热：保证列表页首次加载就有 chip / rules / 雷达数据。
 	if dataSourceMode() == "tos" {
 		go h.backfillAllMetrics()
@@ -57,6 +59,7 @@ func NewAPI(gdb *gorm.DB, dbOpenErr error) (*Handler, error) {
 		db:       gdb,
 		fetcher:  fetcher,
 		upstream: cli,
+		ark:      ark.NewClient(),
 	}
 	if dbOpenErr != nil {
 		h.dbOpenError = dbOpenErr.Error()
@@ -159,6 +162,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
+		g.POST("/ai-diagnose", h.diagnose)
 		if dataSourceMode() == "api" {
 			continue
 		}
