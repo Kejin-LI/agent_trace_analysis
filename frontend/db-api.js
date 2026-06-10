@@ -161,8 +161,11 @@
     return session;
   }
 
-  async function loadSessions() {
-    const payload = await fetchJSON('/api/session-bundles?limit=2000');
+  async function loadSessions(opts) {
+    const params = new URLSearchParams({ limit: '2000' });
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    const payload = await fetchJSON('/api/session-bundles?' + params.toString());
     return {
       sessions: (payload.data || []).map(normalizeSession),
       limit: payload.limit || 0,
@@ -183,6 +186,13 @@
     loadSessions,
     loadSession,
     getApiBase: function () { return resolvedBase || candidateBases()[0] || ''; },
+    // buildUrl 把 "/api/x" 解析成与 fetchJSON 完全一致的最终 URL（含网关前缀），
+    // 供 fetch/EventSource 等直接复用，避免本地与生产环境路径不一致。
+    buildUrl: function (path) {
+      const base = (resolvedBase || candidateBases()[0] || '').replace(/\/$/, '');
+      const finalPath = path.startsWith('/') ? basePath() + path.slice(1) : path;
+      return base + finalPath;
+    },
     scoreBand,
   };
 })();

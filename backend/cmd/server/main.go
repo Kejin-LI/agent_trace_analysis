@@ -11,6 +11,7 @@ import (
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/api"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/db"
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/secret"
 )
 
 var pageMap = map[string]string{
@@ -35,6 +36,10 @@ var frontendDir string
 
 func main() {
 	frontendDir = findFrontendDir()
+
+	// 初始化 TCC 客户端：AI 一键诊断需从 TCC 读取火山方舟（豆包2.0）加密配置。
+	secret.InitTCC()
+
 	r := gin.Default()
 
 	r.Use(func(c *gin.Context) {
@@ -43,7 +48,7 @@ func main() {
 		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/trace_sever/api/") {
 			c.Header("Access-Control-Allow-Origin", "*")
 			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			if c.Request.Method == http.MethodOptions {
 				c.AbortWithStatus(http.StatusNoContent)
 				return

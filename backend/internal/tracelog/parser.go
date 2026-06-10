@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1000,11 +1001,25 @@ func extractUserPrompt(msgs []chatMessage) string {
 		if m.Role != "user" {
 			continue
 		}
-		if t := contentText(m.Content); t != "" && !isSyntheticToolPrompt(t) {
+		t := stripInjectedContext(contentText(m.Content))
+		if t != "" && !isSyntheticToolPrompt(t) {
 			return t
 		}
 	}
 	return ""
+}
+
+// injectedContextRe 匹配框架注入的上下文包裹块（含跨行内容）。
+var injectedContextRe = regexp.MustCompile(`(?is)<(system-reminder|project-memory|related-conversations)>.*?</(system-reminder|project-memory|related-conversations)>`)
+
+// stripInjectedContext 剥离框架注入的上下文包裹块，保留其后真实的用户输入。
+//
+// 新版 Agent 框架会把 <system-reminder>...</system-reminder>（内含 project-memory /
+// related-conversations 等）拼在真实用户输入之前，塞进同一条 role==user 消息里。
+// 若直接把整条判为合成丢弃，会导致：① UI 气泡显示成一大坨系统注入；② 多轮因
+// prompt 被判空而塌缩成一轮。这里把成对的注入标签块整段移除，仅留下真实提问。
+func stripInjectedContext(text string) string {
+	return strings.TrimSpace(injectedContextRe.ReplaceAllString(text, ""))
 }
 
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
@@ -1219,7 +1234,10 @@ func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
 		if strings.ToLower(msgs[i].Role) != "user" {
 			continue
 		}
-		if t := neekoContentText(msgs[i].Content); t != "" && !isSyntheticToolPrompt(t) {
+		// 先剥离 <system-reminder> 等框架注入块，再取真实用户输入。注入块常被拼在
+		// 真实提问之前塞进同一条 user 消息，不剥离会导致 prompt 显示成系统注入、多轮塌缩。
+		t := stripInjectedContext(neekoContentText(msgs[i].Content))
+		if t != "" && !isSyntheticToolPrompt(t) {
 			return t, model
 		}
 	}

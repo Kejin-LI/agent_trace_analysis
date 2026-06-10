@@ -48,6 +48,287 @@
     border: 1px solid rgba(0, 0, 0, 0.06);
   }
 
+  /* ===== AI 一键诊断 Modal ===== */
+  #diag-mask {
+    position: fixed; inset: 0; z-index: 90;
+    background: rgba(20,20,30,0.28);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .2s ease;
+  }
+  #diag-mask.show { display: flex; opacity: 1; }
+  .diag-modal {
+    width: min(860px, 94vw); max-height: 88vh;
+    display: flex; flex-direction: column;
+    background: rgba(255,255,255,0.9);
+    backdrop-filter: blur(34px) saturate(200%); -webkit-backdrop-filter: blur(34px) saturate(200%);
+    border: 1px solid rgba(255,255,255,0.6);
+    border-radius: 22px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.22);
+    transform: translateY(12px) scale(.985); transition: transform .22s cubic-bezier(.2,.8,.2,1);
+    overflow: hidden;
+  }
+  #diag-mask.show .diag-modal { transform: translateY(0) scale(1); }
+  .diag-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 18px; border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+  .diag-head-icon {
+    width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    box-shadow: 0 4px 12px rgba(120,80,240,0.35);
+  }
+  .diag-head-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .diag-head-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
+  .diag-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .diag-close, .diag-ghost-btn {
+    height: 30px; border-radius: 9px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-secondary); transition: background .15s ease, color .15s ease, opacity .15s ease;
+  }
+  .diag-close { width: 30px; }
+  .diag-ghost-btn {
+    padding: 0 11px; gap: 6px; font-size: 11.5px; font-weight: 500;
+    background: rgba(0,0,0,0.04);
+  }
+  .diag-close:hover, .diag-ghost-btn:hover { background: rgba(0,0,0,0.08); color: var(--text-primary); }
+  .diag-ghost-btn[disabled] { opacity: .38; pointer-events: none; }
+  .diag-body {
+    padding: 18px 22px; overflow-y: auto; flex: 1;
+    font-size: 13px; line-height: 1.7; color: var(--text-primary);
+    background:
+      radial-gradient(900px 280px at 0% 0%, rgba(0,113,227,0.04), transparent 55%),
+      linear-gradient(180deg, rgba(255,255,255,0.2), rgba(255,255,255,0));
+  }
+  .diag-report-shell {
+    padding: 18px 20px; border-radius: 18px;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.04);
+  }
+  .diag-report-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .diag-report-kicker {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+    color: var(--apple-blue); text-transform: uppercase;
+  }
+  .diag-tooltip { position: relative; }
+  .diag-tooltip:hover::after {
+    content: attr(data-tooltip);
+    position: absolute; left: 0; top: calc(100% + 8px); z-index: 6;
+    max-width: min(560px, 72vw);
+    padding: 10px 12px; border-radius: 12px;
+    background: rgba(28,28,32,0.94); color: #fff;
+    font-size: 11.5px; line-height: 1.55; font-weight: 500;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+    white-space: normal; letter-spacing: 0;
+  }
+  .diag-report-title {
+    font-size: 18px; font-weight: 700; letter-spacing: -0.02em; margin-top: 4px;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: min(560px, 56vw);
+  }
+  .diag-report-sub {
+    margin-top: 4px;
+    font-size: 11px; color: var(--text-tertiary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: min(560px, 56vw);
+  }
+  .diag-report-history {
+    position: relative;
+    display: flex; justify-content: flex-end; align-self: flex-start;
+  }
+  .diag-history-pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+    border-radius: 999px; font-size: 10.5px; font-weight: 600;
+    background: rgba(0,113,227,0.08); color: var(--apple-blue);
+  }
+  .diag-history-pill::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+  }
+  .diag-history-pill[hidden] { display: none; }
+  .diag-history-count {
+    min-width: 15px; height: 15px; padding: 0 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 999px; background: rgba(0,113,227,0.12);
+    font-size: 10px; line-height: 1;
+  }
+  .diag-history-menu {
+    position: absolute; right: 0; top: calc(100% + 8px); z-index: 8;
+    width: 290px; padding: 8px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+    backdrop-filter: blur(22px);
+  }
+  .diag-history-menu[hidden] { display: none; }
+  .diag-history-head {
+    padding: 4px 6px 8px;
+    font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  }
+  .diag-history-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+  .diag-history-item {
+    width: 100%; text-align: left;
+    padding: 10px 11px; border-radius: 12px;
+    background: rgba(0,0,0,0.025); border: 1px solid transparent;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .diag-history-item:hover {
+    background: rgba(0,113,227,0.06); border-color: rgba(0,113,227,0.12);
+  }
+  .diag-history-item-title {
+    font-size: 11.5px; font-weight: 600; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .diag-history-item-meta {
+    margin-top: 4px; font-size: 10.5px; color: var(--text-tertiary);
+  }
+  .diag-history-item-summary {
+    margin-top: 5px; font-size: 10.5px; line-height: 1.5; color: var(--text-secondary);
+    display: -webkit-box; line-clamp: 2; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .diag-empty {
+    color: var(--text-tertiary); font-size: 12px;
+    padding: 18px 0 8px;
+  }
+  .diag-section-flash {
+    animation: diagflash 1.2s ease;
+    border-radius: 10px;
+  }
+  @keyframes diagflash {
+    0% { background: rgba(0,113,227,0.14); }
+    100% { background: transparent; }
+  }
+  .diag-consults-wrap { margin-top: 16px; }
+  .diag-consults-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+  .diag-consults-head::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--apple-purple), var(--apple-blue));
+  }
+  .diag-consult-card {
+    background: rgba(255,255,255,0.68); border: 1px solid rgba(0,0,0,0.05);
+    border-radius: 16px; padding: 14px 15px; margin-bottom: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.03);
+  }
+  .diag-consult-meta {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-bottom: 6px;
+  }
+  .diag-consult-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+  .diag-consult-tag {
+    font-size: 10.5px; color: var(--apple-purple);
+    background: rgba(191,90,242,0.08); padding: 3px 7px; border-radius: 999px;
+  }
+  .diag-consult-q {
+    font-size: 11px; color: var(--text-tertiary); margin-bottom: 8px;
+    white-space: pre-wrap;
+  }
+  .diag-foot {
+    padding: 14px 18px 16px; border-top: 1px solid rgba(0,0,0,0.05);
+    background: rgba(255,255,255,0.72);
+  }
+  .diag-status {
+    min-height: 18px; font-size: 11.5px; color: var(--text-tertiary);
+    display: flex; align-items: center; gap: 7px; margin-bottom: 10px;
+  }
+  .diag-spinner {
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid rgba(0,113,227,0.25); border-top-color: var(--apple-blue);
+    animation: diagspin .7s linear infinite;
+  }
+  @keyframes diagspin { to { transform: rotate(360deg); } }
+  .diag-quickchips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .diag-chip {
+    padding: 0 10px; height: 28px; border-radius: 999px;
+    background: rgba(0,0,0,0.045); color: var(--text-secondary);
+    font-size: 11px; font-weight: 500; transition: all .15s ease;
+  }
+  .diag-chip:hover { background: rgba(0,113,227,0.08); color: var(--apple-blue); }
+  .diag-input-row { display: flex; align-items: flex-end; gap: 10px; }
+  .diag-input-shell {
+    position: relative;
+    flex: 1; background: rgba(255,255,255,0.86); border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 16px; padding: 10px 12px 10px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
+  }
+  .diag-input-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-bottom: 6px;
+  }
+  .diag-input-quote {
+    display: none; min-width: 0; flex: 1;
+    font-size: 10.5px; line-height: 1.45; color: var(--text-tertiary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .diag-input-quote.show { display: block; }
+  .diag-input-quote::before {
+    content: '|';
+    display: inline-block; margin-right: 6px;
+    color: rgba(120,120,128,0.72); font-weight: 600;
+  }
+  .diag-mode-switch { flex-shrink: 0; }
+  .diag-mode-switch button {
+    min-width: 62px; padding: 3px 9px; font-size: 10.5px;
+  }
+  .diag-input {
+    width: 100%; min-height: 42px; max-height: 110px; resize: none; overflow-y: auto;
+    background: transparent; border: none; outline: none;
+    font-size: 12.5px; line-height: 1.6; color: var(--text-primary);
+    padding: 0 104px 0 0;
+  }
+  .diag-input::placeholder { color: var(--text-tertiary); }
+  .diag-btn {
+    flex-shrink: 0; padding: 0 16px; height: 42px; border-radius: 12px;
+    font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple)); color: #fff;
+    box-shadow: 0 4px 12px rgba(120,80,240,0.3); transition: opacity .15s ease, transform .1s ease;
+  }
+  .diag-input-shell .diag-btn {
+    position: absolute; right: 10px; bottom: 10px;
+    height: 34px; border-radius: 11px; padding: 0 14px; font-size: 11.5px;
+  }
+  .diag-btn:hover { opacity: .92; }
+  .diag-btn:active { transform: scale(.97); }
+  .diag-btn[disabled] { opacity: .42; pointer-events: none; box-shadow: none; }
+  .diag-typing-cursor {
+    display: inline-block; width: 7px; height: 15px; vertical-align: text-bottom;
+    background: var(--apple-blue); border-radius: 1px; margin-left: 2px;
+    animation: diagblink 1s steps(2) infinite;
+  }
+  @keyframes diagblink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+
+  /* 报告排版（Modal 内 + 下载 HTML 共用，参考说明页 doc-prose） */
+  .doc-prose h2 { font-size: 17px; font-weight: 700; color: var(--text-primary); margin: 22px 0 10px; letter-spacing: -0.02em; }
+  .doc-prose h2:first-child { margin-top: 10px; }
+  .doc-prose h3 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 18px 0 8px; }
+  .doc-prose p { margin: 9px 0; color: var(--text-secondary); }
+  .doc-prose strong { color: var(--text-primary); font-weight: 600; }
+  .doc-prose ul, .doc-prose ol { margin: 8px 0 8px 4px; padding-left: 20px; color: var(--text-secondary); }
+  .doc-prose li { margin: 5px 0; }
+  .doc-prose ul li { list-style: none; position: relative; }
+  .doc-prose ul li::before {
+    content: ''; position: absolute; left: -15px; top: 8px;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+  }
+  .doc-prose ol { list-style: decimal; }
+  .doc-prose blockquote {
+    margin: 12px 0; padding: 8px 14px; border-left: 3px solid var(--apple-blue);
+    background: rgba(0,113,227,0.05); border-radius: 0 8px 8px 0; color: var(--text-secondary);
+  }
+  .doc-prose code {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    background: rgba(120,120,128,0.12); padding: 1px 6px; border-radius: 5px; color: var(--apple-purple);
+  }
+  .doc-prose hr { border: none; border-top: 1px solid rgba(0,0,0,0.07); margin: 18px 0; }
+
+
   .scroll-y::-webkit-scrollbar { width: 6px; }
   .scroll-y::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 9999px; }
   .scroll-x::-webkit-scrollbar { height: 6px; }
@@ -134,6 +415,101 @@
   .msg-assistant { background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.06); }
   /* Agent 消息：去掉气泡背景与边框，直接贴在对话流上以节省纵向空间 */
   .msg-agent { background: transparent; border: 0; padding-left: 0; padding-right: 0; }
+  .agent-md {
+    color: var(--text-primary);
+    font-size: 12.5px;
+    line-height: 1.68;
+    word-break: break-word;
+  }
+  .agent-md > *:first-child { margin-top: 0; }
+  .agent-md > *:last-child { margin-bottom: 0; }
+  .agent-md p { margin: 5px 0; }
+  .agent-md h1,
+  .agent-md h2,
+  .agent-md h3 {
+    margin: 10px 0 6px;
+    color: var(--text-primary);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .agent-md h1 { font-size: 15px; }
+  .agent-md h2 { font-size: 13.5px; }
+  .agent-md h3 { font-size: 12.5px; }
+  .agent-md h2::before,
+  .agent-md h3::before {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    margin-right: 6px;
+    border-radius: 999px;
+    vertical-align: 1px;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+  }
+  .agent-md ul,
+  .agent-md ol {
+    margin: 6px 0;
+    padding-left: 0;
+  }
+  .agent-md li {
+    position: relative;
+    list-style: none;
+    margin: 4px 0;
+    padding-left: 16px;
+    color: var(--text-secondary);
+  }
+  .agent-md li::before {
+    content: '';
+    position: absolute;
+    left: 2px; top: 0.72em;
+    width: 4px; height: 4px;
+    border-radius: 999px;
+    background: rgba(0,113,227,0.5);
+  }
+  .agent-md ol { counter-reset: agent-md-ol; }
+  .agent-md ol li { counter-increment: agent-md-ol; }
+  .agent-md ol li::before {
+    content: counter(agent-md-ol);
+    top: 0.2em;
+    width: 12px; height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--apple-blue);
+    background: rgba(0,113,227,0.08);
+  }
+  .agent-md blockquote {
+    margin: 7px 0;
+    padding: 7px 10px;
+    color: var(--text-secondary);
+    background: rgba(120,120,128,0.08);
+    border-left: 3px solid rgba(0,113,227,0.26);
+    border-radius: 0 10px 10px 0;
+  }
+  .agent-md code {
+    font-family: 'JetBrains Mono', SF Mono, Menlo, monospace;
+    font-size: 0.92em;
+    padding: 1px 5px;
+    border-radius: 6px;
+    color: #5E3A9B;
+    background: rgba(94,58,155,0.08);
+  }
+  .agent-md pre {
+    margin: 7px 0;
+    padding: 9px 10px;
+    overflow: auto;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.045);
+    border: 1px solid rgba(0,0,0,0.04);
+  }
+  .agent-md pre code {
+    display: block;
+    padding: 0;
+    color: #3C3C43;
+    background: transparent;
+    white-space: pre;
+  }
 
   /* 工具/Skill/MCP 调用 - 单行 chip 风格（在气泡内紧跟回复） */
   .tool-line {
@@ -195,27 +571,55 @@
   .plan-item.cancel .plan-item-mark { color: var(--apple-red); }
   .plan-item.cancel .plan-item-text { color: var(--text-tertiary); text-decoration: line-through; }
 
-  /* 澄清卡片：模型流式回复中向用户发起的澄清提问 */
+  /* 澄清卡片：模型流式回复中向用户发起的澄清提问（与计划卡片同一套扁平风格） */
   .clarify-card {
     margin: 8px 0 4px;
     padding: 8px 10px;
     background: rgba(255,149,0,0.06);
-    border: 1px solid rgba(255,149,0,0.22);
+    border: 1px solid rgba(255,149,0,0.2);
     border-radius: 10px;
   }
   .clarify-head {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; font-weight: 600; color: #B5650A; margin-bottom: 5px;
+    font-size: 11px; font-weight: 600; color: #B5650A; margin-bottom: 6px;
   }
   .clarify-icon { font-size: 12px; }
-  .clarify-q { font-size: 12px; line-height: 1.5; color: var(--text-primary); margin-bottom: 6px; white-space: pre-wrap; }
+  .clarify-badge {
+    margin-left: auto; padding: 1px 7px; border-radius: 8px;
+    font-size: 10px; font-weight: 600;
+    color: #FF9500; background: rgba(255,149,0,0.12);
+    font-variant-numeric: tabular-nums;
+  }
+  .clarify-badge.answered { color: #34C759; background: rgba(48,209,88,0.12); }
+  .clarify-q { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 4px; white-space: pre-wrap; }
+  .clarify-fields { display: flex; flex-direction: column; margin-top: 2px; }
+  .clarify-field {
+    display: flex; align-items: flex-start; gap: 7px;
+    font-size: 11.5px; line-height: 1.5; padding: 2px 0;
+    color: var(--text-secondary);
+  }
+  .clarify-field-num { flex: none; width: 14px; text-align: center; font-weight: 700; color: #FF9500; }
+  .clarify-field-title { font-size: 11.5px; font-weight: 500; color: var(--text-primary); }
+  .clarify-field-desc { margin-top: 1px; font-size: 11px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; }
   .clarify-opt {
     font-size: 11.5px; color: var(--text-secondary);
-    padding: 4px 9px; margin-top: 4px;
-    background: rgba(255,149,0,0.08);
-    border: 1px solid rgba(255,149,0,0.18);
+    padding: 3px 8px; margin-top: 4px;
+    background: rgba(255,149,0,0.07);
+    border: 1px solid rgba(255,149,0,0.16);
     border-radius: 8px;
   }
+  .clarify-reply {
+    margin-top: 7px; padding: 7px 9px;
+    border-radius: 10px;
+    background: rgba(0,113,227,0.05);
+    border: 1px solid rgba(0,113,227,0.14);
+  }
+  .clarify-reply-label {
+    display: flex; align-items: center; gap: 5px;
+    margin-bottom: 3px;
+    font-size: 10.5px; font-weight: 600; color: var(--apple-blue);
+  }
+  .clarify-reply-text { font-size: 11.5px; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; }
 
   /* 同 prompt 下多 trace 的轻量分隔（在合并气泡内） */
   .agent-turn-sep {
@@ -803,10 +1207,6 @@
     </div>
     <div class="flex items-center gap-2">
       <a href="./docs" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[12px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
-      <button class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 text-[12px] flex items-center gap-1.5">
-        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-        分享
-      </button>
       <button id="ai-btn" class="px-3.5 h-8 rounded-lg bg-gradient-to-r from-[--apple-blue] to-[--apple-purple] text-white text-[12px] font-medium flex items-center gap-1.5 shadow-sm hover:shadow-md transition-shadow">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
         AI 一键诊断
@@ -2048,7 +2448,7 @@
       el.dataset.bound = "true";
       el.addEventListener('click', (e) => {
         // 如果这个元素有特定的 id 或类名说明已经有特定功能了，不提示
-        const ignoreList = ['main-tab', 'ver-chip', 'gantt-bar', 'chat-collapse-btn', 'chat-expand-float-btn'];
+        const ignoreList = ['main-tab', 'ver-chip', 'gantt-bar', 'chat-collapse-btn', 'chat-expand-float-btn', 'ai-btn'];
         const isHandled = ignoreList.some(cls => el.classList.contains(cls) || el.id === cls);
         if (!isHandled && !el.closest('#art-view-seg') && !el.onclick) {
           const text = (el.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 10);
@@ -2862,6 +3262,120 @@
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  function renderInlineMarkdown(text) {
+    const parts = String(text ?? '').split(/(`[^`]*`)/g);
+    return parts.map(part => {
+      if (!part) return '';
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return `<code>${escapeHTML(part.slice(1, -1))}</code>`;
+      }
+      return escapeHTML(part)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    }).join('');
+  }
+
+  // 对话流只渲染安全 Markdown 子集，避免引入外部库和不可信 HTML。
+  function renderAssistantMarkdown(markdown) {
+    const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
+    const html = [];
+    let paragraph = [];
+    let list = null;
+    let quote = [];
+    let inCode = false;
+    let codeLang = '';
+    let codeLines = [];
+
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      html.push(`<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (!list) return;
+      html.push(`<${list.type}>${list.items.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</${list.type}>`);
+      list = null;
+    };
+    const flushQuote = () => {
+      if (!quote.length) return;
+      html.push(`<blockquote>${quote.map(line => `<p>${renderInlineMarkdown(line)}</p>`).join('')}</blockquote>`);
+      quote = [];
+    };
+    const flushCode = () => {
+      const langCls = codeLang ? ` language-${escapeHTML(codeLang)}` : '';
+      html.push(`<pre><code class="${langCls.trim()}">${escapeHTML(codeLines.join('\n'))}</code></pre>`);
+      inCode = false;
+      codeLang = '';
+      codeLines = [];
+    };
+    const flushBlocks = () => {
+      flushParagraph();
+      flushList();
+      flushQuote();
+    };
+
+    lines.forEach(rawLine => {
+      const line = rawLine.replace(/\s+$/, '');
+      const fence = line.match(/^```([\w-]*)\s*$/);
+      if (fence) {
+        if (inCode) {
+          flushCode();
+        } else {
+          flushBlocks();
+          inCode = true;
+          codeLang = fence[1] || '';
+          codeLines = [];
+        }
+        return;
+      }
+      if (inCode) {
+        codeLines.push(rawLine);
+        return;
+      }
+
+      if (!line.trim()) {
+        flushBlocks();
+        return;
+      }
+
+      const heading = line.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        flushBlocks();
+        const level = heading[1].length;
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
+        return;
+      }
+
+      const quoteMatch = line.match(/^>\s?(.*)$/);
+      if (quoteMatch) {
+        flushParagraph();
+        flushList();
+        quote.push(quoteMatch[1]);
+        return;
+      }
+
+      const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+      const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+      if (unordered || ordered) {
+        flushParagraph();
+        flushQuote();
+        const type = unordered ? 'ul' : 'ol';
+        if (!list || list.type !== type) flushList();
+        if (!list) list = { type, items: [] };
+        list.items.push((unordered || ordered)[1].trim());
+        return;
+      }
+
+      flushList();
+      flushQuote();
+      paragraph.push(line.trim());
+    });
+
+    if (inCode) flushCode();
+    flushBlocks();
+    return html.join('') || `<p>${escapeHTML(markdown)}</p>`;
+  }
+
   // 基于真实 spans 渲染 OTel 风格的原始日志
   function renderRawLog(s) {
     const body = document.getElementById('raw-log-body');
@@ -3058,8 +3572,19 @@
       || /<tool_call_result>|<function_results>|<system-reminder>/i.test(t);
   }
 
+  // 剥离框架注入的上下文包裹块（<system-reminder>/<project-memory>/<related-conversations>），
+  // 保留其后真实用户输入。新版 Agent 框架会把这些注入块拼在真实提问之前塞进同一条 user 消息，
+  // 不剥离会导致气泡显示成系统注入、且多轮因 prompt 判空而塌缩成一轮。
+  function stripInjectedContext(text) {
+    let cleaned = String(text || '');
+    ['system-reminder', 'project-memory', 'related-conversations'].forEach(tag => {
+      cleaned = cleaned.replace(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'gi'), '');
+    });
+    return cleaned.trim();
+  }
+
   function cleanUserPrompt(text) {
-    const prompt = normalizePromptText(text);
+    const prompt = normalizePromptText(stripInjectedContext(text));
     if (!prompt || isControlLikePrompt(prompt) || isSyntheticToolPrompt(prompt)) return '';
     return prompt;
   }
@@ -3242,6 +3767,87 @@
     return /clarif/.test(n) || /^ask([_-]?user)?$/.test(n) || /ask_followup|request_clarification/.test(n);
   }
 
+  function isIntentClarificationText(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    const compact = t.replace(/\s+/g, '');
+    const hasClarifyIntent = /意图澄清|澄清需求|反向确认|找用户确认|确认一些信息/.test(compact);
+    const asksForReply = /你回复|请回复|补全|填写|确认后|确认这些/.test(compact);
+    const hasTemplate = /空白项|____|___|模板|业务背景|数据内容|取标数据|产线流程/.test(compact);
+    const numberedItems = (t.match(/^\s*\d+[.、]\s*.+[：:]/gm) || []).length;
+    return hasClarifyIntent || (asksForReply && (hasTemplate || numberedItems >= 3));
+  }
+
+  function stripMdFence(text) {
+    return String(text || '').replace(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g, '$1').trim();
+  }
+
+  function extractClarifyFields(text) {
+    const body = stripMdFence(text);
+    const lines = body.split('\n');
+    const fields = [];
+    let current = null;
+    lines.forEach(raw => {
+      const line = raw.trim();
+      const m = line.match(/^(\d+)[.、]\s*([^：:]+)[：:]\s*(.*)$/);
+      if (m) {
+        if (current) fields.push(current);
+        current = { num: m[1], title: m[2].trim(), desc: m[3].trim() };
+        return;
+      }
+      if (current) {
+        if (/^[-*]\s*$/.test(line)) return;
+        if (/^[-*]\s+/.test(line)) {
+          const item = line.replace(/^[-*]\s+/, '').trim();
+          if (item) current.desc += `${current.desc ? '\n' : ''}${item}`;
+          return;
+        }
+        if (line && !/^你回复|^如果你想|^我也可以|^下一步/.test(line)) {
+          current.desc += `${current.desc ? '\n' : ''}${line}`;
+        }
+      }
+    });
+    if (current) fields.push(current);
+    return fields.filter(f => f.title);
+  }
+
+  function renderClarifyReply(replyText) {
+    const reply = String(replyText || '').trim();
+    if (!reply || reply === '（本轮未识别到用户提问）') return '';
+    return `
+      <div class="clarify-reply">
+        <div class="clarify-reply-label">用户已回复</div>
+        <div class="clarify-reply-text">${escapeHTML(reply)}</div>
+      </div>`;
+  }
+
+  function renderIntentClarifyCard(text, replyText = '') {
+    const fields = extractClarifyFields(text);
+    const answered = !!String(replyText || '').trim() && replyText !== '（本轮未识别到用户提问）';
+    const fieldHTML = fields.length ? `
+      <div class="clarify-fields">
+        ${fields.map((f, idx) => `
+          <div class="clarify-field">
+            <span class="clarify-field-num">${escapeHTML(f.num || String(idx + 1))}</span>
+            <div>
+              <div class="clarify-field-title">${escapeHTML(f.title)}</div>
+              ${f.desc ? `<div class="clarify-field-desc">${escapeHTML(f.desc)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
+            </div>
+          </div>
+        `).join('')}
+      </div>` : `<div class="clarify-q">${renderAssistantMarkdown(text)}</div>`;
+    return `
+      <div class="clarify-card">
+        <div class="clarify-head">
+          <span class="clarify-icon">❓</span>意图澄清
+          <span class="clarify-badge ${answered ? 'answered' : ''}">${answered ? '已回复' : '等待用户'}</span>
+        </div>
+        <div class="clarify-q">模型需要先确认以下信息，再继续生成后续方案。</div>
+        ${fieldHTML}
+        ${renderClarifyReply(replyText)}
+      </div>`;
+  }
+
   // 解析计划卡片数据：从工具 args 里取 todos 数组（含 content/status）。
   function parsePlanItems(argsStr) {
     const obj = safeJSON(argsStr);
@@ -3278,7 +3884,7 @@
   }
 
   // 渲染澄清卡片：模型在流式回复中向用户发起的澄清提问。
-  function renderClarifyCard(argsStr) {
+  function renderClarifyCard(argsStr, replyText = '') {
     const obj = safeJSON(argsStr) || {};
     const question = obj.question || obj.prompt || obj.message || obj.text || '';
     let opts = obj.options || obj.choices || obj.questions || [];
@@ -3289,9 +3895,13 @@
     }).join('');
     return `
       <div class="clarify-card">
-        <div class="clarify-head"><span class="clarify-icon">❓</span>等待澄清</div>
+        <div class="clarify-head">
+          <span class="clarify-icon">❓</span>意图澄清
+          <span class="clarify-badge ${replyText ? 'answered' : ''}">${replyText ? '已回复' : '等待用户'}</span>
+        </div>
         ${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}
         ${optHTML}
+        ${renderClarifyReply(replyText)}
       </div>`;
   }
 
@@ -3873,7 +4483,8 @@
       const firstLLM = spans.find(s => s.span_type === 'model');
       const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
       // up 为空时回退到原始 prompt 文本（不过滤控制词），尽量展示真实提问而非占位。
-      const rawPrompt = normalizePromptText(t.user_prompt) || normalizePromptText(t.title);
+      // 仍需剥离注入块，避免旧 bundle 里 user_prompt 是整坨 <system-reminder> 时直接外泄到气泡。
+      const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
       const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
       return { userPrompt: displayPrompt, traces: [t] };
     });
@@ -3887,10 +4498,17 @@
     const html = [];
     // 全局产物登记：同一 path 多次出现 → 计版本（v1, v2, v3...）
     const artifactVersions = new Map();
+    const groupClarifies = groups.map(grp => grp.traces.some(t => (t.spans || []).some(sp => {
+      if (sp.span_type === 'tool' && isClarifyTool(sp.span_name || '')) return true;
+      if (sp.span_type !== 'model') return false;
+      const { text, tool_calls } = extractAssistantOutput(sp);
+      return isIntentClarificationText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''));
+    })));
 
-    groups.forEach(grp => {
+    groups.forEach((grp, groupIndex) => {
       // user 气泡（如果该组有 prompt）
-      if (grp.userPrompt) {
+      const attachedToPreviousClarify = groupIndex > 0 && groupClarifies[groupIndex - 1];
+      if (grp.userPrompt && !attachedToPreviousClarify) {
         html.push(`
           <div class="flex justify-end">
             <div class="msg-user max-w-[88%] rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">${escapeHTML(grp.userPrompt)}</div>
@@ -3909,6 +4527,9 @@
       const modelsUsed = new Set();
       let totalLLMms = 0;
       const artifacts = [];
+      const nextUserReply = groupClarifies[groupIndex] && groups[groupIndex + 1]
+        ? String(groups[groupIndex + 1].userPrompt || '').trim()
+        : '';
 
       grp.traces.forEach((t, ti) => {
         const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
@@ -3938,7 +4559,11 @@
             `);
           }
           if (text) {
-            parts.push(`<div class="agent-text whitespace-pre-wrap">${escapeHTML(text)}</div>`);
+            if (isIntentClarificationText(text)) {
+              parts.push(renderIntentClarifyCard(text, nextUserReply));
+            } else {
+              parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(text)}</div>`);
+            }
           }
           // 隐式决策：这一步 LLM 没有输出文本/思考，直接产出 tool_calls。
           // 按定义「1 步 = 一次 LLMCall = 思考→调用工具→观察」，这一步的"思考"虽不可见但确实存在，
@@ -3973,7 +4598,7 @@
             }
             // 澄清卡片：模型向用户发起澄清提问。
             if (cls.kind === 'clarify') {
-              parts.push(renderClarifyCard(tc.args));
+              parts.push(renderClarifyCard(tc.args, nextUserReply));
               return;
             }
             parts.push(`
@@ -4000,7 +4625,7 @@
               if (items && items.length) { parts.push(renderPlanCard(items)); continue; }
             }
             if (cls.kind === 'clarify') {
-              parts.push(renderClarifyCard(exec.input));
+              parts.push(renderClarifyCard(exec.input, nextUserReply));
               continue;
             }
             parts.push(`
@@ -4073,6 +4698,673 @@
 
     stream.innerHTML = html.join('');
   }
+</script>
+
+<!-- ===== AI 一键诊断 Modal ===== -->
+<div id="diag-mask">
+  <div class="diag-modal">
+    <div class="diag-head">
+      <div class="diag-head-icon">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+      </div>
+      <div>
+        <div class="diag-head-title">AI 一键诊断</div>
+        <div class="diag-head-sub">基于完整对话流的语义级复盘 · 豆包 2.0</div>
+      </div>
+      <div class="diag-head-actions">
+        <button class="diag-ghost-btn" id="diag-download" disabled hidden>
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          导出报告
+        </button>
+        <button class="diag-ghost-btn" id="diag-regenerate">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.93 4.93A10 10 0 111.5 12h3m0 0V8m0 4h4"/></svg>
+          重新生成
+        </button>
+        <button class="diag-close" id="diag-close" title="关闭">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="diag-body" id="diag-body">
+      <div class="diag-report-shell glass-strong">
+        <div class="diag-report-top">
+          <div>
+            <div class="diag-report-kicker">Diagnosis Report</div>
+            <div class="diag-report-title diag-tooltip" id="diag-report-title" data-tooltip="等待生成诊断报告">等待生成诊断报告</div>
+            <div class="diag-report-sub mono" id="diag-report-sub">session: -</div>
+          </div>
+          <div class="diag-report-history" id="diag-report-history">
+            <button type="button" class="diag-history-pill" id="diag-history-pill" hidden>
+              <span>补充报告</span>
+              <span class="diag-history-count" id="diag-history-count">0</span>
+            </button>
+            <div class="diag-history-menu" id="diag-history-menu" hidden>
+              <div class="diag-history-head">历史补充</div>
+              <div class="diag-history-list" id="diag-history-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="doc-prose" id="diag-report-content">
+          <div class="diag-empty">点击“AI 一键诊断”后，这里会生成主报告。后续追问默认只做轻咨询，不会污染正文。</div>
+        </div>
+      </div>
+      <div class="diag-consults-wrap" id="diag-consults-wrap" hidden>
+        <div class="diag-consults-head">咨询记录</div>
+        <div id="diag-consults"></div>
+      </div>
+    </div>
+    <div class="diag-foot">
+      <div class="diag-status" id="diag-status"></div>
+      <div class="diag-quickchips" id="diag-quickchips">
+        <button class="diag-chip" data-mode="consult_only" data-question="为什么模型会做出这样的关键决策？">为什么这样决策</button>
+        <button class="diag-chip" data-mode="consult_only" data-question="第 3 轮和第 4 轮之间的语义变化是什么？">拆解关键轮次</button>
+        <button class="diag-chip" data-mode="report_update" data-question="把这次会话的失败根因补充到报告里。">补充失败根因</button>
+        <button class="diag-chip" data-mode="report_update" data-question="把更可执行的优化建议补充到报告里。">补充优化建议</button>
+      </div>
+      <div class="diag-input-row">
+        <div class="diag-input-shell">
+          <div class="diag-input-top">
+            <div class="diag-input-quote" id="diag-input-quote" hidden></div>
+            <div class="seg diag-mode-switch" id="diag-mode-switch">
+              <button type="button" data-mode="consult_only" class="active">仅咨询</button>
+              <button type="button" data-mode="report_update">补充报告</button>
+            </div>
+          </div>
+          <textarea id="diag-input" class="diag-input" rows="1" placeholder="例如：为什么模型会在这里换策略？"></textarea>
+          <button class="diag-btn" id="diag-send">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m0 0l-6-6m6 6l-6 6"/></svg>
+            发送
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== AI 一键诊断：活文档报告 + 轻咨询 =====
+(function () {
+  const btn = document.getElementById('ai-btn');
+  const mask = document.getElementById('diag-mask');
+  const closeBtn = document.getElementById('diag-close');
+  const bodyEl = document.getElementById('diag-body');
+  const statusEl = document.getElementById('diag-status');
+  const reportTitleEl = document.getElementById('diag-report-title');
+  const reportSubEl = document.getElementById('diag-report-sub');
+  const reportContentEl = document.getElementById('diag-report-content');
+  const historyWrapEl = document.getElementById('diag-report-history');
+  const historyPillEl = document.getElementById('diag-history-pill');
+  const historyCountEl = document.getElementById('diag-history-count');
+  const historyMenuEl = document.getElementById('diag-history-menu');
+  const historyListEl = document.getElementById('diag-history-list');
+  const consultsWrapEl = document.getElementById('diag-consults-wrap');
+  const consultsEl = document.getElementById('diag-consults');
+  const dlBtn = document.getElementById('diag-download');
+  const regenBtn = document.getElementById('diag-regenerate');
+  const sendBtn = document.getElementById('diag-send');
+  const inputEl = document.getElementById('diag-input');
+  const inputQuoteEl = document.getElementById('diag-input-quote');
+  const modeSwitchEl = document.getElementById('diag-mode-switch');
+  if (!btn || !mask) return;
+
+  const state = {
+    running: false,
+    askMode: 'consult_only',
+    reportMarkdown: '',
+    reportUpdates: [],
+    consults: [],
+    pending: null,
+    reportMeta: {},
+    sessionSummary: '',
+    selectedQuote: '',
+    historyMenuOpen: false,
+  };
+
+  function hasCachedContent() {
+    return !!(state.reportMarkdown.trim() || state.consults.length || state.reportUpdates.length || (state.pending && state.pending.markdown));
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function mdToHtml(md) {
+    const lines = String(md).replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let inUl = false, inOl = false;
+    const closeLists = () => {
+      if (inUl) { out.push('</ul>'); inUl = false; }
+      if (inOl) { out.push('</ol>'); inOl = false; }
+    };
+    const inline = (t) => esc(t)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+    for (let line of lines) {
+      const raw = line;
+      line = line.trimEnd();
+      if (!line.trim()) { closeLists(); continue; }
+      let m;
+      if ((m = line.match(/^###\s+(.*)/))) { closeLists(); out.push('<h3>' + inline(m[1]) + '</h3>'); continue; }
+      if ((m = line.match(/^##\s+(.*)/))) { closeLists(); out.push('<h2>' + inline(m[1]) + '</h2>'); continue; }
+      if ((m = line.match(/^#\s+(.*)/))) { closeLists(); out.push('<h2>' + inline(m[1]) + '</h2>'); continue; }
+      if (/^(-{3,}|\*{3,})$/.test(line.trim())) { closeLists(); out.push('<hr>'); continue; }
+      if ((m = line.match(/^>\s?(.*)/))) { closeLists(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); continue; }
+      if ((m = raw.match(/^\s*\d+\.\s+(.*)/))) {
+        if (!inOl) { closeLists(); out.push('<ol>'); inOl = true; }
+        out.push('<li>' + inline(m[1]) + '</li>');
+        continue;
+      }
+      if ((m = raw.match(/^\s*[-*]\s+(.*)/))) {
+        if (!inUl) { closeLists(); out.push('<ul>'); inUl = true; }
+        out.push('<li>' + inline(m[1]) + '</li>');
+        continue;
+      }
+      closeLists();
+      out.push('<p>' + inline(line) + '</p>');
+    }
+    closeLists();
+    return out.join('\n');
+  }
+
+  function buildSummary(real) {
+    if (!real || !Array.isArray(real.traces)) return '';
+    const traces = real.traces.slice()
+      .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0))
+      .flatMap(t => (typeof segmentTraceByPrompt === 'function' ? segmentTraceByPrompt(t) : [t]));
+    const parts = [];
+    let roundNo = 0;
+    const clip = (s, n) => {
+      s = String(s || '').replace(/\s+/g, ' ').trim();
+      return s.length > n ? s.slice(0, n) + '…' : s;
+    };
+    traces.forEach(t => {
+      const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+      const modelSpans = spans.filter(s => s.span_type === 'model');
+      if (!modelSpans.length && !(t.user_prompt || t.title)) return;
+      roundNo++;
+      const firstLLM = modelSpans[0];
+      let prompt = '';
+      try { prompt = firstLLM ? pickPromptForSpan(firstLLM, t) : ''; } catch (e) {}
+      prompt = prompt || normalizePromptText(t.user_prompt) || normalizePromptText(t.title) || '（未识别到用户提问）';
+      parts.push('\n### 第 ' + roundNo + ' 轮');
+      parts.push('【用户诉求】' + clip(prompt, 600));
+      modelSpans.forEach((sp, i) => {
+        let o = {};
+        try { o = extractAssistantOutput(sp); } catch (e) { o = {}; }
+        const step = modelSpans.length > 1 ? ('步骤' + (i + 1) + ' ') : '';
+        if (o.reasoning) parts.push(step + '【模型思考】' + clip(o.reasoning, 800));
+        if (o.text) parts.push(step + '【模型输出】' + clip(o.text, 800));
+        (o.tool_calls || []).forEach(tc => {
+          parts.push(step + '【工具动作】' + (tc.name || 'tool') + ' 参数: ' + clip(tc.args, 300));
+        });
+        const toolSpans = spans.filter(s => s.span_type === 'tool');
+        toolSpans.forEach(ts => {
+          if (ts.status_code !== 0) {
+            parts.push('【工具失败】' + (ts.span_name || 'tool') + ' → ' + clip(ts.output, 200));
+          }
+        });
+      });
+    });
+    return parts.join('\n');
+  }
+
+  function getSession() {
+    const real = (window.SESSION && window.SESSION._real) || null;
+    const params = new URLSearchParams(location.search);
+    return {
+      real,
+      id: params.get('id') || '',
+      title: (real && real.title) || document.title.replace(/ · Session 详情$/, '') || '',
+    };
+  }
+
+  function openModal() {
+    mask.classList.add('show');
+    document.addEventListener('keydown', onEsc);
+  }
+  function closeModal() {
+    mask.classList.remove('show');
+    document.removeEventListener('keydown', onEsc);
+  }
+  function onEsc(e) { if (e.key === 'Escape' && !state.running) closeModal(); }
+
+  function setMode(mode) {
+    state.askMode = mode === 'report_update' ? 'report_update' : 'consult_only';
+    const labels = {
+      consult_only: '例如：为什么模型会在这里换策略？',
+      report_update: '例如：把这次失败根因补充到报告里。',
+    };
+    inputEl.placeholder = labels[state.askMode];
+    Array.from(modeSwitchEl.querySelectorAll('button')).forEach((el) => {
+      el.classList.toggle('active', el.dataset.mode === state.askMode);
+    });
+  }
+
+  function normalizeTitle(question, fallback) {
+    const t = String(question || '').trim();
+    if (!t) return fallback || '补充分析';
+    const clean = t.replace(/[。？！?!]+$/g, '');
+    return clean.length > 18 ? clean.slice(0, 18) + '…' : clean;
+  }
+
+  function summarizeMarkdown(md) {
+    const text = String(md || '').replace(/[#>*`-]/g, ' ').replace(/\s+/g, ' ').trim();
+    return text.length > 56 ? text.slice(0, 56) + '…' : text;
+  }
+
+  function formatRelativeTime(ts) {
+    const diff = Math.max(0, Date.now() - Number(ts || Date.now()));
+    const sec = Math.floor(diff / 1000);
+    if (sec < 10) return '刚刚';
+    if (sec < 60) return sec + ' 秒前';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + ' 分钟前';
+    const hour = Math.floor(min / 60);
+    if (hour < 24) return hour + ' 小时前';
+    return new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function appendReportSection(baseMarkdown, title, body) {
+    const trimmedBase = String(baseMarkdown || '').trim();
+    const trimmedBody = String(body || '').trim();
+    if (!trimmedBody) return trimmedBase;
+    const heading = '## 补充分析 · ' + normalizeTitle(title, '补充分析');
+    return [trimmedBase, heading, '', trimmedBody].filter(Boolean).join('\n\n');
+  }
+
+  function syncReportAnchors() {
+    const headings = Array.from(reportContentEl.querySelectorAll('h2'))
+      .filter((el) => String(el.textContent || '').trim().startsWith('补充分析 · '));
+    state.reportUpdates.forEach((item, idx) => {
+      const heading = headings[idx];
+      if (!heading) return;
+      heading.id = item.anchorId;
+      heading.dataset.anchorId = item.anchorId;
+    });
+  }
+
+  function jumpToAnchor(anchorId) {
+    if (!anchorId) return;
+    state.historyMenuOpen = false;
+    render({ scroll: 'preserve' });
+    const target = reportContentEl.querySelector('#' + CSS.escape(anchorId));
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.classList.remove('diag-section-flash');
+    void target.offsetWidth;
+    target.classList.add('diag-section-flash');
+    setTimeout(() => target.classList.remove('diag-section-flash'), 1200);
+  }
+
+  function render(options) {
+    const scrollMode = (options && options.scroll) || (state.running ? 'bottom' : 'preserve');
+    const titleText = state.reportMeta.title || '等待生成诊断报告';
+    reportTitleEl.textContent = titleText;
+    reportTitleEl.setAttribute('data-tooltip', titleText);
+    if (reportSubEl) reportSubEl.textContent = state.reportMeta.id || '-';
+    if (historyPillEl && historyCountEl && historyMenuEl && historyListEl) {
+      const hasUpdates = state.reportUpdates.length > 0;
+      historyPillEl.hidden = !hasUpdates;
+      historyCountEl.textContent = String(state.reportUpdates.length);
+      historyMenuEl.hidden = !hasUpdates || !state.historyMenuOpen;
+      historyListEl.innerHTML = state.reportUpdates.slice().reverse().map((item) => `
+        <button type="button" class="diag-history-item" data-anchor-id="${esc(item.anchorId)}">
+          <div class="diag-history-item-title">${esc(item.title)}</div>
+          <div class="diag-history-item-meta">${esc(formatRelativeTime(item.createdAt))}</div>
+          <div class="diag-history-item-summary">${esc(item.summary)}</div>
+        </button>
+      `).join('');
+    }
+    const quoteText = String(state.selectedQuote || '').trim();
+    if (inputQuoteEl) {
+      inputQuoteEl.hidden = !quoteText;
+      inputQuoteEl.classList.toggle('show', !!quoteText);
+      inputQuoteEl.textContent = quoteText;
+      inputQuoteEl.title = quoteText;
+    }
+
+    let reportMarkdown = state.reportMarkdown;
+    if (state.pending && state.pending.kind === 'report') {
+      reportMarkdown = state.pending.action === 'initial'
+        ? state.pending.markdown
+        : appendReportSection(state.reportMarkdown, state.pending.title, state.pending.markdown);
+    }
+    reportContentEl.innerHTML = reportMarkdown.trim()
+      ? mdToHtml(reportMarkdown) + ((state.pending && state.pending.kind === 'report') ? '<span class="diag-typing-cursor"></span>' : '')
+      : '<div class="diag-empty">点击“AI 一键诊断”后，这里会生成主报告。后续追问默认只做轻咨询，不会污染正文。</div>';
+    syncReportAnchors();
+
+    const consultCards = [...state.consults];
+    if (state.pending && state.pending.kind === 'consult') {
+      consultCards.push({
+        title: state.pending.title,
+        question: state.pending.question,
+        markdown: state.pending.markdown,
+        pending: true,
+      });
+    }
+    consultsWrapEl.hidden = consultCards.length === 0;
+    consultsEl.innerHTML = consultCards.map((item) => `
+      <div class="diag-consult-card">
+        <div class="diag-consult-meta">
+          <div class="diag-consult-title">${esc(item.title || '本次咨询')}</div>
+          <span class="diag-consult-tag">仅咨询</span>
+        </div>
+        <div class="diag-consult-q">Q: ${esc(item.question || '')}</div>
+        <div class="doc-prose">${mdToHtml(item.markdown || '')}${item.pending ? '<span class="diag-typing-cursor"></span>' : ''}</div>
+      </div>
+    `).join('');
+
+    dlBtn.toggleAttribute('disabled', !state.reportMarkdown.trim());
+    if (regenBtn) regenBtn.toggleAttribute('disabled', state.running || !state.sessionSummary.trim());
+    sendBtn.toggleAttribute('disabled', state.running || !state.reportMarkdown.trim() || !inputEl.value.trim());
+    if (scrollMode === 'bottom') bodyEl.scrollTop = bodyEl.scrollHeight;
+  }
+
+  function autoGrowTextarea() {
+    inputEl.style.height = '42px';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 110) + 'px';
+  }
+
+  function setStatus(text, spinning) {
+    statusEl.innerHTML = text ? `${spinning ? '<span class="diag-spinner"></span>' : ''}${esc(text)}` : '';
+  }
+
+  async function streamRequest(payload, onDelta) {
+    const url = window.AgentTraceDB.buildUrl('/api/ai-diagnose');
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok || !resp.body) {
+      const t = await resp.text().catch(() => '');
+      throw new Error('HTTP ' + resp.status + (t ? (' · ' + t) : ''));
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop();
+      for (const block of blocks) {
+        let ev = '';
+        let dataStr = '';
+        for (const ln of block.split('\n')) {
+          if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+          else if (ln.startsWith('data:')) dataStr += ln.slice(5).trim();
+        }
+        if (!dataStr) continue;
+        let data;
+        try { data = JSON.parse(dataStr); } catch (e) { continue; }
+        if (ev === 'error') throw new Error(data.error || '诊断失败');
+        if (ev === 'done') continue;
+        if (typeof data.delta === 'string') onDelta(data.delta, data);
+      }
+    }
+  }
+
+  function resetStateForOpen(sess, summary) {
+    state.reportMeta = { id: sess.id, title: sess.title, time: new Date().toLocaleString('zh-CN') };
+    state.sessionSummary = summary;
+    state.reportMarkdown = '';
+    state.reportUpdates = [];
+    state.consults = [];
+    state.pending = null;
+    state.historyMenuOpen = false;
+    setMode('consult_only');
+    state.selectedQuote = '';
+    inputEl.value = '';
+    autoGrowTextarea();
+    setStatus('', false);
+    bodyEl.scrollTop = 0;
+    render();
+  }
+
+  function ensureSessionContext(sess, summary) {
+    const sameSession = state.reportMeta && state.reportMeta.id && state.reportMeta.id === sess.id;
+    if (sameSession) {
+      state.reportMeta = {
+        id: sess.id,
+        title: sess.title,
+        time: state.reportMeta.time || new Date().toLocaleString('zh-CN'),
+      };
+      state.sessionSummary = summary;
+      return true;
+    }
+    return false;
+  }
+
+  async function runDiagnose(forceReset) {
+    const sess = getSession();
+    const summary = buildSummary(sess.real);
+    openModal();
+
+    const sameSession = ensureSessionContext(sess, summary);
+    if (!forceReset && sameSession && hasCachedContent()) {
+      setStatus(state.running ? '正在生成主诊断报告...' : '', state.running);
+      render({ scroll: 'preserve' });
+      return;
+    }
+
+    resetStateForOpen(sess, summary);
+
+    if (!summary) {
+      reportContentEl.innerHTML = '<div class="diag-empty" style="color:var(--apple-red)">未获取到对话流数据，无法诊断。请等待页面数据加载完成后再试。</div>';
+      return;
+    }
+
+    state.running = true;
+    state.pending = { kind: 'report', action: 'initial', title: '主诊断报告', markdown: '' };
+    setStatus('正在生成主诊断报告...', true);
+    render();
+    try {
+      await streamRequest({
+        session_id: state.reportMeta.id,
+        title: state.reportMeta.title,
+        summary,
+        action: 'initial_report',
+        intent: 'report_update',
+      }, (delta) => {
+        state.pending.markdown += delta;
+        render();
+      });
+      state.reportMarkdown = state.pending.markdown.trim();
+      state.pending = null;
+      setStatus('已生成主诊断报告，可继续追问。', false);
+      state.running = false;
+      render();
+    } catch (err) {
+      state.pending = null;
+      state.running = false;
+      setStatus('请求失败：' + (err.message || String(err)), false);
+      render();
+    }
+  }
+
+  async function submitFollowup(question, modeOverride) {
+    const questionText = String(question || inputEl.value || '').trim();
+    if (!questionText || state.running || !state.reportMarkdown.trim()) return;
+    const mode = modeOverride || state.askMode;
+    const quoteText = String(state.selectedQuote || '').trim();
+    const finalQuestion = quoteText ? (`引用内容：${quoteText}\n\n用户追问：${questionText}`) : questionText;
+    state.running = true;
+    inputEl.value = '';
+    autoGrowTextarea();
+    if (mode === 'report_update') {
+      state.pending = {
+        kind: 'report',
+        action: 'followup',
+        title: normalizeTitle(questionText, '补充分析'),
+        question: questionText,
+        markdown: '',
+      };
+      setStatus('正在把追问补充进报告...', true);
+    } else {
+      state.pending = {
+        kind: 'consult',
+        action: 'consult',
+        title: normalizeTitle(questionText, '本次咨询'),
+        question: questionText,
+        markdown: '',
+      };
+      setStatus('正在生成轻咨询...', true);
+    }
+    render();
+
+    try {
+      await streamRequest({
+        session_id: state.reportMeta.id,
+        title: state.reportMeta.title,
+        summary: state.sessionSummary,
+        report_markdown: state.reportMarkdown,
+        action: mode === 'report_update' ? 'followup_report' : 'consult_only',
+        intent: mode,
+        question: finalQuestion,
+      }, (delta) => {
+        state.pending.markdown += delta;
+        render();
+      });
+      if (mode === 'report_update') {
+        const sectionTitle = state.pending.title;
+        state.reportMarkdown = appendReportSection(state.reportMarkdown, sectionTitle, state.pending.markdown);
+        state.reportUpdates.push({
+          anchorId: 'diag-supplement-' + Date.now() + '-' + (state.reportUpdates.length + 1),
+          title: '补充：' + sectionTitle,
+          summary: summarizeMarkdown(state.pending.markdown),
+          createdAt: Date.now(),
+        });
+        state.historyMenuOpen = false;
+        setStatus('已将本次追问整合进报告。', false);
+      } else {
+        state.consults.push({
+          title: state.pending.title,
+          question: state.pending.question,
+          markdown: state.pending.markdown.trim(),
+        });
+        setStatus('已生成轻咨询，不影响主报告。', false);
+      }
+      state.selectedQuote = '';
+      state.pending = null;
+      state.running = false;
+      render();
+    } catch (err) {
+      state.pending = null;
+      state.running = false;
+      setStatus('请求失败：' + (err.message || String(err)), false);
+      render();
+    }
+  }
+
+  function downloadReport() {
+    if (!state.reportMarkdown.trim()) return;
+    const consultHtml = state.consults.length
+      ? `<div class="card" style="margin-top:18px"><div class="doc-prose"><h2>咨询记录</h2>${state.consults.map((item) => `
+          <h3>${esc(item.title)}</h3>
+          <p><strong>Q:</strong> ${esc(item.question)}</p>
+          ${mdToHtml(item.markdown)}
+        `).join('')}</div></div>`
+      : '';
+    const contentHtml = mdToHtml(state.reportMarkdown);
+    const payload = {
+      title: state.reportMeta.title || 'Session',
+      sessionId: state.reportMeta.id || '-',
+      generatedAt: state.reportMeta.time || '-',
+      updatesCount: state.reportUpdates.length || 0,
+      reportHtml: contentHtml,
+      consultHtml,
+    };
+    const printUrl = new URL('./diagnose-print.html', location.href).toString();
+    const printWin = window.open('about:blank', '_blank');
+    if (!printWin) {
+      setStatus('无法打开打印窗口，请检查浏览器是否拦截弹窗。', false);
+      return;
+    }
+    try {
+      printWin.name = JSON.stringify(payload);
+      printWin.location.replace(printUrl);
+    } catch (err) {
+      setStatus('无法准备打印内容：' + (err.message || String(err)), false);
+      return;
+    }
+    setStatus('正在打开打印窗口，请选择“保存为 PDF”。', false);
+  }
+
+  modeSwitchEl.addEventListener('click', (e) => {
+    const target = e.target.closest('button[data-mode]');
+    if (!target) return;
+    setMode(target.dataset.mode);
+  });
+  historyPillEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!state.reportUpdates.length) return;
+    state.historyMenuOpen = !state.historyMenuOpen;
+    render({ scroll: 'preserve' });
+  });
+  historyListEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.diag-history-item[data-anchor-id]');
+    if (!item) return;
+    jumpToAnchor(item.dataset.anchorId);
+  });
+  document.addEventListener('click', (e) => {
+    if (!state.historyMenuOpen) return;
+    if (historyWrapEl && historyWrapEl.contains(e.target)) return;
+    state.historyMenuOpen = false;
+    render({ scroll: 'preserve' });
+  });
+  Array.from(document.querySelectorAll('#diag-quickchips .diag-chip')).forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const mode = chip.dataset.mode || 'consult_only';
+      setMode(mode);
+      inputEl.value = chip.dataset.question || '';
+      autoGrowTextarea();
+      render({ scroll: 'preserve' });
+      inputEl.focus();
+    });
+  });
+  inputEl.addEventListener('input', () => {
+    autoGrowTextarea();
+    render({ scroll: 'preserve' });
+  });
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitFollowup();
+    }
+  });
+  function captureSelectedQuote() {
+    if (!mask.classList.contains('show') || state.running) return;
+    const selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    const withinReport = (node) => {
+      if (!node) return false;
+      const el = node.nodeType === 3 ? node.parentNode : node;
+      return !!el && reportContentEl.contains(el);
+    };
+    if (!withinReport(range.startContainer) || !withinReport(range.endContainer)) return;
+    const text = String(range.toString() || '').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    state.selectedQuote = text.length > 140 ? text.slice(0, 140) + '…' : text;
+    render({ scroll: 'preserve' });
+  }
+  reportContentEl.addEventListener('mouseup', () => requestAnimationFrame(captureSelectedQuote));
+  reportContentEl.addEventListener('keyup', () => requestAnimationFrame(captureSelectedQuote));
+  sendBtn.addEventListener('click', () => submitFollowup());
+  btn.addEventListener('click', () => { runDiagnose(false); });
+  if (regenBtn) regenBtn.addEventListener('click', () => { if (!state.running) runDiagnose(true); });
+  closeBtn.addEventListener('click', () => { if (!state.running) closeModal(); });
+  mask.addEventListener('click', (e) => { if (e.target === mask && !state.running) closeModal(); });
+  dlBtn.addEventListener('click', downloadReport);
+  setMode('consult_only');
+  autoGrowTextarea();
+  render();
+})();
 </script>
 
 </body>
