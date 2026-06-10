@@ -494,6 +494,7 @@
 </main>
 
 <script src="./db-api.js"></script>
+<script src="./range-picker.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
   (async function () {
@@ -596,9 +597,44 @@
       page: 1,
     };
 
-    // 时间范围对应的毫秒数（以最新一条 session 时间为基准，避免 prototype 老数据被全部过滤掉）
+    // 时间范围对应的毫秒数：与后端请求保持一致，均以当前系统时间为基准。
     const RANGE_MS = { '24h': 24*3600e3, '7d': 7*86400e3, '30d': 30*86400e3 };
     let baseTimeMs = Date.now();
+    let tooltipReady = false;
+    let loadSeq = 0;
+
+    function fmtQueryTime(ms) {
+      const d = new Date(ms);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function currentRangeQuery() {
+      const f = state.filter;
+      if (f.range === 'custom') {
+        if (!f.customFrom || !f.customTo) return {};
+        return { startTime: fmtQueryTime(f.customFrom), endTime: fmtQueryTime(f.customTo) };
+      }
+      const winMs = RANGE_MS[f.range] || RANGE_MS['7d'];
+      const end = Date.now();
+      return { startTime: fmtQueryTime(end - winMs), endTime: fmtQueryTime(end) };
+    }
+
+    async function reloadSessions() {
+      const seq = ++loadSeq;
+      const d = await window.AgentTraceDB.loadSessions(currentRangeQuery());
+      if (seq !== loadSeq) return;
+      state.all = d.sessions || [];
+      baseTimeMs = Date.now();
+      buildDynamicDropdowns();
+      if (!tooltipReady) {
+        setupCellTooltip();
+        tooltipReady = true;
+      }
+      renderAll();
+      const gl = document.getElementById('global-loader');
+      if (gl) hideGlobalLoader();
+    }
 
     // ----- 渲染单行 -----
     function renderRow(s) {
@@ -960,32 +996,28 @@
 
     // ----- 加载 -----
     try {
-      const d = await window.AgentTraceDB.loadSessions();
-      state.all = d.sessions || [];
-      if (!state.all.length) {
-        tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">暂无数据</td></tr>`;
-        return;
-      }
-      // 时间基准 = 当前系统时间（保证 24h/7d 等窗口与用户本地时间一致）
-      baseTimeMs = Date.now();
-      buildDynamicDropdowns();
-      setupCellTooltip();
-      renderAll();
       // 挂载共享日期筛选器
       window.mountRangePicker({
         container: document.getElementById('global-range'),
-        onChange: (range, customFrom, customTo) => {
+        onChange: async (range, customFrom, customTo) => {
           state.filter.range = range;
           if (range === 'custom') {
             state.filter.customFrom = customFrom || null;
             state.filter.customTo = customTo || null;
+          } else {
+            state.filter.customFrom = null;
+            state.filter.customTo = null;
           }
           state.page = 1;
-          renderAll();
+          try {
+            await reloadSessions();
+          } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--apple-red]">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
+            const gl = document.getElementById('global-loader');
+            if (gl) hideGlobalLoader();
+          }
         }
       });
-      const gl = document.getElementById('global-loader');
-      if (gl) hideGlobalLoader();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--apple-red]">加载失败：${escapeHtml(e.message || String(e))}</td></tr>`;
       const gl = document.getElementById('global-loader');
@@ -993,8 +1025,5 @@
     }
   })();
 </script>
-<!-- 共享日期筛选器组件 -->
-<script src="./range-picker.js"></script>
-
 </body>
 </html>

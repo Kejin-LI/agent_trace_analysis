@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/tracelog"
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/ark"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
@@ -29,6 +31,7 @@ type Handler struct {
 	db                  *gorm.DB
 	fetcher             *tracelog.Fetcher
 	upstream            *modellog.Client
+	ark                 *ark.Client
 	aggregator          *Aggregator
 	dbOpenError         string
 	aggregatorInitError string
@@ -36,7 +39,7 @@ type Handler struct {
 
 // New 构造依赖 DB 的 Handler（fornax / tos 模式）。
 func New(db *gorm.DB) *Handler {
-	h := &Handler{db: db, fetcher: tracelog.NewFetcher()}
+	h := &Handler{db: db, fetcher: tracelog.NewFetcher(), ark: ark.NewClient()}
 	// TOS 模式下后台批量预热：保证列表页首次加载就有 chip / rules / 雷达数据。
 	if dataSourceMode() == "tos" {
 		go h.backfillAllMetrics()
@@ -56,6 +59,7 @@ func NewAPI(gdb *gorm.DB, dbOpenErr error) (*Handler, error) {
 		db:       gdb,
 		fetcher:  fetcher,
 		upstream: cli,
+		ark:      ark.NewClient(),
 	}
 	if dbOpenErr != nil {
 		h.dbOpenError = dbOpenErr.Error()
@@ -158,6 +162,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
+		g.POST("/ai-diagnose", h.diagnose)
 		if dataSourceMode() == "api" {
 			continue
 		}
@@ -1068,11 +1073,22 @@ func messageContentToText(raw interface{}) string {
 }
 
 func cleanUserPrompt(raw string) string {
-	prompt := normalizePromptText(raw)
-	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(raw) {
+	stripped := stripInjectedContext(raw)
+	prompt := normalizePromptText(stripped)
+	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(stripped) {
 		return ""
 	}
 	return prompt
+}
+
+// injectedContextRe 匹配框架注入的上下文包裹块（含跨行内容）。
+var injectedContextRe = regexp.MustCompile(`(?is)<(system-reminder|project-memory|related-conversations)>.*?</(system-reminder|project-memory|related-conversations)>`)
+
+// stripInjectedContext 剥离框架注入的上下文包裹块，保留其后真实用户输入。
+// 新版 Agent 框架会把 <system-reminder> 等注入块拼在真实提问之前塞进同一条 user 消息，
+// 不剥离会导致 prompt 显示成系统注入、多轮塌缩。
+func stripInjectedContext(raw string) string {
+	return strings.TrimSpace(injectedContextRe.ReplaceAllString(raw, ""))
 }
 
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
