@@ -161,8 +161,11 @@
     return session;
   }
 
-  async function loadSessions() {
-    const payload = await fetchJSON('/api/session-bundles?limit=2000');
+  async function loadSessions(opts) {
+    const params = new URLSearchParams({ limit: '2000' });
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    const payload = await fetchJSON('/api/session-bundles?' + params.toString());
     return {
       sessions: (payload.data || []).map(normalizeSession),
       limit: payload.limit || 0,

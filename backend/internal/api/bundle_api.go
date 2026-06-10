@@ -46,6 +46,8 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		fail(c, fmt.Errorf("db list session bundles: %w", err))
 		return
 	} else if ok {
+		bundles = filterBundlesByQueryRange(bundles, tr)
+		total = int64(len(bundles))
 		if h.aggregator != nil {
 			days := daysFromQueryRange(tr)
 			if day, ok := mostRecentDay(days); ok {
@@ -95,6 +97,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		}
 		bundles = append(bundles, b)
 	}
+	bundles = filterBundlesByQueryRange(bundles, tr)
 
 	// 异步触发缺失日期的聚合，但后端会强制收敛为最近 1 天，避免随查询窗口放大。
 	if h.aggregator != nil {
@@ -108,7 +111,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		"data":   bundles,
 		"limit":  limit,
 		"offset": offset,
-		"total":  resp.Total,
+		"total":  len(bundles),
 	})
 }
 
@@ -473,6 +476,21 @@ func parseTimeRangeBounds(tr modellog.TimeRange) (time.Time, time.Time, bool) {
 		return time.Time{}, time.Time{}, false
 	}
 	return st, et, true
+}
+
+func filterBundlesByQueryRange(bundles []apiSessionBundle, tr modellog.TimeRange) []apiSessionBundle {
+	st, et, ok := parseTimeRangeBounds(tr)
+	if !ok || len(bundles) == 0 {
+		return bundles
+	}
+	startMs, endMs := st.UnixMilli(), et.UnixMilli()
+	out := bundles[:0]
+	for _, b := range bundles {
+		if b.StartedAtMs >= startMs && b.StartedAtMs <= endMs {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // timeRangeFromQuery 从 query 解析时间窗，缺省最近 7 天。
