@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1068,11 +1069,22 @@ func messageContentToText(raw interface{}) string {
 }
 
 func cleanUserPrompt(raw string) string {
-	prompt := normalizePromptText(raw)
-	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(raw) {
+	stripped := stripInjectedContext(raw)
+	prompt := normalizePromptText(stripped)
+	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(stripped) {
 		return ""
 	}
 	return prompt
+}
+
+// injectedContextRe 匹配框架注入的上下文包裹块（含跨行内容）。
+var injectedContextRe = regexp.MustCompile(`(?is)<(system-reminder|project-memory|related-conversations)>.*?</(system-reminder|project-memory|related-conversations)>`)
+
+// stripInjectedContext 剥离框架注入的上下文包裹块，保留其后真实用户输入。
+// 新版 Agent 框架会把 <system-reminder> 等注入块拼在真实提问之前塞进同一条 user 消息，
+// 不剥离会导致 prompt 显示成系统注入、多轮塌缩。
+func stripInjectedContext(raw string) string {
+	return strings.TrimSpace(injectedContextRe.ReplaceAllString(raw, ""))
 }
 
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search

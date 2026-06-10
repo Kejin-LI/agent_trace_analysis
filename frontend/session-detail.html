@@ -3058,8 +3058,19 @@
       || /<tool_call_result>|<function_results>|<system-reminder>/i.test(t);
   }
 
+  // 剥离框架注入的上下文包裹块（<system-reminder>/<project-memory>/<related-conversations>），
+  // 保留其后真实用户输入。新版 Agent 框架会把这些注入块拼在真实提问之前塞进同一条 user 消息，
+  // 不剥离会导致气泡显示成系统注入、且多轮因 prompt 判空而塌缩成一轮。
+  function stripInjectedContext(text) {
+    let cleaned = String(text || '');
+    ['system-reminder', 'project-memory', 'related-conversations'].forEach(tag => {
+      cleaned = cleaned.replace(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'gi'), '');
+    });
+    return cleaned.trim();
+  }
+
   function cleanUserPrompt(text) {
-    const prompt = normalizePromptText(text);
+    const prompt = normalizePromptText(stripInjectedContext(text));
     if (!prompt || isControlLikePrompt(prompt) || isSyntheticToolPrompt(prompt)) return '';
     return prompt;
   }
@@ -3873,7 +3884,8 @@
       const firstLLM = spans.find(s => s.span_type === 'model');
       const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
       // up 为空时回退到原始 prompt 文本（不过滤控制词），尽量展示真实提问而非占位。
-      const rawPrompt = normalizePromptText(t.user_prompt) || normalizePromptText(t.title);
+      // 仍需剥离注入块，避免旧 bundle 里 user_prompt 是整坨 <system-reminder> 时直接外泄到气泡。
+      const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
       const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
       return { userPrompt: displayPrompt, traces: [t] };
     });

@@ -47,17 +47,16 @@ type Aggregator struct {
 	lastCookie string
 }
 
-// NewAggregator 构造 DB-backed 聚合器并确保表结构存在。
+// NewAggregator 构造 DB-backed 聚合器。
+//
+// 表结构由 DBA 工单统一管控（预定义、受控，不允许程序改表），
+// 因此这里不再执行 AutoMigrate：线上写账号刻意不授予 ALTER 权限，
+// 一旦 model 与现有表存在任何细微差异（comment/collate/index 等）都会
+// 触发 ALTER 并因无权限报 1142，导致聚合器整体初始化失败、每次发版必崩。
+// 改为直接信任受控表结构，程序只读写、不建表。
 func NewAggregator(db *gorm.DB, client *modellog.Client, fetcher *tracelog.Fetcher) (*Aggregator, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")
-	}
-	if err := db.Set("gorm:table_options", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4").AutoMigrate(
-		&model.APISessionAggregate{},
-		&model.APIDailyAggregateStatus{},
-		&model.APIDailySummary{},
-	); err != nil {
-		return nil, fmt.Errorf("auto migrate api aggregate tables: %w", err)
 	}
 	a := &Aggregator{
 		db:       db,
