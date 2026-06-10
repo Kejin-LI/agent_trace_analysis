@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -26,34 +25,49 @@ const DefaultCacheTTL = 5 * time.Minute
 // 详情页在网关超时（约 60s）内必须返回，留 5s 余量给解析+写响应。
 const DefaultHTTPTimeout = 55 * time.Second
 
-// MaxJSONLBytes 单文件最多读取 128MB。线上存在 600MB~2GB 的超大 session，
-// 整文件读入会撑爆内存（OOM）也下不完。超过上限时优雅截断：保留已读部分，
-// 解析器对截断的数组尾部可容忍（只丢最后一个不完整事件），详情页展示前半段
-// 对话，远好于一直转圈 / 502。
-const MaxJSONLBytes = 128 * 1024 * 1024
-
-// MaxCacheEntries LRU 容量上限，超过后淘汰最久未访问的。
+// MaxCacheEntries LRU 条数上限（兜底），超过后淘汰最久未访问的。
 const MaxCacheEntries = 200
 
-// cacheEntry 缓存中的一条记录。
+// MaxCacheBytes 进程内缓存总字节上限。
+//
+// 关键修复：旧实现只按"条数"封顶（200 条），完全不看每条多大，
+// 200 条 × 大文件可达数 GB，是 Pod OOM 的头号根因。
+//
+// 方案 C：详情页的持久缓存由 DB 的 bundle_json 承担（重复访问直接读库、
+// 不进内存、不下载），因此进程内缓存只需当"小而快的临时缓冲"，
+// 上限刻意取保守值，给运行时与并发请求峰值留足余量（Pod 仅 4GB）。
+const MaxCacheBytes = 512 * 1024 * 1024
+
+// MaxDownloadConcurrency 全局下载/解析并发上限，削掉"列表预热 + 详情拉取"
+// 多个大文件同时流式解析造成的瞬时尖峰。
+const MaxDownloadConcurrency = 3
+
+// cacheEntry 缓存中的一条记录。size 为该条占用的近似字节数（取原始文件字节，
+// 作为解析结果内存占用的低成本估算，用于按字节淘汰）。
 type cacheEntry struct {
 	url      string
 	parsedAt time.Time
 	result   *ParseResult
+	size     int
 }
 
 // Fetcher 负责拉取并解析 TOS JSONL，带 TTL+LRU 内存缓存。
 type Fetcher struct {
-	client *http.Client
-	ttl    time.Duration
-	max    int
+	client   *http.Client
+	ttl      time.Duration
+	max      int
+	maxBytes int
 
-	mu    sync.Mutex
-	ll    *list.List               // 双向链表，头=最近，尾=最久
-	index map[string]*list.Element // url → 链表节点
+	mu       sync.Mutex
+	ll       *list.List               // 双向链表，头=最近，尾=最久
+	index    map[string]*list.Element // url → 链表节点
+	curBytes int                      // 当前缓存占用的近似总字节数
 
 	// 防止同一 url 并发重复拉取（singleflight 简化版）
 	inflight map[string]chan struct{}
+
+	// 全局下载并发闸门，削掉多个大文件同时进内存的瞬时尖峰。
+	dlSem chan struct{}
 }
 
 // NewFetcher 构造默认 fetcher。
@@ -62,9 +76,11 @@ func NewFetcher() *Fetcher {
 		client:   &http.Client{Timeout: DefaultHTTPTimeout},
 		ttl:      DefaultCacheTTL,
 		max:      MaxCacheEntries,
+		maxBytes: MaxCacheBytes,
 		ll:       list.New(),
 		index:    map[string]*list.Element{},
 		inflight: map[string]chan struct{}{},
+		dlSem:    make(chan struct{}, MaxDownloadConcurrency),
 	}
 }
 
@@ -100,17 +116,13 @@ func (f *Fetcher) FetchAndParse(url string) (*ParseResult, error) {
 		}()
 	}
 
-	// 3) miss：实拉。
-	body, err := f.download(url)
-	if err != nil {
-		return nil, err
-	}
-	res, err := Parse(body)
+	// 3) miss：实拉 + 流式解析，不再把完整 JSONL 文件读入内存。
+	res, size, err := f.downloadAndParse(url)
 	if err != nil {
 		return nil, err
 	}
 
-	f.putCache(url, res)
+	f.putCache(url, res, size)
 	return res, nil
 }
 
@@ -135,6 +147,10 @@ func (f *Fetcher) Invalidate(url string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if el, ok := f.index[url]; ok {
+		f.curBytes -= el.Value.(*cacheEntry).size
+		if f.curBytes < 0 {
+			f.curBytes = 0
+		}
 		f.ll.Remove(el)
 		delete(f.index, url)
 	}
@@ -151,6 +167,10 @@ func (f *Fetcher) getFromCache(url string) *ParseResult {
 	e := el.Value.(*cacheEntry)
 	if time.Since(e.parsedAt) >= f.ttl {
 		// 过期就清掉
+		f.curBytes -= e.size
+		if f.curBytes < 0 {
+			f.curBytes = 0
+		}
 		f.ll.Remove(el)
 		delete(f.index, url)
 		return nil
@@ -159,64 +179,79 @@ func (f *Fetcher) getFromCache(url string) *ParseResult {
 	return e.result
 }
 
-// putCache 写入缓存，超容量则淘汰最久未访问的。
-func (f *Fetcher) putCache(url string, res *ParseResult) {
+// putCache 写入缓存，按"总字节"与"条数"双上限淘汰最久未访问的。
+// size 为该条的近似字节数（取原始文件字节）。
+func (f *Fetcher) putCache(url string, res *ParseResult, size int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if el, ok := f.index[url]; ok {
-		el.Value.(*cacheEntry).parsedAt = time.Now()
-		el.Value.(*cacheEntry).result = res
+		e := el.Value.(*cacheEntry)
+		f.curBytes += size - e.size
+		e.parsedAt = time.Now()
+		e.result = res
+		e.size = size
 		f.ll.MoveToFront(el)
+		f.evictLocked()
 		return
 	}
-	el := f.ll.PushFront(&cacheEntry{url: url, parsedAt: time.Now(), result: res})
+	el := f.ll.PushFront(&cacheEntry{url: url, parsedAt: time.Now(), result: res, size: size})
 	f.index[url] = el
-	for f.ll.Len() > f.max {
+	f.curBytes += size
+	f.evictLocked()
+}
+
+// evictLocked 在持锁状态下把缓存收敛到字节与条数双上限内，
+// 从尾部（最久未访问）开始淘汰。至少保留一条，避免单条超限时被立刻清空。
+func (f *Fetcher) evictLocked() {
+	for f.ll.Len() > 1 && (f.curBytes > f.maxBytes || f.ll.Len() > f.max) {
 		old := f.ll.Back()
 		if old == nil {
 			break
 		}
+		e := old.Value.(*cacheEntry)
 		f.ll.Remove(old)
-		delete(f.index, old.Value.(*cacheEntry).url)
+		delete(f.index, e.url)
+		f.curBytes -= e.size
+	}
+	if f.curBytes < 0 {
+		f.curBytes = 0
 	}
 }
 
-func (f *Fetcher) download(url string) ([]byte, error) {
+func (f *Fetcher) downloadAndParse(url string) (*ParseResult, int, error) {
+	// 全局并发闸门：限制同时下载/解析的大文件数量，削掉瞬时内存尖峰。
+	f.dlSem <- struct{}{}
+	defer func() { <-f.dlSem }()
+
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// 关键：声明支持 gzip，让 TOS 直接返回压缩流。
 	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", url, err)
+		return nil, 0, fmt.Errorf("fetch %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("fetch %s: status=%d", url, resp.StatusCode)
+		return nil, 0, fmt.Errorf("fetch %s: status=%d", url, resp.StatusCode)
 	}
 
 	var reader io.Reader = resp.Body
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gr, gzErr := gzip.NewReader(resp.Body)
 		if gzErr != nil {
-			return nil, fmt.Errorf("gzip reader: %w", gzErr)
+			return nil, 0, fmt.Errorf("gzip reader: %w", gzErr)
 		}
 		defer gr.Close()
 		reader = gr
 	}
 
-	// 优雅截断：最多读 MaxJSONLBytes。超大文件保留已读部分交给解析器，
-	// 而不是整文件读入内存（OOM）或直接报错（详情页转圈）。
-	body, err := io.ReadAll(io.LimitReader(reader, MaxJSONLBytes))
+	res, size, err := ParseStream(reader)
 	if err != nil {
-		// 已读到内容时不致命：截断后仍可解析出前半段对话。
-		if len(body) == 0 {
-			return nil, fmt.Errorf("read body: %w", err)
-		}
-		log.Printf("tracelog: read %s truncated after %d bytes: %v", url, len(body), err)
+		return nil, size, fmt.Errorf("parse stream %s after %d bytes: %w", url, size, err)
 	}
-	return body, nil
+	return res, size, nil
 }

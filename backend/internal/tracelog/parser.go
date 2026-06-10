@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
 	"sort"
@@ -125,6 +126,10 @@ type Round struct {
 	ReasoningTokens int64
 }
 
+// MaxJSONLLineBytes 是单条 JSONL event 的最大大小。
+// 流式解析时文件整体不设总量截断，但必须限制单行，避免某条异常大事件独自撑爆内存。
+const MaxJSONLLineBytes = 2 * 1024 * 1024
+
 // Parse 解析 JSONL 字节流，按 promptId 分组返回 ParseResult。
 func Parse(raw []byte) (*ParseResult, error) {
 	raw = bytes.TrimSpace(raw)
@@ -176,6 +181,201 @@ func Parse(raw []byte) (*ParseResult, error) {
 		return nil, fmt.Errorf("scan jsonl: %w", err)
 	}
 	return parseStructuredEvents(events), nil
+}
+
+// ParseStream 流式解析 JSONL，不再把完整文件读入内存。
+//
+// 适用线上 TOS JSONL：一行一个 event。该函数只保留按 logId 聚合所需的最小原始片段
+// （REQUEST/RESPONSE/META 的 data），避免同时持有完整 raw 文件与完整事件数组。
+// 若输入为历史兼容的顶层 JSON 数组，则退回数组 decoder 路径：仍避免保留 raw []byte，
+// 但需要暂存 events 以复用 Neeko/Responses 兼容解析逻辑。
+func ParseStream(r io.Reader) (*ParseResult, int, error) {
+	if r == nil {
+		return nil, 0, fmt.Errorf("nil reader")
+	}
+	cr := &countingReader{r: r}
+	br := bufio.NewReaderSize(cr, 256*1024)
+	first, err := peekFirstNonSpace(br)
+	if err != nil {
+		if err == io.EOF {
+			return nil, cr.n, fmt.Errorf("empty jsonl")
+		}
+		return nil, cr.n, err
+	}
+	if first == '[' {
+		out, err := parseEventArrayStream(br)
+		return out, cr.n, err
+	}
+
+	sc := bufio.NewScanner(br)
+	sc.Buffer(make([]byte, 256*1024), MaxJSONLLineBytes)
+
+	collector := newStreamEventCollector()
+	lineNo := 0
+	for sc.Scan() {
+		lineNo++
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var ev rawEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue // 单行损坏不致命，保持旧 Parse 行为
+		}
+		collector.Add(ev)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, cr.n, fmt.Errorf("scan jsonl around line %d (max line %d bytes): %w", lineNo+1, MaxJSONLLineBytes, err)
+	}
+	out := collector.Result()
+	if len(out.Rounds) == 0 {
+		return nil, cr.n, fmt.Errorf("empty jsonl")
+	}
+	return out, cr.n, nil
+}
+
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	r.n += n
+	return n, err
+}
+
+func peekFirstNonSpace(r *bufio.Reader) (byte, error) {
+	for i := 0; ; i++ {
+		buf, err := r.Peek(i + 1)
+		if err != nil {
+			return 0, err
+		}
+		b := buf[i]
+		if b != ' ' && b != '\n' && b != '\r' && b != '\t' {
+			return b, nil
+		}
+	}
+}
+
+func parseEventArrayStream(r io.Reader) (*ParseResult, error) {
+	var events []rawEvent
+	if err := json.NewDecoder(r).Decode(&events); err != nil {
+		return nil, fmt.Errorf("decode json array stream: %w", err)
+	}
+	if isNeekoResponsesLog(events) {
+		if out := parseNeekoResponsesLog(events); len(out.Rounds) > 0 {
+			return out, nil
+		}
+	}
+	out := parseStructuredEvents(events)
+	if len(out.Rounds) > 0 {
+		return out, nil
+	}
+	return nil, fmt.Errorf("empty json array log")
+}
+
+type streamCallBuf struct {
+	promptID string
+	startMs  int64
+	endMs    int64
+	req      json.RawMessage
+	resp     json.RawMessage
+	meta     json.RawMessage
+}
+
+type streamEventCollector struct {
+	calls          map[string]*streamCallBuf
+	order          []string
+	fallbackEvents []rawEvent
+	sessionID      string
+}
+
+func newStreamEventCollector() *streamEventCollector {
+	return &streamEventCollector{
+		calls: make(map[string]*streamCallBuf),
+		order: make([]string, 0, 256),
+	}
+}
+
+func (c *streamEventCollector) Add(ev rawEvent) {
+	if c.sessionID == "" {
+		c.sessionID = ev.sessionID()
+	}
+	logID, promptID := ev.logID(), ev.promptID()
+	if logID == "" || promptID == "" {
+		c.fallbackEvents = append(c.fallbackEvents, ev)
+		return
+	}
+	cb, ok := c.calls[logID]
+	if !ok {
+		cb = &streamCallBuf{promptID: promptID}
+		c.calls[logID] = cb
+		c.order = append(c.order, logID)
+	}
+	ms := parseTSMillis(ev.ts())
+	if ms > 0 {
+		if cb.startMs == 0 || ms < cb.startMs {
+			cb.startMs = ms
+		}
+		if ms > cb.endMs {
+			cb.endMs = ms
+		}
+	}
+	switch ev.Type {
+	case "REQUEST_BODY":
+		cb.req = ev.Data
+	case "RESPONSE_BODY_FINAL", "RESPONSE_BODY":
+		cb.resp = ev.Data
+	case "RESPONSE_META":
+		cb.meta = ev.Data
+	}
+}
+
+func (c *streamEventCollector) Result() *ParseResult {
+	roundIdx := map[string]int{}
+	out := &ParseResult{SessionID: c.sessionID}
+	for _, logID := range c.order {
+		cb := c.calls[logID]
+		if cb.req == nil && cb.resp == nil {
+			continue
+		}
+		idx, ok := roundIdx[cb.promptID]
+		if !ok {
+			idx = len(out.Rounds)
+			roundIdx[cb.promptID] = idx
+			out.Rounds = append(out.Rounds, Round{PromptID: cb.promptID})
+		}
+		round := &out.Rounds[idx]
+		call := callRec{LogID: logID, StartedMs: cb.startMs, EndedMs: cb.endMs}
+		decodeRequest(cb.req, &call)
+		decodeResponse(cb.resp, &call)
+		decodeMeta(cb.meta, &call)
+
+		if round.UserPrompt == "" {
+			round.UserPrompt = extractUserPrompt(call.Messages)
+		}
+		if round.StartedMs == 0 || (call.StartedMs > 0 && call.StartedMs < round.StartedMs) {
+			round.StartedMs = call.StartedMs
+		}
+		if call.EndedMs > round.EndedMs {
+			round.EndedMs = call.EndedMs
+		}
+		round.InputTokens += call.UsageIn
+		round.OutputTokens += call.UsageOut
+		round.ReasoningTokens += call.UsageReason
+		round.Calls = append(round.Calls, call)
+	}
+	if len(out.Rounds) == 0 && len(c.fallbackEvents) > 0 {
+		fallback := parseResponsesWrappedEvents(c.fallbackEvents)
+		if len(fallback.Rounds) > 0 {
+			if fallback.SessionID == "" {
+				fallback.SessionID = c.sessionID
+			}
+			return fallback
+		}
+	}
+	return out
 }
 
 func parseStructuredEvents(events []rawEvent) *ParseResult {
