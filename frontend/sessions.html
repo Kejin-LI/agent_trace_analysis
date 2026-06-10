@@ -109,8 +109,8 @@
   .with-tip > .tip .tip-row > span:last-child { color: #fff; text-align: right; }
   .with-tip:hover { z-index: 9999; }
   .with-tip:hover > .tip { opacity: 1; transform: translateY(0); }
-  /* 让筛选条整体处于较高层级，确保 tooltip 不被下方表格毛玻璃压住 */
-  .filter-bar { position: relative; z-index: 100; overflow: visible !important; }
+  /* 筛选条只高于表格内容，不能盖住顶部导航栏及其菜单 */
+  .filter-bar { position: relative; z-index: 20; overflow: visible !important; }
   .filter-bar .seg { overflow: visible; }
 
   /* 单元格自定义 hover 浮层（替代浏览器原生 title） */
@@ -155,7 +155,7 @@
     backdrop-filter: blur(20px) saturate(180%);
     border: 1px solid rgba(0,0,0,0.06);
     box-shadow: 0 12px 40px rgba(0,0,0,0.10);
-    z-index: 200; display: none;
+    z-index: 30; display: none;
   }
   .dd.open .dd-menu { display: block; }
   .dd-item {

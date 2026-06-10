@@ -415,6 +415,101 @@
   .msg-assistant { background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.06); }
   /* Agent 消息：去掉气泡背景与边框，直接贴在对话流上以节省纵向空间 */
   .msg-agent { background: transparent; border: 0; padding-left: 0; padding-right: 0; }
+  .agent-md {
+    color: var(--text-primary);
+    font-size: 12.5px;
+    line-height: 1.68;
+    word-break: break-word;
+  }
+  .agent-md > *:first-child { margin-top: 0; }
+  .agent-md > *:last-child { margin-bottom: 0; }
+  .agent-md p { margin: 5px 0; }
+  .agent-md h1,
+  .agent-md h2,
+  .agent-md h3 {
+    margin: 10px 0 6px;
+    color: var(--text-primary);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .agent-md h1 { font-size: 15px; }
+  .agent-md h2 { font-size: 13.5px; }
+  .agent-md h3 { font-size: 12.5px; }
+  .agent-md h2::before,
+  .agent-md h3::before {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    margin-right: 6px;
+    border-radius: 999px;
+    vertical-align: 1px;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+  }
+  .agent-md ul,
+  .agent-md ol {
+    margin: 6px 0;
+    padding-left: 0;
+  }
+  .agent-md li {
+    position: relative;
+    list-style: none;
+    margin: 4px 0;
+    padding-left: 16px;
+    color: var(--text-secondary);
+  }
+  .agent-md li::before {
+    content: '';
+    position: absolute;
+    left: 2px; top: 0.72em;
+    width: 4px; height: 4px;
+    border-radius: 999px;
+    background: rgba(0,113,227,0.5);
+  }
+  .agent-md ol { counter-reset: agent-md-ol; }
+  .agent-md ol li { counter-increment: agent-md-ol; }
+  .agent-md ol li::before {
+    content: counter(agent-md-ol);
+    top: 0.2em;
+    width: 12px; height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--apple-blue);
+    background: rgba(0,113,227,0.08);
+  }
+  .agent-md blockquote {
+    margin: 7px 0;
+    padding: 7px 10px;
+    color: var(--text-secondary);
+    background: rgba(120,120,128,0.08);
+    border-left: 3px solid rgba(0,113,227,0.26);
+    border-radius: 0 10px 10px 0;
+  }
+  .agent-md code {
+    font-family: 'JetBrains Mono', SF Mono, Menlo, monospace;
+    font-size: 0.92em;
+    padding: 1px 5px;
+    border-radius: 6px;
+    color: #5E3A9B;
+    background: rgba(94,58,155,0.08);
+  }
+  .agent-md pre {
+    margin: 7px 0;
+    padding: 9px 10px;
+    overflow: auto;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.045);
+    border: 1px solid rgba(0,0,0,0.04);
+  }
+  .agent-md pre code {
+    display: block;
+    padding: 0;
+    color: #3C3C43;
+    background: transparent;
+    white-space: pre;
+  }
 
   /* 工具/Skill/MCP 调用 - 单行 chip 风格（在气泡内紧跟回复） */
   .tool-line {
@@ -476,27 +571,55 @@
   .plan-item.cancel .plan-item-mark { color: var(--apple-red); }
   .plan-item.cancel .plan-item-text { color: var(--text-tertiary); text-decoration: line-through; }
 
-  /* 澄清卡片：模型流式回复中向用户发起的澄清提问 */
+  /* 澄清卡片：模型流式回复中向用户发起的澄清提问（与计划卡片同一套扁平风格） */
   .clarify-card {
     margin: 8px 0 4px;
     padding: 8px 10px;
     background: rgba(255,149,0,0.06);
-    border: 1px solid rgba(255,149,0,0.22);
+    border: 1px solid rgba(255,149,0,0.2);
     border-radius: 10px;
   }
   .clarify-head {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; font-weight: 600; color: #B5650A; margin-bottom: 5px;
+    font-size: 11px; font-weight: 600; color: #B5650A; margin-bottom: 6px;
   }
   .clarify-icon { font-size: 12px; }
-  .clarify-q { font-size: 12px; line-height: 1.5; color: var(--text-primary); margin-bottom: 6px; white-space: pre-wrap; }
+  .clarify-badge {
+    margin-left: auto; padding: 1px 7px; border-radius: 8px;
+    font-size: 10px; font-weight: 600;
+    color: #FF9500; background: rgba(255,149,0,0.12);
+    font-variant-numeric: tabular-nums;
+  }
+  .clarify-badge.answered { color: #34C759; background: rgba(48,209,88,0.12); }
+  .clarify-q { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 4px; white-space: pre-wrap; }
+  .clarify-fields { display: flex; flex-direction: column; margin-top: 2px; }
+  .clarify-field {
+    display: flex; align-items: flex-start; gap: 7px;
+    font-size: 11.5px; line-height: 1.5; padding: 2px 0;
+    color: var(--text-secondary);
+  }
+  .clarify-field-num { flex: none; width: 14px; text-align: center; font-weight: 700; color: #FF9500; }
+  .clarify-field-title { font-size: 11.5px; font-weight: 500; color: var(--text-primary); }
+  .clarify-field-desc { margin-top: 1px; font-size: 11px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; }
   .clarify-opt {
     font-size: 11.5px; color: var(--text-secondary);
-    padding: 4px 9px; margin-top: 4px;
-    background: rgba(255,149,0,0.08);
-    border: 1px solid rgba(255,149,0,0.18);
+    padding: 3px 8px; margin-top: 4px;
+    background: rgba(255,149,0,0.07);
+    border: 1px solid rgba(255,149,0,0.16);
     border-radius: 8px;
   }
+  .clarify-reply {
+    margin-top: 7px; padding: 7px 9px;
+    border-radius: 10px;
+    background: rgba(0,113,227,0.05);
+    border: 1px solid rgba(0,113,227,0.14);
+  }
+  .clarify-reply-label {
+    display: flex; align-items: center; gap: 5px;
+    margin-bottom: 3px;
+    font-size: 10.5px; font-weight: 600; color: var(--apple-blue);
+  }
+  .clarify-reply-text { font-size: 11.5px; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; }
 
   /* 同 prompt 下多 trace 的轻量分隔（在合并气泡内） */
   .agent-turn-sep {
@@ -3139,6 +3262,120 @@
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  function renderInlineMarkdown(text) {
+    const parts = String(text ?? '').split(/(`[^`]*`)/g);
+    return parts.map(part => {
+      if (!part) return '';
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return `<code>${escapeHTML(part.slice(1, -1))}</code>`;
+      }
+      return escapeHTML(part)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    }).join('');
+  }
+
+  // 对话流只渲染安全 Markdown 子集，避免引入外部库和不可信 HTML。
+  function renderAssistantMarkdown(markdown) {
+    const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
+    const html = [];
+    let paragraph = [];
+    let list = null;
+    let quote = [];
+    let inCode = false;
+    let codeLang = '';
+    let codeLines = [];
+
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      html.push(`<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (!list) return;
+      html.push(`<${list.type}>${list.items.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</${list.type}>`);
+      list = null;
+    };
+    const flushQuote = () => {
+      if (!quote.length) return;
+      html.push(`<blockquote>${quote.map(line => `<p>${renderInlineMarkdown(line)}</p>`).join('')}</blockquote>`);
+      quote = [];
+    };
+    const flushCode = () => {
+      const langCls = codeLang ? ` language-${escapeHTML(codeLang)}` : '';
+      html.push(`<pre><code class="${langCls.trim()}">${escapeHTML(codeLines.join('\n'))}</code></pre>`);
+      inCode = false;
+      codeLang = '';
+      codeLines = [];
+    };
+    const flushBlocks = () => {
+      flushParagraph();
+      flushList();
+      flushQuote();
+    };
+
+    lines.forEach(rawLine => {
+      const line = rawLine.replace(/\s+$/, '');
+      const fence = line.match(/^```([\w-]*)\s*$/);
+      if (fence) {
+        if (inCode) {
+          flushCode();
+        } else {
+          flushBlocks();
+          inCode = true;
+          codeLang = fence[1] || '';
+          codeLines = [];
+        }
+        return;
+      }
+      if (inCode) {
+        codeLines.push(rawLine);
+        return;
+      }
+
+      if (!line.trim()) {
+        flushBlocks();
+        return;
+      }
+
+      const heading = line.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        flushBlocks();
+        const level = heading[1].length;
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
+        return;
+      }
+
+      const quoteMatch = line.match(/^>\s?(.*)$/);
+      if (quoteMatch) {
+        flushParagraph();
+        flushList();
+        quote.push(quoteMatch[1]);
+        return;
+      }
+
+      const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+      const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+      if (unordered || ordered) {
+        flushParagraph();
+        flushQuote();
+        const type = unordered ? 'ul' : 'ol';
+        if (!list || list.type !== type) flushList();
+        if (!list) list = { type, items: [] };
+        list.items.push((unordered || ordered)[1].trim());
+        return;
+      }
+
+      flushList();
+      flushQuote();
+      paragraph.push(line.trim());
+    });
+
+    if (inCode) flushCode();
+    flushBlocks();
+    return html.join('') || `<p>${escapeHTML(markdown)}</p>`;
+  }
+
   // 基于真实 spans 渲染 OTel 风格的原始日志
   function renderRawLog(s) {
     const body = document.getElementById('raw-log-body');
@@ -3530,6 +3767,87 @@
     return /clarif/.test(n) || /^ask([_-]?user)?$/.test(n) || /ask_followup|request_clarification/.test(n);
   }
 
+  function isIntentClarificationText(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    const compact = t.replace(/\s+/g, '');
+    const hasClarifyIntent = /意图澄清|澄清需求|反向确认|找用户确认|确认一些信息/.test(compact);
+    const asksForReply = /你回复|请回复|补全|填写|确认后|确认这些/.test(compact);
+    const hasTemplate = /空白项|____|___|模板|业务背景|数据内容|取标数据|产线流程/.test(compact);
+    const numberedItems = (t.match(/^\s*\d+[.、]\s*.+[：:]/gm) || []).length;
+    return hasClarifyIntent || (asksForReply && (hasTemplate || numberedItems >= 3));
+  }
+
+  function stripMdFence(text) {
+    return String(text || '').replace(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g, '$1').trim();
+  }
+
+  function extractClarifyFields(text) {
+    const body = stripMdFence(text);
+    const lines = body.split('\n');
+    const fields = [];
+    let current = null;
+    lines.forEach(raw => {
+      const line = raw.trim();
+      const m = line.match(/^(\d+)[.、]\s*([^：:]+)[：:]\s*(.*)$/);
+      if (m) {
+        if (current) fields.push(current);
+        current = { num: m[1], title: m[2].trim(), desc: m[3].trim() };
+        return;
+      }
+      if (current) {
+        if (/^[-*]\s*$/.test(line)) return;
+        if (/^[-*]\s+/.test(line)) {
+          const item = line.replace(/^[-*]\s+/, '').trim();
+          if (item) current.desc += `${current.desc ? '\n' : ''}${item}`;
+          return;
+        }
+        if (line && !/^你回复|^如果你想|^我也可以|^下一步/.test(line)) {
+          current.desc += `${current.desc ? '\n' : ''}${line}`;
+        }
+      }
+    });
+    if (current) fields.push(current);
+    return fields.filter(f => f.title);
+  }
+
+  function renderClarifyReply(replyText) {
+    const reply = String(replyText || '').trim();
+    if (!reply || reply === '（本轮未识别到用户提问）') return '';
+    return `
+      <div class="clarify-reply">
+        <div class="clarify-reply-label">用户已回复</div>
+        <div class="clarify-reply-text">${escapeHTML(reply)}</div>
+      </div>`;
+  }
+
+  function renderIntentClarifyCard(text, replyText = '') {
+    const fields = extractClarifyFields(text);
+    const answered = !!String(replyText || '').trim() && replyText !== '（本轮未识别到用户提问）';
+    const fieldHTML = fields.length ? `
+      <div class="clarify-fields">
+        ${fields.map((f, idx) => `
+          <div class="clarify-field">
+            <span class="clarify-field-num">${escapeHTML(f.num || String(idx + 1))}</span>
+            <div>
+              <div class="clarify-field-title">${escapeHTML(f.title)}</div>
+              ${f.desc ? `<div class="clarify-field-desc">${escapeHTML(f.desc)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
+            </div>
+          </div>
+        `).join('')}
+      </div>` : `<div class="clarify-q">${renderAssistantMarkdown(text)}</div>`;
+    return `
+      <div class="clarify-card">
+        <div class="clarify-head">
+          <span class="clarify-icon">❓</span>意图澄清
+          <span class="clarify-badge ${answered ? 'answered' : ''}">${answered ? '已回复' : '等待用户'}</span>
+        </div>
+        <div class="clarify-q">模型需要先确认以下信息，再继续生成后续方案。</div>
+        ${fieldHTML}
+        ${renderClarifyReply(replyText)}
+      </div>`;
+  }
+
   // 解析计划卡片数据：从工具 args 里取 todos 数组（含 content/status）。
   function parsePlanItems(argsStr) {
     const obj = safeJSON(argsStr);
@@ -3566,7 +3884,7 @@
   }
 
   // 渲染澄清卡片：模型在流式回复中向用户发起的澄清提问。
-  function renderClarifyCard(argsStr) {
+  function renderClarifyCard(argsStr, replyText = '') {
     const obj = safeJSON(argsStr) || {};
     const question = obj.question || obj.prompt || obj.message || obj.text || '';
     let opts = obj.options || obj.choices || obj.questions || [];
@@ -3577,9 +3895,13 @@
     }).join('');
     return `
       <div class="clarify-card">
-        <div class="clarify-head"><span class="clarify-icon">❓</span>等待澄清</div>
+        <div class="clarify-head">
+          <span class="clarify-icon">❓</span>意图澄清
+          <span class="clarify-badge ${replyText ? 'answered' : ''}">${replyText ? '已回复' : '等待用户'}</span>
+        </div>
         ${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}
         ${optHTML}
+        ${renderClarifyReply(replyText)}
       </div>`;
   }
 
@@ -4176,10 +4498,17 @@
     const html = [];
     // 全局产物登记：同一 path 多次出现 → 计版本（v1, v2, v3...）
     const artifactVersions = new Map();
+    const groupClarifies = groups.map(grp => grp.traces.some(t => (t.spans || []).some(sp => {
+      if (sp.span_type === 'tool' && isClarifyTool(sp.span_name || '')) return true;
+      if (sp.span_type !== 'model') return false;
+      const { text, tool_calls } = extractAssistantOutput(sp);
+      return isIntentClarificationText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''));
+    })));
 
-    groups.forEach(grp => {
+    groups.forEach((grp, groupIndex) => {
       // user 气泡（如果该组有 prompt）
-      if (grp.userPrompt) {
+      const attachedToPreviousClarify = groupIndex > 0 && groupClarifies[groupIndex - 1];
+      if (grp.userPrompt && !attachedToPreviousClarify) {
         html.push(`
           <div class="flex justify-end">
             <div class="msg-user max-w-[88%] rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">${escapeHTML(grp.userPrompt)}</div>
@@ -4198,6 +4527,9 @@
       const modelsUsed = new Set();
       let totalLLMms = 0;
       const artifacts = [];
+      const nextUserReply = groupClarifies[groupIndex] && groups[groupIndex + 1]
+        ? String(groups[groupIndex + 1].userPrompt || '').trim()
+        : '';
 
       grp.traces.forEach((t, ti) => {
         const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
@@ -4227,7 +4559,11 @@
             `);
           }
           if (text) {
-            parts.push(`<div class="agent-text whitespace-pre-wrap">${escapeHTML(text)}</div>`);
+            if (isIntentClarificationText(text)) {
+              parts.push(renderIntentClarifyCard(text, nextUserReply));
+            } else {
+              parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(text)}</div>`);
+            }
           }
           // 隐式决策：这一步 LLM 没有输出文本/思考，直接产出 tool_calls。
           // 按定义「1 步 = 一次 LLMCall = 思考→调用工具→观察」，这一步的"思考"虽不可见但确实存在，
@@ -4262,7 +4598,7 @@
             }
             // 澄清卡片：模型向用户发起澄清提问。
             if (cls.kind === 'clarify') {
-              parts.push(renderClarifyCard(tc.args));
+              parts.push(renderClarifyCard(tc.args, nextUserReply));
               return;
             }
             parts.push(`
@@ -4289,7 +4625,7 @@
               if (items && items.length) { parts.push(renderPlanCard(items)); continue; }
             }
             if (cls.kind === 'clarify') {
-              parts.push(renderClarifyCard(exec.input));
+              parts.push(renderClarifyCard(exec.input, nextUserReply));
               continue;
             }
             parts.push(`
