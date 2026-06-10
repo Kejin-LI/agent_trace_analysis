@@ -1000,11 +1000,30 @@ func extractUserPrompt(msgs []chatMessage) string {
 		if m.Role != "user" {
 			continue
 		}
-		if t := contentText(m.Content); t != "" {
+		if t := contentText(m.Content); t != "" && !isSyntheticToolPrompt(t) {
 			return t
 		}
 	}
 	return ""
+}
+
+// isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
+// 执行后框架以 user 角色把结果回填给模型），这类不是真实用户提问，提取轮次 prompt 时排除。
+func isSyntheticToolPrompt(text string) bool {
+	lower := strings.ToLower(text)
+	for _, sig := range []string{
+		"the user requested the following",
+		"i have fetched the raw content",
+		"i was unable to access the url",
+		"<tool_call_result>",
+		"<function_results>",
+		"<system-reminder>",
+	} {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
 }
 
 // contentText 把多种 content 形态压成纯文本预览。
@@ -1200,7 +1219,7 @@ func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
 		if strings.ToLower(msgs[i].Role) != "user" {
 			continue
 		}
-		if t := neekoContentText(msgs[i].Content); t != "" {
+		if t := neekoContentText(msgs[i].Content); t != "" && !isSyntheticToolPrompt(t) {
 			return t, model
 		}
 	}
