@@ -1069,10 +1069,29 @@ func messageContentToText(raw interface{}) string {
 
 func cleanUserPrompt(raw string) string {
 	prompt := normalizePromptText(raw)
-	if prompt == "" || isControlLikePrompt(prompt) {
+	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(raw) {
 		return ""
 	}
 	return prompt
+}
+
+// isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
+// 执行后框架以 user 角色回填的结果），这类不是真实用户提问，提取 prompt 时必须排除。
+func isSyntheticToolPrompt(raw string) bool {
+	lower := strings.ToLower(raw)
+	for _, sig := range []string{
+		"the user requested the following",
+		"i have fetched the raw content",
+		"i was unable to access the url",
+		"<tool_call_result>",
+		"<function_results>",
+		"<system-reminder>",
+	} {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizePromptText(raw string) string {

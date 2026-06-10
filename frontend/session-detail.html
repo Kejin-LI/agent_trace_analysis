@@ -153,12 +153,69 @@
   .tool-line-icon.mcp { color: #FF9F0A; }
   .tool-line-icon.skill { color: #BF5AF2; }
   .tool-line-icon.tool { color: #0071E3; }
+  .tool-line-icon.plan { color: #30B0C7; }
+  .tool-line-icon.clarify { color: #FF9500; }
   .tool-line-label { font-weight: 500; color: var(--text-secondary); }
   .tool-line-name { font-family: 'JetBrains Mono', SF Mono, Menlo, monospace; font-size: 10.5px; font-weight: 500; color: var(--text-primary); }
   .tool-line-dur { color: var(--text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; margin-left: auto; }
   .tool-line-status.fail { color: var(--apple-red); font-weight: 500; }
   .tool-line.fail { color: var(--apple-red); }
   .tool-line.fail .tool-line-icon { color: var(--apple-red); }
+
+  /* 计划卡片（ACP PlanUpdate / <task-progress>）：待办清单 + 进度 */
+  .plan-card {
+    margin: 8px 0 4px;
+    padding: 8px 10px;
+    background: rgba(48,176,199,0.06);
+    border: 1px solid rgba(48,176,199,0.2);
+    border-radius: 10px;
+  }
+  .plan-card-head {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; color: #1A7A8A;
+    margin-bottom: 6px;
+  }
+  .plan-card-icon { font-size: 12px; }
+  .plan-card-progress {
+    margin-left: auto; font-size: 10px; font-weight: 600;
+    color: #30B0C7; font-variant-numeric: tabular-nums;
+    background: rgba(48,176,199,0.12); padding: 1px 7px; border-radius: 8px;
+  }
+  .plan-item {
+    display: flex; align-items: flex-start; gap: 7px;
+    font-size: 11.5px; line-height: 1.5; padding: 2px 0;
+    color: var(--text-secondary);
+  }
+  .plan-item-mark { flex: none; width: 14px; text-align: center; font-weight: 700; }
+  .plan-item.done .plan-item-mark { color: #34C759; }
+  .plan-item.done .plan-item-text { color: var(--text-tertiary); text-decoration: line-through; }
+  .plan-item.doing .plan-item-mark { color: #FF9500; }
+  .plan-item.doing .plan-item-text { color: var(--text-primary); font-weight: 500; }
+  .plan-item.todo .plan-item-mark { color: var(--text-tertiary); }
+  .plan-item.cancel .plan-item-mark { color: var(--apple-red); }
+  .plan-item.cancel .plan-item-text { color: var(--text-tertiary); text-decoration: line-through; }
+
+  /* 澄清卡片：模型流式回复中向用户发起的澄清提问 */
+  .clarify-card {
+    margin: 8px 0 4px;
+    padding: 8px 10px;
+    background: rgba(255,149,0,0.06);
+    border: 1px solid rgba(255,149,0,0.22);
+    border-radius: 10px;
+  }
+  .clarify-head {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; color: #B5650A; margin-bottom: 5px;
+  }
+  .clarify-icon { font-size: 12px; }
+  .clarify-q { font-size: 12px; line-height: 1.5; color: var(--text-primary); margin-bottom: 6px; white-space: pre-wrap; }
+  .clarify-opt {
+    font-size: 11.5px; color: var(--text-secondary);
+    padding: 4px 9px; margin-top: 4px;
+    background: rgba(255,149,0,0.08);
+    border: 1px solid rgba(255,149,0,0.18);
+    border-radius: 8px;
+  }
 
   /* 同 prompt 下多 trace 的轻量分隔（在合并气泡内） */
   .agent-turn-sep {
@@ -989,12 +1046,12 @@
           <!-- 右侧：图例 + 缩放按钮 -->
           <div class="flex items-center gap-3 flex-shrink-0">
             <!-- 窄屏下隐藏图例文本，只保留图标，或者直接允许横向滚动/截断 -->
-            <div class="hidden sm:flex items-center gap-3 text-[10.5px] text-[--text-secondary]">
-              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-agent"></span></span> Agent</span>
-              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg></span> Tool</span>
-              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-purple)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></span> MCP</span>
-              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></span> Skill</span>
-              <span class="flex items-center gap-1 whitespace-nowrap"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-llm"></span></span> LLM</span>
+            <div class="hidden sm:flex items-center gap-3 text-[10.5px] text-[--text-secondary]" id="gantt-legend">
+              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-agent"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-agent"></span></span> Agent</span>
+              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-tool"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg></span> Tool</span>
+              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-mcp"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-purple)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></span> MCP</span>
+              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-skill"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></span> Skill</span>
+              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-llm"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-llm"></span></span> LLM</span>
               <span class="flex items-center gap-1 whitespace-nowrap help"><span class="inline-block w-3 h-2 rounded border-2 border-[--apple-orange]"></span> 关键路径
                 <div class="tip">
                   <div class="tip-title">🛤 关键路径 (Critical Path)</div>
@@ -2989,9 +3046,22 @@
     ].includes(compact);
   }
 
+  // 工具回填的"合成 user 消息"签名：web_fetch / web_search 等工具执行后，
+  // 框架会以 user 角色把结果回填给模型（如 "The user requested the following: ...
+  // I was unable to access the URL... I have fetched the raw content ..."）。
+  // 这类不是真实用户提问，识别 prompt 时必须排除，否则会被误显示成用户输入。
+  function isSyntheticToolPrompt(text) {
+    const t = String(text || '');
+    return /The user requested the following/i.test(t)
+      || /I have fetched the raw content/i.test(t)
+      || /I was unable to access the URL/i.test(t)
+      || /<tool_call_result>|<function_results>|<system-reminder>/i.test(t);
+  }
+
   function cleanUserPrompt(text) {
     const prompt = normalizePromptText(text);
-    return prompt && !isControlLikePrompt(prompt) ? prompt : '';
+    if (!prompt || isControlLikePrompt(prompt) || isSyntheticToolPrompt(prompt)) return '';
+    return prompt;
   }
 
   function contentToText(content) {
@@ -3151,12 +3221,78 @@
     return t;
   }
 
-  // 识别工具类别：mcp / skill / 内置（read/write/edit/grep/glob/run）
+  // 识别工具类别：plan(计划) / clarify(澄清) / mcp / skill / 内置（read/write/edit/grep/glob/run）
   function classifyTool(name) {
     const n = (name || '').toLowerCase();
+    if (isPlanTool(n)) return { kind: 'plan', icon: '📋', label: '计划' };
+    if (isClarifyTool(n)) return { kind: 'clarify', icon: '❓', label: '澄清' };
     if (n.startsWith('mcp')) return { kind: 'mcp', icon: '⚡', label: 'MCP' };
     if (n.includes('skill')) return { kind: 'skill', icon: '✦', label: 'Skill' };
     return { kind: 'tool', icon: '⌘', label: '工具' };
+  }
+
+  // 计划卡片：对应 ACP PlanUpdate —— todowrite/todo_write 等更新待办列表的工具调用。
+  function isPlanTool(n) {
+    return /^(todo[_-]?write|update[_-]?todo|plan[_-]?update|write[_-]?todos?)$/.test(n)
+      || n === 'todowrite' || n === 'plan';
+  }
+
+  // 澄清卡片：模型向用户提问澄清需求（ask_user / clarification 等）。
+  function isClarifyTool(n) {
+    return /clarif/.test(n) || /^ask([_-]?user)?$/.test(n) || /ask_followup|request_clarification/.test(n);
+  }
+
+  // 解析计划卡片数据：从工具 args 里取 todos 数组（含 content/status）。
+  function parsePlanItems(argsStr) {
+    const obj = safeJSON(argsStr);
+    if (!obj) return null;
+    const list = obj.todos || obj.plan || obj.tasks || obj.items;
+    if (!Array.isArray(list) || !list.length) return null;
+    return list.map(it => ({
+      content: String(it.content || it.text || it.title || it.task || ''),
+      status: String(it.status || it.state || 'pending').toLowerCase(),
+    })).filter(it => it.content);
+  }
+
+  // 渲染计划卡片：对应图中 IMessageText(<task-progress>) / PlanUpdate。
+  function renderPlanCard(items) {
+    const statusMeta = {
+      completed: { icon: '✓', cls: 'done', label: '已完成' },
+      done:      { icon: '✓', cls: 'done', label: '已完成' },
+      in_progress:{ icon: '◐', cls: 'doing', label: '进行中' },
+      doing:     { icon: '◐', cls: 'doing', label: '进行中' },
+      pending:   { icon: '○', cls: 'todo', label: '待办' },
+      todo:      { icon: '○', cls: 'todo', label: '待办' },
+      cancelled: { icon: '✕', cls: 'cancel', label: '已取消' },
+    };
+    const done = items.filter(i => i.status === 'completed' || i.status === 'done').length;
+    const rows = items.map(it => {
+      const m = statusMeta[it.status] || statusMeta.pending;
+      return `<div class="plan-item ${m.cls}"><span class="plan-item-mark">${m.icon}</span><span class="plan-item-text">${escapeHTML(it.content)}</span></div>`;
+    }).join('');
+    return `
+      <div class="plan-card">
+        <div class="plan-card-head"><span class="plan-card-icon">📋</span>计划清单 <span class="plan-card-progress">${done}/${items.length}</span></div>
+        ${rows}
+      </div>`;
+  }
+
+  // 渲染澄清卡片：模型在流式回复中向用户发起的澄清提问。
+  function renderClarifyCard(argsStr) {
+    const obj = safeJSON(argsStr) || {};
+    const question = obj.question || obj.prompt || obj.message || obj.text || '';
+    let opts = obj.options || obj.choices || obj.questions || [];
+    if (!Array.isArray(opts)) opts = [];
+    const optHTML = opts.map(o => {
+      const label = typeof o === 'string' ? o : (o.label || o.text || o.option || JSON.stringify(o));
+      return `<div class="clarify-opt">${escapeHTML(String(label))}</div>`;
+    }).join('');
+    return `
+      <div class="clarify-card">
+        <div class="clarify-head"><span class="clarify-icon">❓</span>等待澄清</div>
+        ${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}
+        ${optHTML}
+      </div>`;
   }
 
   // 从工具调用 args 中尝试抽取产物路径/文件（仅写入类工具）
@@ -3428,16 +3564,47 @@
     }
 
     // 1) 收集所有 spans，并附带 trace 边界（用于跨 trace 计时）
+    // 关键：后端把每个 model span 的 parent_id 设为 PromptID，但日志里并没有"轮次"容器 span，
+    // 导致前端找不到父节点、所有大模型 step 都成了一级根节点。这里为每个 trace（=1 个用户轮次）
+    // 合成一个 span_id == trace_id 的「对话轮次」根节点，让 model step 自然挂到它下面，
+    // 形成「一级=每轮 / 二级=大模型 step / 三级=工具」的正确层级。对线上已缓存的旧 bundle 同样生效。
     const allSpans = [];
     real.traces.forEach((t, ti) => {
-      (t.spans || []).forEach(sp => {
+      const childSpans = (t.spans || []).map(sp => ({
+        ...sp,
+        _trace_idx: ti,
+        _trace_id: t.trace_id,
+        started_at_ms: Number(sp.started_at_ms) || 0,
+        duration_ms: Number(sp.duration_ms) || 0,
+      }));
+      // 合成轮次根节点：span_id 取 trace_id（与 model span 的 parent_id 对齐）。
+      const roundId = t.trace_id || t.span_id || `round-${ti}`;
+      const alreadyHasRoot = childSpans.some(sp => sp.span_id === roundId);
+      if (!alreadyHasRoot && childSpans.length) {
+        const startMs = Number(t.started_at_ms) || childSpans.reduce((m, sp) => Math.min(m, sp.started_at_ms || Infinity), Infinity);
+        const endMs = childSpans.reduce((m, sp) => Math.max(m, (sp.started_at_ms || 0) + (sp.duration_ms || 0)), 0);
+        const roundDur = Number(t.duration_ms) || Math.max(0, endMs - (isFinite(startMs) ? startMs : 0));
         allSpans.push({
-          ...sp,
+          span_id: roundId,
+          parent_id: '0',
+          span_name: `对话轮次 ${ti + 1}`,
+          span_type: 'round',
+          started_at_ms: isFinite(startMs) ? startMs : 0,
+          duration_ms: roundDur,
+          status_code: 0,
+          custom_tags: {},
           _trace_idx: ti,
           _trace_id: t.trace_id,
-          started_at_ms: Number(sp.started_at_ms) || 0,
-          duration_ms: Number(sp.duration_ms) || 0,
+          _is_round: true,
         });
+      }
+      childSpans.forEach(sp => {
+        // 需求：工具/Skill/MCP 节点若没有耗时数据（OTel 未采集到 duration），
+        // 在甘特图里不渲染——避免出现一排 0s 的占位节点。模型/轮次容器节点不受影响。
+        const tags = sp.custom_tags || {};
+        const isToolLike = sp.span_type === 'tool' || tags.skill_name || tags.mcp_server_name;
+        if (isToolLike && !(Number(sp.duration_ms) > 0)) return;
+        allSpans.push(sp);
       });
     });
     if (!allSpans.length) {
@@ -3557,11 +3724,12 @@
       if (tags.skill_name)      return { kind: 'skill', shape: 'shape-skill', bar: 'bar-skill', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>' };
       if (t === 'model')        return { kind: 'llm', shape: 'shape-llm', bar: 'bar-llm', icon: '<span class="shape-llm"></span>' };
       if (t === 'tool')         return { kind: 'tool', shape: 'shape-tool', bar: 'bar-tool', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>' };
-      // 其余视为 agent / 调度容器
+      // 其余视为 agent / 调度容器（含合成的轮次根节点）
       return { kind: 'agent', shape: 'shape-agent', bar: 'bar-agent', icon: '<span class="shape-agent"></span>' };
     };
     const labelOf = (sp, rootIdx) => {
       const t = sp.span_type;
+      if (sp._is_round || t === 'round') return sp.span_name || `对话轮次 ${rootIdx || ''}`.trim();
       if (t === 'model') return '大模型';
       if (t === 'tool')  return `工具: ${sp.span_name || ''}`;
       if (sp.span_name === 'NeekoTurn') return `对话轮次 ${rootIdx || ''}`.trim();
@@ -3634,6 +3802,15 @@
     }).join('');
 
     body.innerHTML = html;
+
+    // 顶部图例：只显示甘特图里实际出现的节点类型，不涉及的隐藏（如本次无工具/Skill/MCP）。
+    const presentKinds = new Set(flat.map(({ span }) => typeMap(span).kind));
+    [['legend-agent', ['agent']], ['legend-tool', ['tool']], ['legend-mcp', ['mcp']],
+     ['legend-skill', ['skill']], ['legend-llm', ['llm']]].forEach(([id, kinds]) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = kinds.some(k => presentKinds.has(k)) ? '' : 'none';
+    });
+
     const metaStr = `总计 ${flat.length} 个步骤 · 关键路径 ${critical.size} 步 · 最大嵌套深度 ${maxDepth + 1} 层`;
     if (metaEl) metaEl.textContent = metaStr;
     const tooltipEl = document.getElementById('gantt-meta-tooltip');
@@ -3686,34 +3863,19 @@
       return; 
     }
 
-    // ===== 第 1 步：按 user prompt 分组（同一 prompt 下连续 trace 合并为一个 agent 气泡）=====
-    const groups = []; // [{ userPrompt, traces:[trace,...] }]
-    let curPrompt = null;
-    let lastTraceTime = 0;
-    
-    traces.forEach(t => {
+    // ===== 第 1 步：按轮次分组（每个 trace = 后端按 promptId 切好的 1 个真实用户轮次）=====
+    // 重要：不要再用 "prompt 文本是否相同" 去合并多个 trace。线上多轮里某些轮的 prompt
+    // 常被 cleanUserPrompt 过滤成空（如"继续/继续执行/continue"），一旦按 prompt 合并，
+    // 这些轮的 up 全为空就会被折叠进同一组，导致整个 session 误显示成"只有一轮"。
+    // 后端 buildBundleFromTOS 已保证 1 round = 1 trace，这里直接逐 trace 成轮即可。
+    const groups = traces.map(t => { // [{ userPrompt, traces:[trace] }]
       const spans = (t.spans || []);
       const firstLLM = spans.find(s => s.span_type === 'model');
-      const up = firstLLM ? pickPromptForSpan(firstLLM, t) : (cleanUserPrompt(t.user_prompt) || cleanUserPrompt(t.title));
-      const startTime = Number(t.started_at_ms) || 0;
-      const idleGapMs = startTime - lastTraceTime;
-      const promptChanged = !!(up && up !== curPrompt);
-      
-      // 判断是否开启新的一轮气泡：
-      // 1. 如果没有当前气泡 -> 开启新组
-      // 2. 如果用户 prompt 已经变化 -> 开启新组
-      // 3. 如果距离上一次 trace 超过了 10 秒空闲 -> 也视为进入新一轮
-      const isNewTurn = groups.length === 0 || promptChanged || idleGapMs > 10000;
-      
-      if (isNewTurn) {
-        const displayPrompt = up || cleanUserPrompt(t.title) || (idleGapMs > 10000 ? '（新一轮对话）' : (curPrompt || '（未识别到用户提问）'));
-        groups.push({ userPrompt: displayPrompt, traces: [t] });
-        if (up) curPrompt = up;
-      } else {
-        groups[groups.length - 1].traces.push(t);
-      }
-      
-      lastTraceTime = (Number(t.started_at_ms) || 0) + (Number(t.duration_ms) || 0);
+      const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
+      // up 为空时回退到原始 prompt 文本（不过滤控制词），尽量展示真实提问而非占位。
+      const rawPrompt = normalizePromptText(t.user_prompt) || normalizePromptText(t.title);
+      const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
+      return { userPrompt: displayPrompt, traces: [t] };
     });
 
     if (cnt) cnt.textContent = `· ${groups.length} 轮`;
@@ -3783,7 +3945,7 @@
           // 用一行极简 meta 让用户感知到"是大模型在驱动这次工具调用"，而不是工具凭空出现。
           if (!text && !reasoning && tool_calls.length) {
             const llmDur = fmtSec(sp.duration_ms || 0);
-            parts.push(`<div class="step-implicit" title="模型在 ${llmDur} 内未输出可见文本，直接决策调用 ${tool_calls.length} 个工具">⚡ 直接调用工具 · ${llmDur}</div>`);
+            parts.push(`<div class="step-implicit" title="模型在 ${llmDur} 内未输出可见文本，直接决策调用 ${tool_calls.length} 个工具，该耗时为模型思考决策时间">⚡ 思考决策耗时 · ${llmDur}</div>`);
           }
           
           // 如果没有任何输出，补一个状态提示，避免完全留空
@@ -3800,9 +3962,20 @@
             const cls = classifyTool(tc.name);
             const exec = toolSpans[toolCursor++];
             const ok = exec ? exec.status_code === 0 : true;
-            const execDur = exec ? fmtSec(exec.duration_ms) : '';
+            // 工具执行耗时：OTel trace 未采集单工具执行时间（tool span 恒为 0），此时不显示误导性的"0s"。
+            const execDur = (exec && exec.duration_ms > 0) ? fmtSec(exec.duration_ms) : '';
             const art = extractArtifact(tc.name, tc.args);
             if (art) artifacts.push({ ...art, tool: tc.name });
+            // 计划卡片：todowrite 等 → 渲染成待办清单卡片（含进度），而非普通工具行。
+            if (cls.kind === 'plan') {
+              const items = parsePlanItems(tc.args);
+              if (items && items.length) { parts.push(renderPlanCard(items)); return; }
+            }
+            // 澄清卡片：模型向用户发起澄清提问。
+            if (cls.kind === 'clarify') {
+              parts.push(renderClarifyCard(tc.args));
+              return;
+            }
             parts.push(`
               <div class="tool-line ${ok ? '' : 'fail'}">
                 <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
@@ -3822,11 +3995,19 @@
             const execInp = safeJSON(exec.input);
             const execArt = execInp ? extractArtifact(exec.span_name, JSON.stringify(execInp)) : null;
             if (execArt) artifacts.push({ ...execArt, tool: exec.span_name });
+            if (cls.kind === 'plan') {
+              const items = parsePlanItems(exec.input);
+              if (items && items.length) { parts.push(renderPlanCard(items)); continue; }
+            }
+            if (cls.kind === 'clarify') {
+              parts.push(renderClarifyCard(exec.input));
+              continue;
+            }
             parts.push(`
               <div class="tool-line ${ok ? '' : 'fail'}">
                 <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
                 <span class="tool-line-label">${cls.label}: <span class="tool-line-name">${escapeHTML(exec.span_name)}</span></span>
-                <span class="tool-line-dur">${fmtSec(exec.duration_ms)}</span>
+                ${exec.duration_ms > 0 ? `<span class="tool-line-dur">${fmtSec(exec.duration_ms)}</span>` : ''}
                 ${ok ? '' : '<span class="tool-line-status fail">失败</span>'}
               </div>
             `);
