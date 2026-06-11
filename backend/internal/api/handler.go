@@ -157,6 +157,14 @@ func dataSourceMode() string {
 func (h *Handler) Register(r *gin.Engine) {
 	for _, prefix := range []string{"/api", "/trace_sever/api"} {
 		g := r.Group(prefix)
+		// 任意 API 请求只要带 Cookie 就刷新缓存，使凌晨 cron 不再依赖
+		// 用户恰好访问过某个特定接口（仅内存，绝不落盘）。
+		if h.aggregator != nil {
+			g.Use(func(c *gin.Context) {
+				h.aggregator.RememberCookie(c.GetHeader("Cookie"))
+				c.Next()
+			})
+		}
 		g.GET("/session-bundles", h.listSessionBundles)
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
 		g.GET("/aggregate-status", h.listAggregateStatus)

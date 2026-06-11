@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,6 +38,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 
 	tr := timeRangeFromQuery(c)
 	cookie := c.GetHeader("Cookie")
+	if trimmed := strings.TrimSpace(cookie); trimmed == "" {
+		log.Printf("bundle list: missing cookie path=%s range=%s~%s", c.Request.URL.Path, tr.StartTime, tr.EndTime)
+	} else {
+		log.Printf("bundle list: cookie received len=%d path=%s range=%s~%s", len(trimmed), c.Request.URL.Path, tr.StartTime, tr.EndTime)
+	}
 	uid := c.Query("user_id")
 	uname := c.Query("user_name")
 	sid := c.Query("session_id")
