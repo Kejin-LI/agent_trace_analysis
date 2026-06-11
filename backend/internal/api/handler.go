@@ -41,8 +41,10 @@ type Handler struct {
 func New(db *gorm.DB) *Handler {
 	h := &Handler{db: db, fetcher: tracelog.NewFetcher(), ark: ark.NewClient()}
 	// TOS 模式下后台批量预热：保证列表页首次加载就有 chip / rules / 雷达数据。
+	// 启动跑一次，之后周期性重跑，覆盖启动后新导入但尚未聚合指标的 session，
+	// 避免大盘长期出现「指标待分析」的空骨架（异常数被低估）。
 	if dataSourceMode() == "tos" {
-		go h.backfillAllMetrics()
+		go h.backfillMetricsLoop()
 	}
 	return h
 }
@@ -76,7 +78,19 @@ func NewAPI(gdb *gorm.DB, dbOpenErr error) (*Handler, error) {
 	return h, nil
 }
 
-// backfillAllMetrics 启动时一次性扫描所有 jsonl session，缺 cached_metrics 的拉取并回写。
+// backfillMetricsLoop 启动后立即跑一次全量补齐，之后每 30 分钟重跑一次，
+// 覆盖运行期间新导入、尚未聚合 cached_metrics 的 session。
+// backfillAllMetrics 内部已对「已有 chip 的」跳过，因此重跑只处理增量，开销可控。
+func (h *Handler) backfillMetricsLoop() {
+	h.backfillAllMetrics()
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.backfillAllMetrics()
+	}
+}
+
+// backfillAllMetrics 扫描所有 jsonl session，缺 cached_metrics 的拉取并回写。
 // 限流：同时最多 4 个并发拉 TOS，避免打爆带宽。
 func (h *Handler) backfillAllMetrics() {
 	defer func() {
@@ -755,6 +769,45 @@ func buildTraceSpans(rows []model.StgArtifactSpan) []apiSpan {
 	return out
 }
 
+// extractRawLastUserContent 取 model span input.messages 中最后一条 user 消息的原文（未剥注入块）。
+// 用于「合成 prompt 识别」：指标计算时若该 prompt 是框架内部消息（工具回填 / 转义自检 / 续接 / 重试），
+// 应当从轮次/空转/耗时分母中剔除，避免污染效率指标。
+func extractRawLastUserContent(input string) string {
+	inp := safeJSONMap(input)
+	rawMsgs, ok := inp["messages"].([]interface{})
+	if !ok || len(rawMsgs) == 0 {
+		return ""
+	}
+	for i := len(rawMsgs) - 1; i >= 0; i-- {
+		msg, ok := rawMsgs[i].(map[string]interface{})
+		if !ok || !strings.EqualFold(fmt.Sprint(msg["role"]), "user") {
+			continue
+		}
+		if c := messageContentToText(msg["content"]); c != "" {
+			return c
+		}
+	}
+	return ""
+}
+
+// isSyntheticModelSpan 判断该 model span 的最近一条 user 消息是否为框架内部合成 prompt。
+// 命中后该 span 不应计入轮次/空转等效率指标分母。
+func isSyntheticModelSpan(sp apiSpan) bool {
+	// 优先看已抽取出的 prompt 摘要（importer 阶段写入的 model_input_summary）。
+	// summary.UserPrompt 经 cleanUserPrompt 清洗，若为空通常意味着该消息是控制词或合成 prompt；
+	// 这种情况下需要回到原始 input 复核 synthetic 签名以避免误判。
+	if summary, ok := parseModelInputSummary(sp.Input); ok {
+		if summary.UserPrompt != "" {
+			return false
+		}
+	}
+	raw := extractRawLastUserContent(sp.Input)
+	if raw == "" {
+		return false
+	}
+	return isSyntheticToolPrompt(stripInjectedContext(raw))
+}
+
 func deriveSessionSignals(traces []apiTrace, totalDuration, totalIn, totalOut int64) (apiFeatures, []apiRule) {
 	allSpans := make([]apiSpan, 0)
 	modelSpans := make([]apiSpan, 0)
@@ -814,7 +867,17 @@ func deriveSessionSignals(traces []apiTrace, totalDuration, totalIn, totalOut in
 	hasFinalAnswer := false
 	noOpStreak := 0
 	curNoOp := 0
+	// 过滤掉「框架内部 prompt」对应的 model spans：这些 span 不是真实用户轮次的产物，
+	// 不应计入轮次、空转、单轮 Token 等效率指标分母，否则会出现「连续 N 步空转 / 严重偏慢」
+	// 之类的指标污染（实际上用户只发了 1 条真消息）。
+	realModelSpans := make([]apiSpan, 0, len(modelSpans))
 	for _, sp := range modelSpans {
+		if isSyntheticModelSpan(sp) {
+			continue
+		}
+		realModelSpans = append(realModelSpans, sp)
+	}
+	for _, sp := range realModelSpans {
 		out := safeJSONMap(sp.Output)
 		choices, _ := out["choices"].([]interface{})
 		for _, rawChoice := range choices {
@@ -839,7 +902,7 @@ func deriveSessionSignals(traces []apiTrace, totalDuration, totalIn, totalOut in
 		}
 	}
 
-	turns := len(modelSpans)
+	turns := len(realModelSpans)
 	if turns == 0 {
 		turns = max(1, len(traces))
 	}
@@ -1119,6 +1182,13 @@ func stripInjectedContext(raw string) string {
 
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
 // 执行后框架以 user 角色回填的结果），这类不是真实用户提问，提取 prompt 时必须排除。
+//
+// 同时识别三类「框架内部 prompt」（同样以 role:user 通道发送）：
+//  1. Edit 转义自检（Context: A text replacement operation is planned ... new_string ...）
+//  2. 长上下文压缩 / 跨 Agent 续接（Provide a detailed prompt for continuing ...）
+//  3. Edit 工具失败后的自我修复（# Goal of the Original Edit / # Failed Attempt Details ...）
+//
+// 这些消息会污染轮次/空转/耗时等指标，必须在指标计算时识别并剔除。
 func isSyntheticToolPrompt(raw string) bool {
 	lower := strings.ToLower(raw)
 	for _, sig := range []string{
@@ -1128,10 +1198,24 @@ func isSyntheticToolPrompt(raw string) bool {
 		"<tool_call_result>",
 		"<function_results>",
 		"<system-reminder>",
+		// 编辑转义自检
+		"context: a text replacement operation is planned",
+		"potentially_problematic_new_string",
+		// 长上下文续接 / 压缩
+		"provide a detailed prompt for continuing our conversation above",
+		// 编辑失败重试自修复
+		"# goal of the original edit",
+		"# failed attempt details",
 	} {
 		if strings.Contains(lower, sig) {
 			return true
 		}
+	}
+	// 重试 prompt 的强组合特征：search/replace 双标签 + 完整文件内容
+	if strings.Contains(lower, "<search>") && strings.Contains(lower, "</search>") &&
+		strings.Contains(lower, "<replace>") && strings.Contains(lower, "</replace>") &&
+		strings.Contains(lower, "# full file content") {
+		return true
 	}
 	return false
 }
