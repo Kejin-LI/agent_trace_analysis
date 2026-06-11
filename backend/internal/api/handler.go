@@ -1102,10 +1102,18 @@ func cleanUserPrompt(raw string) string {
 // injectedContextRe 匹配框架注入的上下文包裹块（含跨行内容）。
 var injectedContextRe = regexp.MustCompile(`(?is)<(system-reminder|project-memory|related-conversations)>.*?</(system-reminder|project-memory|related-conversations)>`)
 
+// injectedCloseTagRe 匹配注入块的闭合标签（兼容单复数），用作切分锚点。
+var injectedCloseTagRe = regexp.MustCompile(`(?i)</(system-reminders?|project-memory|related-conversations?)>`)
+
 // stripInjectedContext 剥离框架注入的上下文包裹块，保留其后真实用户输入。
 // 新版 Agent 框架会把 <system-reminder> 等注入块拼在真实提问之前塞进同一条 user 消息，
 // 不剥离会导致 prompt 显示成系统注入、多轮塌缩。
+// 优先按"最后一个闭合标签"锚点切分：闭合标签（含）之前整体视为注入上下文，之后才是真实用户输入。
+// 这样即使上游只截到残缺标签（如缺开标签、只剩 </system-reminder>）也能正确分离。
 func stripInjectedContext(raw string) string {
+	if locs := injectedCloseTagRe.FindAllStringIndex(raw, -1); len(locs) > 0 {
+		return strings.TrimSpace(raw[locs[len(locs)-1][1]:])
+	}
 	return strings.TrimSpace(injectedContextRe.ReplaceAllString(raw, ""))
 }
 

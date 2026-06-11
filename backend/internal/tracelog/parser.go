@@ -1383,13 +1383,21 @@ func extractUserPrompt(msgs []chatMessage) string {
 // injectedContextRe 匹配框架注入的上下文包裹块（含跨行内容）。
 var injectedContextRe = regexp.MustCompile(`(?is)<(system-reminder|project-memory|related-conversations)>.*?</(system-reminder|project-memory|related-conversations)>`)
 
+// injectedCloseTagRe 匹配注入块的闭合标签（兼容单复数），用作切分锚点。
+var injectedCloseTagRe = regexp.MustCompile(`(?i)</(system-reminders?|project-memory|related-conversations?)>`)
+
 // stripInjectedContext 剥离框架注入的上下文包裹块，保留其后真实的用户输入。
 //
 // 新版 Agent 框架会把 <system-reminder>...</system-reminder>（内含 project-memory /
 // related-conversations 等）拼在真实用户输入之前，塞进同一条 role==user 消息里。
 // 若直接把整条判为合成丢弃，会导致：① UI 气泡显示成一大坨系统注入；② 多轮因
-// prompt 被判空而塌缩成一轮。这里把成对的注入标签块整段移除，仅留下真实提问。
+// prompt 被判空而塌缩成一轮。
+// 优先按"最后一个闭合标签"锚点切分：闭合标签（含）之前整体视为注入上下文，之后才是真实输入。
+// 这样即使上游只截到残缺标签（如缺开标签、只剩 </system-reminder>）也能正确分离。
 func stripInjectedContext(text string) string {
+	if locs := injectedCloseTagRe.FindAllStringIndex(text, -1); len(locs) > 0 {
+		return strings.TrimSpace(text[locs[len(locs)-1][1]:])
+	}
 	return strings.TrimSpace(injectedContextRe.ReplaceAllString(text, ""))
 }
 
