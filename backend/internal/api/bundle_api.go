@@ -256,8 +256,12 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 	startDate := startOfLocalDay(startAt)
 	endDate := startOfLocalDay(endAt)
 	q := h.db.Model(&model.APISessionAggregate{}).
-		Where("(started_at_ms BETWEEN ? AND ?) OR (started_at_ms = 0 AND aggregate_date BETWEEN ? AND ?)",
-			startAt.UnixMilli(), endAt.UnixMilli(), startDate, endDate)
+		Where(
+			"(started_at_ms BETWEEN ? AND ?) OR "+
+				"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
+				"(started_at_ms = 0 AND started_at IS NULL AND aggregate_date BETWEEN ? AND ?)",
+			startAt.UnixMilli(), endAt.UnixMilli(), startAt, endAt, startDate, endDate,
+		)
 	if uid != "" {
 		q = q.Where("user_id = ?", uid)
 	}

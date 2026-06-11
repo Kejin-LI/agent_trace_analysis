@@ -599,7 +599,6 @@
 
     // 时间范围对应的毫秒数：与后端请求保持一致，均以当前系统时间为基准。
     const RANGE_MS = { '24h': 24*3600e3, '7d': 7*86400e3, '30d': 30*86400e3 };
-    let baseTimeMs = Date.now();
     let tooltipReady = false;
     let loadSeq = 0;
 
@@ -625,7 +624,6 @@
       const d = await window.AgentTraceDB.loadSessions(currentRangeQuery());
       if (seq !== loadSeq) return;
       state.all = d.sessions || [];
-      baseTimeMs = Date.now();
       buildDynamicDropdowns();
       if (!tooltipReady) {
         setupCellTooltip();
@@ -708,18 +706,8 @@
     function applyFilter() {
       const f = state.filter;
       const kw = f.keyword.trim().toLowerCase();
-      const winMs = RANGE_MS[f.range];
-      const minTime = winMs ? (baseTimeMs - winMs) : 0;
 
       let arr = state.all.filter(s => {
-        // 时间窗口：严格以当前系统时间为锚点
-        const ts = s.started_at_ms ?? 0;
-        if (f.range === 'custom') {
-          if (f.customFrom && ts < f.customFrom) return false;
-          if (f.customTo && ts > f.customTo) return false;
-        } else if (winMs && ts < minTime) {
-          return false;
-        }
         const ano = buildAnomalies(s);
         // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
         // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
@@ -870,22 +858,9 @@
 
     // ----- 状态分段 count -----
     function refreshStatusCount() {
-      const f = state.filter;
-      const winMs = RANGE_MS[f.range];
-      const minTime = winMs ? (baseTimeMs - winMs) : 0;
-
       let anomaly = 0, healthy = 0, total = 0;
-      // 与 applyFilter 中保持同一口径：健康 = score ≥ 85（绿色档）
+      // 时间窗口已由后端查询统一过滤；这里只做健康/异常分段统计，避免前端二次误筛 started_at_ms=0 的数据。
       state.all.forEach(s => {
-        // 时间窗口过滤
-        const ts = s.started_at_ms ?? 0;
-        if (f.range === 'custom') {
-          if (f.customFrom && ts < f.customFrom) return;
-          if (f.customTo && ts > f.customTo) return;
-        } else if (winMs && ts < minTime) {
-          return;
-        }
-
         total++;
         if (window.AgentTraceEfficiency.adjustedScore(s) >= 85) healthy++; else anomaly++;
       });

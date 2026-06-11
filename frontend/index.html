@@ -666,49 +666,67 @@
       '7d':  '最近 7 天',
       '30d': '最近 30 天'
     };
+    const RANGE_MS = { '24h': 24 * 3600 * 1000, '7d': 7 * 24 * 3600 * 1000, '30d': 30 * 24 * 3600 * 1000 };
     const fmtCustom = (fromMs, toMs) => {
       const pad = n => String(n).padStart(2,'0');
       const f = (d) => `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       return `${f(new Date(fromMs))} – ${f(new Date(toMs))}`;
     };
+    const fmtQueryTime = (ms) => {
+      const d = new Date(ms);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+    let applySeq = 0;
+    let appliedRangeKey = '';
 
-    // apply：根据 range（24h/7d/30d/custom）筛选并重渲大盘
-    const apply = (range) => {
-      // custom 区间从 localStorage 读取
+    function currentRangeQuery(range) {
       const customFrom = parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null;
       const customTo = parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null;
+      if (range === 'custom') {
+        if (!customFrom || !customTo) return { query: {}, customFrom, customTo, key: 'custom:empty' };
+        return {
+          query: { startTime: fmtQueryTime(customFrom), endTime: fmtQueryTime(customTo) },
+          customFrom,
+          customTo,
+          key: `custom:${customFrom}:${customTo}`,
+        };
+      }
+      const winMs = RANGE_MS[range] || RANGE_MS['7d'];
+      const end = Date.now();
+      return {
+        query: { startTime: fmtQueryTime(end - winMs), endTime: fmtQueryTime(end) },
+        customFrom,
+        customTo,
+        key: `${range}:${Math.floor(end / 1000)}`,
+      };
+    }
+
+    async function apply(range) {
+      const { query, customFrom, customTo, key } = currentRangeQuery(range);
       const label = (range === 'custom' && customFrom && customTo)
         ? fmtCustom(customFrom, customTo)
         : RANGE_LABEL[range];
 
-      // H1 标题
       document.querySelectorAll('#hdr-rangelabel').forEach(n => n.textContent = label);
-      // 标题超长 → tooltip 显示全文
       const h1 = document.getElementById('hdr-title');
       if (h1) h1.title = h1.innerText;
-      // KPI 标题
       document.querySelectorAll('.kpi-rangelabel, .cluster-rangelabel').forEach(n => n.textContent = label);
 
-      // 动态筛选数据
-      if (window.renderDashboard && window.dashboardData) {
-        const data = window.dashboardData;
-        let filtered = data;
-        const now = Date.now(); // 真实当前时间
-
-        let ms = 0;
-        if (range === '24h') ms = 24 * 3600 * 1000;
-        else if (range === '7d') ms = 7 * 24 * 3600 * 1000;
-        else if (range === '30d') ms = 30 * 24 * 3600 * 1000;
-
-        if (ms > 0) {
-          filtered = data.filter(s => s.started_at_ms > now - ms);
-        } else if (range === 'custom' && customFrom && customTo) {
-          filtered = data.filter(s => s.started_at_ms >= customFrom && s.started_at_ms <= customTo);
-        }
-
-        window.renderDashboard(filtered);
+      if (!window.renderDashboard) return;
+      if (appliedRangeKey === key && Array.isArray(window.dashboardData)) {
+        window.renderDashboard(window.dashboardData);
+        return;
       }
-    };
+
+      const seq = ++applySeq;
+      const payload = await window.AgentTraceDB.loadSessions(query);
+      if (seq !== applySeq) return;
+      window.dashboardData = (payload.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
+      appliedRangeKey = key;
+      window.renderDashboard(window.dashboardData);
+    }
+
     window.applyRange = apply;
   })();
 
@@ -1096,12 +1114,8 @@
     };
 
     try {
-      const d = await window.AgentTraceDB.loadSessions();
-      window.dashboardData = (d.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0)); // 健康度倒序：低分优先
-
-      // 数据就绪后再触发一次 applyRange，让筛选器与数据联动
       const savedRange = localStorage.getItem('agenttrace.range') || '7d';
-      window.applyRange(savedRange);
+      await window.applyRange(savedRange);
       hideGlobalLoader();
     } catch (e) {
       renderEmpty('加载失败：' + (e.message || String(e)));
@@ -1116,9 +1130,9 @@
   // 挂载顶栏全局日期筛选器
   window.mountRangePicker({
     container: document.getElementById('global-range'),
-    onChange: (range) => {
+    onChange: async (range) => {
       // 共享组件已写入 localStorage，apply 会自行读取 customFrom/customTo
-      if (window.applyRange) window.applyRange(range);
+      if (window.applyRange) await window.applyRange(range);
     }
   });
 </script>
