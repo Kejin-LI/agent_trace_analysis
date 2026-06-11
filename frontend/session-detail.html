@@ -3798,6 +3798,24 @@
       </div>`;
   }
 
+  function renderTraceTruncationBanner(truncation) {
+    if (!truncation || !truncation.truncated) return '';
+    const desc = truncation.message || '该会话轨迹较大，为保障服务稳定性，当前仅展示部分内容。';
+    const meta = [];
+    if (truncation.limit_bytes) meta.push(`保护上限 ${humanSize(truncation.limit_bytes)}`);
+    if (truncation.memory_pct) meta.push(`触发时内存 ${Number(truncation.memory_pct).toFixed(1)}%`);
+    return `
+      <div class="rounded-[10px] border border-[rgba(255,159,10,0.42)] bg-[rgba(255,159,10,0.10)] px-3.5 py-3 text-[12px] leading-relaxed text-[--text-primary] shadow-[0_6px_18px_rgba(255,159,10,0.08)]">
+        <div class="flex items-center gap-2 text-[12px] font-semibold text-[#b45309]">
+          <span>🧩</span>
+          <span>该会话已触发轨迹保护</span>
+        </div>
+        <div class="mt-1 text-[11.5px] text-[--text-secondary]">${escapeHTML(desc)}</div>
+        ${meta.length ? `<div class="mt-2 text-[10.5px] text-[#b45309]">${escapeHTML(meta.join(' · '))}</div>` : ''}
+      </div>
+    `;
+  }
+
   function computeSegmentDurationMs(spans) {
     if (!spans || !spans.length) return 0;
     let minStart = Infinity;
@@ -4865,6 +4883,8 @@
     let globalStepIdx = 0;
 
     const html = [];
+    const truncationBanner = renderTraceTruncationBanner(real.truncation);
+    if (truncationBanner) html.push(truncationBanner);
     // 全局产物登记：同一 path 多次出现 → 计版本（v1, v2, v3...）
     const artifactVersions = new Map();
     const groupClarifies = groups.map(grp => grp.traces.some(t => (t.spans || []).some(sp => {

@@ -74,3 +74,28 @@ func TestParseStreamSupportsJSONArrayCompatibility(t *testing.T) {
 		t.Fatalf("rounds = %d, want %d", len(got.Rounds), len(want.Rounds))
 	}
 }
+
+func TestParseStreamTruncatesOversizedSessionByHardLimit(t *testing.T) {
+	t.Setenv("TRACELOG_SESSION_MAX_BYTES", "2048")
+	t.Setenv("TRACELOG_SESSION_PRESSURE_BYTES", "1024")
+	t.Setenv("AGG_MEM_SOFT_PCT", "100")
+
+	raw := classicJSONLSample() + `{"type":"RESPONSE_BODY_FINAL","timestamp":"2026-06-04T03:13:03.000Z","sessionID":"s1","promptId":"p2","logId":"l2","data":{"final":{"text":"` + strings.Repeat("超大输出", 600) + `"}}}` + "\n"
+
+	got, _, err := ParseStream(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("ParseStream error: %v", err)
+	}
+	if got.Truncation == nil || !got.Truncation.Truncated {
+		t.Fatalf("expected truncation metadata")
+	}
+	if got.Truncation.Reason != "session_size_limit" {
+		t.Fatalf("reason = %q, want session_size_limit", got.Truncation.Reason)
+	}
+	if got.Truncation.LimitBytes != 2048 {
+		t.Fatalf("limit = %d, want 2048", got.Truncation.LimitBytes)
+	}
+	if len(got.Rounds) == 0 {
+		t.Fatalf("expected partial rounds after truncation")
+	}
+}
