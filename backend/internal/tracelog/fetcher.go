@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -252,6 +253,17 @@ func (f *Fetcher) downloadAndParse(url string) (*ParseResult, int, error) {
 	res, size, err := ParseStream(reader)
 	if err != nil {
 		return nil, size, fmt.Errorf("parse stream %s after %d bytes: %w", url, size, err)
+	}
+	if res != nil && res.Truncation != nil && res.Truncation.Truncated {
+		log.Printf(
+			"tracelog: session truncated session=%s reason=%s limit_bytes=%d retained_bytes=%d memory_pct=%.1f url=%s",
+			res.SessionID,
+			res.Truncation.Reason,
+			res.Truncation.LimitBytes,
+			res.Truncation.RetainedBytes,
+			res.Truncation.MemoryPct,
+			url,
+		)
 	}
 	return res, size, nil
 }

@@ -119,7 +119,7 @@ func readCachedMetrics(extra string) (cachedMetrics, bool) {
 //   - 1 个 promptId（Round）= 1 个 apiTrace
 //   - Round 内每次 LLM 调用（callRec）= 1 个 model span + N 个 tool span
 //
-// 详情数据完整无截断（直接来自 RESPONSE_BODY_FINAL.text/reasoning/tools）。
+// 默认尽量保留完整详情；仅在单 session 异常大或内存逼近软阈值时触发轻量截断保护。
 func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) apiSessionBundle {
 	traces := make([]apiTrace, 0, len(pr.Rounds))
 	var (
@@ -194,6 +194,18 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 	features, rules := deriveSessionSignals(traces, totalDuration, totalIn, totalOut)
 	features.ToolCalls = toolCalls
 
+	var truncation *apiTruncationNotice
+	if pr != nil && pr.Truncation != nil && pr.Truncation.Truncated {
+		truncation = &apiTruncationNotice{
+			Truncated:     true,
+			Reason:        pr.Truncation.Reason,
+			LimitBytes:    pr.Truncation.LimitBytes,
+			RetainedBytes: pr.Truncation.RetainedBytes,
+			MemoryPct:     pr.Truncation.MemoryPct,
+			Message:       pr.Truncation.Message,
+		}
+	}
+
 	return apiSessionBundle{
 		ID:           pickFirstNonEmpty(src.SessionID, src.ArtifactID),
 		SessionID:    src.SessionID,
@@ -216,6 +228,7 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 		Features:     features,
 		Radar:        apiRadar{},
 		Rules:        rules,
+		Truncation:   truncation,
 		Traces:       traces,
 	}
 }

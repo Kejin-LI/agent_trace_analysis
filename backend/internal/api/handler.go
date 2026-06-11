@@ -246,28 +246,38 @@ type apiTrace struct {
 }
 
 type apiSessionBundle struct {
-	ID           string      `json:"id"`
-	SessionID    string      `json:"session_id"`
-	ArtifactID   string      `json:"artifact_id"`
-	User         string      `json:"user"`
-	UserID       string      `json:"user_id"`
-	Title        string      `json:"title"`
-	Trace        string      `json:"trace"`
-	StartedAtMs  int64       `json:"started_at_ms"`
-	StartedAt    string      `json:"started_at,omitempty"`
-	DurationMs   int64       `json:"duration_ms"`
-	InputTokens  int64       `json:"input_tokens"`
-	OutputTokens int64       `json:"output_tokens"`
-	ToolCalls    int         `json:"tool_calls"`
-	Turns        int         `json:"turns"`
-	TraceCount   int         `json:"trace_count"`
-	Score        int         `json:"score"`
-	Color        string      `json:"color"`
-	Chip         string      `json:"chip"`
-	Features     apiFeatures `json:"features"`
-	Radar        apiRadar    `json:"radar"`
-	Rules        []apiRule   `json:"rules"`
-	Traces       []apiTrace  `json:"traces"`
+	ID           string               `json:"id"`
+	SessionID    string               `json:"session_id"`
+	ArtifactID   string               `json:"artifact_id"`
+	User         string               `json:"user"`
+	UserID       string               `json:"user_id"`
+	Title        string               `json:"title"`
+	Trace        string               `json:"trace"`
+	StartedAtMs  int64                `json:"started_at_ms"`
+	StartedAt    string               `json:"started_at,omitempty"`
+	DurationMs   int64                `json:"duration_ms"`
+	InputTokens  int64                `json:"input_tokens"`
+	OutputTokens int64                `json:"output_tokens"`
+	ToolCalls    int                  `json:"tool_calls"`
+	Turns        int                  `json:"turns"`
+	TraceCount   int                  `json:"trace_count"`
+	Score        int                  `json:"score"`
+	Color        string               `json:"color"`
+	Chip         string               `json:"chip"`
+	Features     apiFeatures          `json:"features"`
+	Radar        apiRadar             `json:"radar"`
+	Rules        []apiRule            `json:"rules"`
+	Truncation   *apiTruncationNotice `json:"truncation,omitempty"`
+	Traces       []apiTrace           `json:"traces"`
+}
+
+type apiTruncationNotice struct {
+	Truncated     bool    `json:"truncated"`
+	Reason        string  `json:"reason,omitempty"`
+	LimitBytes    int64   `json:"limit_bytes,omitempty"`
+	RetainedBytes int64   `json:"retained_bytes,omitempty"`
+	MemoryPct     float64 `json:"memory_pct,omitempty"`
+	Message       string  `json:"message,omitempty"`
 }
 
 func (h *Handler) listSessions(c *gin.Context) {

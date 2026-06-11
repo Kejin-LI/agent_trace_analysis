@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -110,8 +111,9 @@ type toolCall struct {
 
 // ParseResult 是解析后的轻量结构，由调用方组装成 apiSessionBundle。
 type ParseResult struct {
-	SessionID string
-	Rounds    []Round // 按 promptId 分组，按时间排序
+	SessionID  string
+	Rounds     []Round         // 按 promptId 分组，按时间排序
+	Truncation *TruncationInfo `json:"truncation,omitempty"`
 }
 
 // Round 一个用户轮次（promptId）。
@@ -129,6 +131,30 @@ type Round struct {
 // MaxJSONLLineBytes 是单条 JSONL event 的最大大小。
 // 流式解析时文件整体不设总量截断，但必须限制单行，避免某条异常大事件独自撑爆内存。
 const MaxJSONLLineBytes = 2 * 1024 * 1024
+
+const (
+	// DefaultSessionHardLimitBytes 是单个 session 在解析阶段允许保留的绝对上限。
+	// 当前线上 bundle_json 样本最大值 < 64MB，这里给到 128MB 作为兜底保险丝，
+	// 只拦截极少数离群的大 session，默认不影响完整还原。
+	DefaultSessionHardLimitBytes = 128 * 1024 * 1024
+	// DefaultSessionPressureLimitBytes 是内存接近软阈值时启用的收紧上限。
+	// 平时不生效，仅在夜间补数等高压场景优先保命，尽量保留前部关键轨迹。
+	DefaultSessionPressureLimitBytes = 64 * 1024 * 1024
+	// DefaultSessionPressurePct 与聚合器软阈值对齐：达到该水位后，解析器开始更激进地保护单个大 session。
+	DefaultSessionPressurePct = 75.0
+	// SessionPressureCheckStepBytes 控制大 session 解析过程中回读 cgroup 内存的粒度，避免每行都读文件。
+	SessionPressureCheckStepBytes = 4 * 1024 * 1024
+)
+
+// TruncationInfo 记录本次解析是否因保护策略而提前停止。
+type TruncationInfo struct {
+	Truncated     bool    `json:"truncated"`
+	Reason        string  `json:"reason,omitempty"`
+	LimitBytes    int64   `json:"limit_bytes,omitempty"`
+	RetainedBytes int64   `json:"retained_bytes,omitempty"`
+	MemoryPct     float64 `json:"memory_pct,omitempty"`
+	Message       string  `json:"message,omitempty"`
+}
 
 // Parse 解析 JSONL 字节流，按 promptId 分组返回 ParseResult。
 func Parse(raw []byte) (*ParseResult, error) {
@@ -222,7 +248,9 @@ func ParseStream(r io.Reader) (*ParseResult, int, error) {
 		if err := json.Unmarshal(line, &ev); err != nil {
 			continue // 单行损坏不致命，保持旧 Parse 行为
 		}
-		collector.Add(ev)
+		if collector.Add(ev) {
+			break
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return nil, cr.n, fmt.Errorf("scan jsonl around line %d (max line %d bytes): %w", lineNo+1, MaxJSONLLineBytes, err)
@@ -289,23 +317,38 @@ type streamEventCollector struct {
 	order          []string
 	fallbackEvents []rawEvent
 	sessionID      string
+	totalBytes     int64
+	hardLimitBytes int64
+	pressureBytes  int64
+	pressurePct    float64
+	nextMemCheck   int64
+	truncation     *TruncationInfo
 }
 
 func newStreamEventCollector() *streamEventCollector {
+	hardLimit := sessionHardLimitBytes()
+	pressureLimit := sessionPressureLimitBytes(hardLimit)
 	return &streamEventCollector{
-		calls: make(map[string]*streamCallBuf),
-		order: make([]string, 0, 256),
+		calls:          make(map[string]*streamCallBuf),
+		order:          make([]string, 0, 256),
+		hardLimitBytes: hardLimit,
+		pressureBytes:  pressureLimit,
+		pressurePct:    sessionPressurePct(),
+		nextMemCheck:   pressureLimit,
 	}
 }
 
-func (c *streamEventCollector) Add(ev rawEvent) {
+func (c *streamEventCollector) Add(ev rawEvent) bool {
+	if c.truncation != nil {
+		return true
+	}
 	if c.sessionID == "" {
 		c.sessionID = ev.sessionID()
 	}
 	logID, promptID := ev.logID(), ev.promptID()
 	if logID == "" || promptID == "" {
 		c.fallbackEvents = append(c.fallbackEvents, ev)
-		return
+		return c.applyPayloadBudget(int64(len(ev.Data)))
 	}
 	cb, ok := c.calls[logID]
 	if !ok {
@@ -324,17 +367,24 @@ func (c *streamEventCollector) Add(ev rawEvent) {
 	}
 	switch ev.Type {
 	case "REQUEST_BODY":
-		cb.req = ev.Data
+		if c.replacePayload(&cb.req, ev.Data) {
+			return true
+		}
 	case "RESPONSE_BODY_FINAL", "RESPONSE_BODY":
-		cb.resp = ev.Data
+		if c.replacePayload(&cb.resp, ev.Data) {
+			return true
+		}
 	case "RESPONSE_META":
-		cb.meta = ev.Data
+		if c.replacePayload(&cb.meta, ev.Data) {
+			return true
+		}
 	}
+	return false
 }
 
 func (c *streamEventCollector) Result() *ParseResult {
 	roundIdx := map[string]int{}
-	out := &ParseResult{SessionID: c.sessionID}
+	out := &ParseResult{SessionID: c.sessionID, Truncation: c.truncation}
 	for _, logID := range c.order {
 		cb := c.calls[logID]
 		if cb.req == nil && cb.resp == nil {
@@ -376,6 +426,127 @@ func (c *streamEventCollector) Result() *ParseResult {
 		}
 	}
 	return out
+}
+
+func (c *streamEventCollector) replacePayload(dst *json.RawMessage, data json.RawMessage) bool {
+	c.totalBytes -= int64(len(*dst))
+	*dst = data
+	return c.applyPayloadBudget(int64(len(data)))
+}
+
+func (c *streamEventCollector) applyPayloadBudget(delta int64) bool {
+	if delta <= 0 {
+		return false
+	}
+	c.totalBytes += delta
+	if c.totalBytes > c.hardLimitBytes {
+		c.markTruncated("session_size_limit", c.hardLimitBytes, 0)
+		return true
+	}
+	if c.totalBytes < c.pressureBytes || c.pressureBytes <= 0 {
+		return false
+	}
+	if c.totalBytes < c.nextMemCheck {
+		return false
+	}
+	c.nextMemCheck = c.totalBytes + SessionPressureCheckStepBytes
+	pct, ok := cgroupMemoryUsagePct()
+	if ok && pct >= c.pressurePct {
+		c.markTruncated("memory_pressure", c.pressureBytes, pct)
+		return true
+	}
+	return false
+}
+
+func (c *streamEventCollector) markTruncated(reason string, limitBytes int64, memoryPct float64) {
+	if c.truncation != nil {
+		return
+	}
+	msg := "该会话轨迹较大，为保障服务稳定性已提前停止解析，当前仅展示部分内容。"
+	if reason == "memory_pressure" {
+		msg = "夜间补数时检测到内存接近阈值，为保障服务稳定性已提前停止解析该会话，当前仅展示部分内容。"
+	}
+	c.truncation = &TruncationInfo{
+		Truncated:     true,
+		Reason:        reason,
+		LimitBytes:    limitBytes,
+		RetainedBytes: c.totalBytes,
+		MemoryPct:     memoryPct,
+		Message:       msg,
+	}
+}
+
+func sessionHardLimitBytes() int64 {
+	return envBytes("TRACELOG_SESSION_MAX_BYTES", DefaultSessionHardLimitBytes)
+}
+
+func sessionPressureLimitBytes(hardLimit int64) int64 {
+	v := envBytes("TRACELOG_SESSION_PRESSURE_BYTES", DefaultSessionPressureLimitBytes)
+	if v <= 0 || v > hardLimit {
+		return hardLimit
+	}
+	return v
+}
+
+func sessionPressurePct() float64 {
+	return envPercent("AGG_MEM_SOFT_PCT", DefaultSessionPressurePct)
+}
+
+func envBytes(key string, def int64) int64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
+func envPercent(key string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 || f > 100 {
+		return def
+	}
+	return f
+}
+
+func cgroupMemoryUsagePct() (float64, bool) {
+	type pair struct{ usage, max string }
+	candidates := []pair{
+		{"/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"},
+		{"/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes"},
+	}
+	for _, c := range candidates {
+		used, ok1 := readUintFile(c.usage)
+		limit, ok2 := readUintFile(c.max)
+		if !ok1 || !ok2 || limit == 0 {
+			continue
+		}
+		return float64(used) / float64(limit) * 100, true
+	}
+	return 0, false
+}
+
+func readUintFile(path string) (uint64, bool) {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	s := strings.TrimSpace(string(buf))
+	if s == "" || s == "max" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func parseStructuredEvents(events []rawEvent) *ParseResult {
