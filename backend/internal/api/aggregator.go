@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +59,108 @@ const startupGrace = 2 * time.Minute
 // staleRunningTimeout 判定 running 状态为"陈旧"（残留自被杀实例）的阈值。
 const staleRunningTimeout = 15 * time.Minute
 
+// 补数内存闸门：派发每个 session 前读 cgroup 真实内存占用，
+//   - 超软阈值：暂停等待回落（背压），不丢数据；
+//   - 连续等待仍超硬阈值：中止本次补数并记 paused，下次触发自动续补，优先保命防 OOM。
+//
+// 阈值用环境变量可配（线上调参不必改代码重发），缺省软 75% / 硬 88%。
+const (
+	defaultMemSoftLimitPct = 75.0
+	defaultMemHardLimitPct = 88.0
+	// memBackoffInterval 软阈值命中后的等待粒度。
+	memBackoffInterval = 2 * time.Second
+	// memBackoffMaxRounds 连续等待多少轮仍未回落则判定为硬阈值中止。
+	memBackoffMaxRounds = 15
+)
+
+// memSoftLimitPct / memHardLimitPct 读环境变量，非法或缺省时回退默认值。
+func memSoftLimitPct() float64 { return envPercent("AGG_MEM_SOFT_PCT", defaultMemSoftLimitPct) }
+func memHardLimitPct() float64 { return envPercent("AGG_MEM_HARD_PCT", defaultMemHardLimitPct) }
+
+func envPercent(key string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 || f > 100 {
+		return def
+	}
+	return f
+}
+
+// cgroupMemoryUsagePct 返回当前容器内存占用百分比（0~100）与是否成功读取。
+// 必须读 cgroup 真实值（与 OOM killer 同口径），不能用 runtime.ReadMemStats，
+// 后者只反映 Go 堆，看不到 TOS 下载 buffer 等堆外内存，会漏判 OOM 风险。
+// 同时兼容 cgroup v2（memory.current/memory.max）与 v1（usage_in_bytes/limit_in_bytes）。
+func cgroupMemoryUsagePct() (float64, bool) {
+	type pair struct{ usage, max string }
+	candidates := []pair{
+		{"/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"},
+		{"/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes"},
+	}
+	for _, c := range candidates {
+		used, ok1 := readUintFile(c.usage)
+		limit, ok2 := readUintFile(c.max)
+		if !ok1 || !ok2 || limit == 0 {
+			continue
+		}
+		return float64(used) / float64(limit) * 100, true
+	}
+	return 0, false
+}
+
+func readUintFile(path string) (uint64, bool) {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	s := strings.TrimSpace(string(buf))
+	// cgroup v2 在无上限时 memory.max 为 "max"，视为读取失败让上层跳过限制。
+	if s == "" || s == "max" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// memGateDecision 描述派发前内存闸门的判定结果。
+type memGateDecision int
+
+const (
+	memGateProceed memGateDecision = iota // 内存安全或无法读取，正常派发
+	memGateAbort                          // 连续等待仍超硬阈值，中止补数
+)
+
+// waitForMemory 在派发下一个 session 前检查内存：低于软阈值立即放行；
+// 介于软硬阈值之间则 sleep 等待回落；连续 memBackoffMaxRounds 轮仍超硬阈值则中止。
+// 读不到 cgroup 数值时不阻塞（放行），避免在非容器环境下卡死。
+func waitForMemory(date string) memGateDecision {
+	soft := memSoftLimitPct()
+	hard := memHardLimitPct()
+	for round := 0; round < memBackoffMaxRounds; round++ {
+		pct, ok := cgroupMemoryUsagePct()
+		if !ok {
+			return memGateProceed
+		}
+		if pct < soft {
+			return memGateProceed
+		}
+		if pct >= hard {
+			log.Printf("aggregator: %s memory gate over hard limit pct=%.1f%% hard=%.1f%% round=%d, aborting", date, pct, hard, round)
+			return memGateAbort
+		}
+		log.Printf("aggregator: %s memory gate paused pct=%.1f%% soft=%.1f%% round=%d, waiting", date, pct, soft, round)
+		time.Sleep(memBackoffInterval)
+	}
+	// 等满所有轮次仍处于软硬阈值之间：保守中止，避免长时间逼近 OOM。
+	log.Printf("aggregator: %s memory gate still high after %d rounds, aborting", date, memBackoffMaxRounds)
+	return memGateAbort
+}
+
 // NewAggregator 构造 DB-backed 聚合器。
 //
 // 表结构由 DBA 工单统一管控（预定义、受控，不允许程序改表），
@@ -87,12 +191,29 @@ func NewAggregator(db *gorm.DB, client *modellog.Client, fetcher *tracelog.Fetch
 // rememberCookie 把最近一次用户访问携带的有效 Cookie 缓存到内存，供凌晨 cron 复用。
 // 绝不持久化到磁盘/DB，进程退出即丢失。
 func (a *Aggregator) rememberCookie(cookie string) {
-	if a == nil || strings.TrimSpace(cookie) == "" {
+	if a == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(cookie)
+	if trimmed == "" {
+		log.Printf("aggregator: rememberCookie skipped empty cookie")
 		return
 	}
 	a.cookieMu.Lock()
-	a.lastCookie = cookie
+	prevEmpty := strings.TrimSpace(a.lastCookie) == ""
+	changed := a.lastCookie != trimmed
+	a.lastCookie = trimmed
 	a.cookieMu.Unlock()
+	// 仅在"从空变非空"或"内容变化"时打印，避免每个 API 请求都刷屏。
+	if prevEmpty || changed {
+		log.Printf("aggregator: rememberCookie updated prev_empty=%t new_len=%d", prevEmpty, len(trimmed))
+	}
+}
+
+// RememberCookie 是 rememberCookie 的公开入口，供 HTTP 中间件在任意 API 请求时
+// 缓存当前请求携带的 Cookie，使凌晨 cron 不再依赖用户恰好访问过某个特定接口。
+func (a *Aggregator) RememberCookie(cookie string) {
+	a.rememberCookie(cookie)
 }
 
 // currentCookie 返回内存中缓存的最近 Cookie；无则返回空串。
@@ -141,7 +262,7 @@ func (a *Aggregator) nightlyCron() {
 		if strings.TrimSpace(cookie) == "" {
 			// 仅每天提示一次，避免 03:00~03:59 内每分钟刷屏 60 条 skipped 日志。
 			if today != lastSkipLogDate {
-				log.Printf("aggregator: nightly cron skipped (no cached cookie), fallback to access-triggered backfill")
+				log.Printf("aggregator: nightly cron skipped (no cached cookie), fallback to access-triggered backfill started_at=%s", a.startedAt.Format(time.RFC3339))
 				lastSkipLogDate = today
 			}
 			continue
@@ -301,16 +422,33 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 	listTotal := len(resp.Data)
 	log.Printf("aggregator: %s list ok, total=%d", date, listTotal)
 
+	// 断点续补：跳过 DB 里当天已落库的 session，使上次因内存中止（paused）的补数
+	// 下次触发时只补剩余部分，不重复拉取已完成的 session。
+	done := a.aggregatedSessionIDs(dateValue)
+	if len(done) > 0 {
+		log.Printf("aggregator: %s resume, already aggregated=%d", date, len(done))
+	}
+
 	var successCount atomic.Int64
 	var failCount atomic.Int64
-	acc := newDailySummaryAccumulator()
+	var skippedExisting atomic.Int64
 	sem := make(chan struct{}, 2) // 单天 detail 拉取最多 2 并发，避免内存尖峰
 	var wg sync.WaitGroup
+	aborted := false
 
 	for i := range resp.Data {
 		s := resp.Data[i]
 		if len(s.FileList) == 0 || s.FileList[0].URL == "" || s.SessionID == "" {
 			continue
+		}
+		if _, ok := done[s.SessionID]; ok {
+			skippedExisting.Add(1)
+			continue // 续补：已补过，跳过
+		}
+		// 派发前内存闸门：超软阈值暂停等待，连续仍超硬阈值则中止本次补数。
+		if waitForMemory(date) == memGateAbort {
+			aborted = true
+			break
 		}
 		wg.Add(1)
 		sem <- struct{}{}
@@ -337,43 +475,55 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 				failCount.Add(1)
 				return
 			}
-			acc.Add(s, m)
 			successCount.Add(1)
 		}(s)
 	}
 	wg.Wait()
 
 	completedAt := time.Now()
-	if err := a.upsertDailySummary(acc.ToModel(dateValue)); err != nil {
-		log.Printf("aggregator: %s upsert daily summary failed: %v", date, err)
+	// 始终用 DB 已落库行重算 daily summary：续补/中止场景下也能保证大盘数字
+	// 与已补数据一致（不依赖内存累加器，天然支持断点续补）。
+	if err := a.refreshDailySummary(dateValue); err != nil {
+		log.Printf("aggregator: %s refresh daily summary failed: %v", date, err)
+	}
+
+	// 已补总数 = 本次成功 + 历史已存在（跳过的）。
+	aggregatedTotal := int(successCount.Load()) + int(skippedExisting.Load())
+	status := "completed"
+	lastErr := ""
+	if aborted {
+		// 内存中止：记 paused，isDateCompleted 对其返回 false，下次触发自动续补。
+		status = "paused"
+		lastErr = "paused by memory guard, will resume on next trigger"
 	}
 	a.upsertDayStatus(
 		dateValue,
-		"completed",
-		int(successCount.Load()),
-		int(successCount.Load()),
+		status,
+		aggregatedTotal,
+		aggregatedTotal,
 		int(failCount.Load()),
 		listTotal,
-		"",
+		lastErr,
 		&startedAt,
 		&completedAt,
 		nil,
 		time.Since(startedAt).Milliseconds(),
 		2,
 	)
-	skipCount := listTotal - int(successCount.Load()) - int(failCount.Load())
+	skipCount := listTotal - aggregatedTotal - int(failCount.Load())
 	if skipCount < 0 {
 		skipCount = 0
 	}
 	log.Printf(
-		"aggregator: %s done, success=%d fail=%d skip=%d total=%d completion=%.1f%% failure=%.1f%% took=%s",
+		"aggregator: %s %s, success=%d resume_skip=%d fail=%d remain=%d total=%d completion=%.1f%% took=%s",
 		date,
+		status,
 		successCount.Load(),
+		skippedExisting.Load(),
 		failCount.Load(),
 		skipCount,
 		listTotal,
-		percent(int(successCount.Load()), listTotal),
-		percent(int(failCount.Load()), listTotal),
+		percent(aggregatedTotal, listTotal),
 		time.Since(startedAt),
 	)
 }
@@ -611,6 +761,28 @@ func (a *Aggregator) refreshDailySummary(date time.Time) error {
 		return err
 	}
 	return a.upsertDailySummary(buildDailySummaryFromAggregateRows(date, rows))
+}
+
+// aggregatedSessionIDs 返回当天已落库的 session_id 集合，供断点续补时跳过。
+// 只查 session_id 一列，避免把整张大表（含 bundle_json longtext）读进内存引发 OOM。
+func (a *Aggregator) aggregatedSessionIDs(date time.Time) map[string]struct{} {
+	out := make(map[string]struct{})
+	if a == nil || a.db == nil {
+		return out
+	}
+	var ids []string
+	if err := a.db.Model(&model.APISessionAggregate{}).
+		Where("aggregate_date = ?", date).
+		Pluck("session_id", &ids).Error; err != nil {
+		log.Printf("aggregator: load aggregated session ids failed date=%s err=%v", date.Format("2006-01-02"), err)
+		return out
+	}
+	for _, id := range ids {
+		if id != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
 }
 func aggregateRowToCachedMetrics(row model.APISessionAggregate) cachedMetrics {
 	var rules []apiRule
