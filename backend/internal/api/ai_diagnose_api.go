@@ -24,6 +24,16 @@ type diagnoseRequest struct {
 	Question       string `json:"question"`
 	Intent         string `json:"intent"`
 	Action         string `json:"action"`
+
+	// Span 级分析（action=analyze_span）专用字段。
+	// 由前端从 Span 抽屉已有数据直接传入，后端不重复取数。
+	SpanName     string `json:"span_name"`
+	SpanType     string `json:"span_type"`
+	SpanStatus   string `json:"span_status"`
+	SpanDuration string `json:"span_duration"`
+	SpanInput    string `json:"span_input"`
+	SpanOutput   string `json:"span_output"`
+	SpanError    string `json:"span_error"`
 }
 
 // systemPrompt 是 AI 一键诊断的系统设定。
@@ -78,6 +88,27 @@ const reportUpdatePrompt = `你是一名资深的 AI Agent 行为分析师。
 3. 内容要和已有报告风格一致，聚焦追问本身。
 4. 严禁复述页面已有量化指标。输出 Markdown。`
 
+// spanSystemPrompt 是「AI 分析此 Span」的系统设定。
+//
+// 只针对执行轨迹中的单个节点（一次大模型调用 / 一次工具调用）做语义点评，
+// 刻意区别于抽屉里已展示的量化指标（耗时/token/状态等）。
+const spanSystemPrompt = `你是一名资深的 AI Agent 行为分析师，擅长对执行轨迹中的单个节点（Span）做"语义级"点评。
+
+你将拿到一个 Span 的关键信息：节点类型、名称、状态，以及它的输入(Input)与输出(Output)。这个 Span 通常是一次大模型调用或一次工具调用。
+
+【硬性要求】
+1. 严禁复述抽屉里用户已经能看到的量化指标（耗时、token 数、状态码等），这些不是你的工作。
+2. 聚焦"这一个节点"的语义分析：
+   - 这一步在整体任务中想达成什么目的
+   - Input 是否合理、信息是否充分（有没有缺关键上下文、有没有冗余噪声）
+   - Output / 决策是否恰当（不是快慢，而是"对不对、该不该"，有没有跑偏、空转、重复）
+   - 如果失败或异常，最可能的语义层原因是什么
+3. 输出简洁，采用如下结构（用规范 Markdown）：
+   - 一句话**结论**（这一步做得如何）
+   - 1~3 条**关键分析**（带证据，引用 Input/Output 里的具体片段）
+   - 如有必要，给 1 条**改进建议**
+4. 直接输出正文，不要"好的""以下是分析"之类开场白。语气专业、克制、可落地。`
+
 // diagnose 处理 POST /api/ai-diagnose：
 // 从 TCC 取方舟配置，拼装 prompt，流式调用豆包 2.0，并以 SSE 把增量文本转发给前端。
 func (h *Handler) diagnose(c *gin.Context) {
@@ -86,11 +117,12 @@ func (h *Handler) diagnose(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求体解析失败: " + err.Error()})
 		return
 	}
-	if strings.TrimSpace(req.Summary) == "" {
+	req.Action = strings.TrimSpace(req.Action)
+	// span 分析只看单节点，不需要会话纪要；其余 action 仍要求 summary。
+	if req.Action != "analyze_span" && strings.TrimSpace(req.Summary) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "对话摘要为空，无法诊断"})
 		return
 	}
-	req.Action = strings.TrimSpace(req.Action)
 	req.Intent = strings.TrimSpace(req.Intent)
 
 	cfg, err := ark.LoadConfig(c.Request.Context())
@@ -157,6 +189,8 @@ func buildPrompt(req diagnoseRequest) (system string, user string, err error) {
 			return "", "", fmt.Errorf("补充问题为空")
 		}
 		return reportUpdatePrompt, buildFollowupUserContent(req, false), nil
+	case "analyze_span":
+		return spanSystemPrompt, buildSpanUserContent(req), nil
 	default:
 		return "", "", fmt.Errorf("未知 action: %s", req.Action)
 	}
@@ -208,5 +242,46 @@ func buildFollowupUserContent(req diagnoseRequest, consultOnly bool) string {
 	}
 	b.WriteString("\n会话逐轮纪要：\n")
 	b.WriteString(req.Summary)
+	return b.String()
+}
+
+// buildSpanUserContent 把单个 span 的关键信息拼成 user 消息。
+// 只喂当前节点（类型/名称/状态/输入/输出/错误），不带其他上下文。
+func buildSpanUserContent(req diagnoseRequest) string {
+	var b strings.Builder
+	b.WriteString("请对下面这个执行轨迹节点（Span）做语义级点评：\n\n")
+	if t := strings.TrimSpace(req.SpanType); t != "" {
+		b.WriteString("节点类型：")
+		b.WriteString(t)
+		b.WriteString("\n")
+	}
+	if n := strings.TrimSpace(req.SpanName); n != "" {
+		b.WriteString("节点名称：")
+		b.WriteString(n)
+		b.WriteString("\n")
+	}
+	if s := strings.TrimSpace(req.SpanStatus); s != "" {
+		b.WriteString("状态：")
+		b.WriteString(s)
+		b.WriteString("\n")
+	}
+	if e := strings.TrimSpace(req.SpanError); e != "" {
+		b.WriteString("\n错误信息：\n")
+		b.WriteString(e)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n--- Input ---\n")
+	if in := strings.TrimSpace(req.SpanInput); in != "" {
+		b.WriteString(in)
+	} else {
+		b.WriteString("（无）")
+	}
+	b.WriteString("\n\n--- Output ---\n")
+	if out := strings.TrimSpace(req.SpanOutput); out != "" {
+		b.WriteString(out)
+	} else {
+		b.WriteString("（无）")
+	}
+	b.WriteString("\n")
 	return b.String()
 }
