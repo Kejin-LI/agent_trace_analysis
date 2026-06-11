@@ -539,6 +539,10 @@
     function escapeHtml(s) {
       return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     }
+    // 仅展示层去掉 .json 后缀；s.id 原值仍用于后端请求与跳转。
+    function displayId(id) {
+      return (id || '').replace(/\.json$/i, '');
+    }
     function buildAnomalies(s) {
       const rulesRaw = s.rules || [];
       const thinkingMetric = window.AgentTraceEfficiency.computeThinkingMetric(s);
@@ -645,7 +649,7 @@
 
       const score = window.AgentTraceEfficiency.adjustedScore(s);
       const scoreColor = scoreBand(score);
-      const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
+      const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const userInitial = (s.user || 'A').charAt(0).toUpperCase();
       const ano = isPending ? null : buildAnomalies(s);
 
@@ -668,8 +672,8 @@
       }
 
       const metaLine = isPending
-        ? `${s.id} · <span class="pending-dash">指标聚合中…</span>`
-        : `${s.id} · ${s.turns || 0} turns · ${s.trace_count || 1} traces`;
+        ? `${displayId(s.id)} · <span class="pending-dash">指标聚合中…</span>`
+        : `${displayId(s.id)} · ${s.turns || 0} turns · ${s.trace_count || 1} traces`;
       const titleCellHtml = `
         <div class="min-w-0 cell-tip" data-tip='${encodeURIComponent(titleEsc)}'>
           <div class="session-title font-medium truncate">${titleEsc}</div>

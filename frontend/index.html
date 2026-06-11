@@ -803,6 +803,10 @@
     function escapeHtml(s) {
       return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     }
+    // 仅展示层去掉 .json 后缀；s.id 原值仍用于后端请求与跳转。
+    function displayId(id) {
+      return (id || '').replace(/\.json$/i, '');
+    }
     function scoreBand(score) {
       if (score >= 85) return 'green';
       if (score >= 70) return 'orange';
@@ -927,9 +931,14 @@
     }
 
     function renderRow(s) {
+      // 指标未聚合判定：来自上游 light bundle 时无任何已解析指标。
+      // trace_count 不可作判据——light bundle 默认带 trace_count=1。
+      const isPending = !((s.duration_ms > 0) || (s.turns > 0)
+        || (s.input_tokens > 0) || (s.output_tokens > 0)
+        || (Array.isArray(s.rules) && s.rules.length > 0));
       const score = adjustedScore(s);
       const color = scoreBand(score);
-      const titleEsc = escapeHtml(s.title || ('Session ' + s.id));
+      const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const ano = buildAnomalies(s);
       const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
       const turnsClass = (turnsN >= 3 && turnsN <= 9) ? '' : 'text-[--apple-orange]';
@@ -953,12 +962,12 @@
         <td class="py-3.5">
           <div class="min-w-0">
             <a href="./session-detail?id=${encodeURIComponent(s.id)}" class="text-[13px] font-medium hover:text-[--apple-blue] truncate block">${titleEsc}</a>
-            <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5 truncate">${escapeHtml(s.id)} · ${escapeHtml(s.user || 'anonymous')} · ${s.trace_count || 1} traces</div>
+            <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5 truncate">${escapeHtml(displayId(s.id))} · ${escapeHtml(s.user || 'anonymous')} · ${s.trace_count || 1} traces</div>
           </div>
         </td>
         <td class="py-3.5">${chipsHtml}</td>
-        <td class="py-3.5 text-right num-mono">${fmtDuration(s.duration_ms)}</td>
-        <td class="py-3.5 text-right num-mono ${turnsClass}">${turnsN}</td>
+        <td class="py-3.5 text-right num-mono">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : fmtDuration(s.duration_ms)}</td>
+        <td class="py-3.5 text-right num-mono ${turnsClass}">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : turnsN}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
           <a href="./session-detail?id=${encodeURIComponent(s.id)}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">
