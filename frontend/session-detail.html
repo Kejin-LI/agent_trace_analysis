@@ -333,6 +333,12 @@
     background: rgba(120,120,128,0.12); padding: 1px 6px; border-radius: 5px; color: var(--apple-purple);
   }
   .doc-prose hr { border: none; border-top: 1px solid rgba(0,0,0,0.07); margin: 18px 0; }
+  .doc-prose .md-table-wrap { margin: 12px 0; overflow-x: auto; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); }
+  .doc-prose table.md-table { border-collapse: collapse; width: 100%; font-size: 12.5px; line-height: 1.55; }
+  .doc-prose table.md-table th,
+  .doc-prose table.md-table td { border: 1px solid rgba(0,0,0,0.08); padding: 7px 11px; text-align: left; vertical-align: top; color: var(--text-secondary); word-break: break-word; }
+  .doc-prose table.md-table th { background: rgba(0,113,227,0.06); color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+  .doc-prose table.md-table tr:nth-child(even) td { background: rgba(0,0,0,0.015); }
 
 
   .scroll-y::-webkit-scrollbar { width: 6px; }
@@ -516,6 +522,18 @@
     background: transparent;
     white-space: pre;
   }
+  .agent-md .md-table-wrap { margin: 8px 0; overflow-x: auto; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); }
+  .agent-md table.md-table {
+    border-collapse: collapse; width: 100%; font-size: 11.5px; line-height: 1.5;
+    background: rgba(255,255,255,0.6);
+  }
+  .agent-md table.md-table th,
+  .agent-md table.md-table td {
+    border: 1px solid rgba(0,0,0,0.07); padding: 5px 9px; text-align: left; vertical-align: top;
+    color: var(--text-secondary); word-break: break-word;
+  }
+  .agent-md table.md-table th { background: rgba(0,113,227,0.06); color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+  .agent-md table.md-table tr:nth-child(even) td { background: rgba(0,0,0,0.015); }
 
   /* 工具/Skill/MCP 调用 - 单行 chip 风格（在气泡内紧跟回复） */
   .tool-line {
@@ -2620,6 +2638,8 @@
     const params = new URLSearchParams(location.search);
     const id = params.get('id');
     if (!id) { hideGlobalLoader(); return; }
+    // 仅用于展示：去掉 URL 透传进来的 .json 后缀（数据查找/请求仍用原始 id）。
+    const idDisplay = String(id).replace(/\.json$/i, '');
 
     function renderSession(real, stage) {
     let s;
@@ -2651,7 +2671,7 @@
     // 副标题 session/trace
     const subEl = document.querySelector('header .text-\\[11px\\].mono');
     if (subEl) {
-      const text = 'session: ' + id + ' · trace: ' + s.trace;
+      const text = 'session: ' + idDisplay + ' · trace: ' + s.trace;
       subEl.textContent = text;
       subEl.setAttribute('title', text);
     }
@@ -2679,7 +2699,7 @@
 
     // 元数据：基础信息条（顶部平铺）
     const setText0 = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    setText0('info-session-id', id);
+    setText0('info-session-id', idDisplay);
     const traceEl = document.getElementById('info-trace-id');
     if (traceEl) { traceEl.textContent = s.trace || '--'; traceEl.title = s.trace || ''; }
     setText0('info-user', s.user || '--');
@@ -3440,9 +3460,52 @@
       flushQuote();
     };
 
-    lines.forEach(rawLine => {
+    // GFM 表格：把 | a | b | 这种连续行解析成 <table>。
+    // 表格至少要有「表头行」+「分隔行（---|:--:|...）」。
+    const splitTableRow = (s) => {
+      let str = s.trim();
+      if (str.startsWith('|')) str = str.slice(1);
+      if (str.endsWith('|')) str = str.slice(0, -1);
+      const cells = [];
+      let buf = '';
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (ch === '\\' && str[i + 1] === '|') { buf += '|'; i++; continue; }
+        if (ch === '|') { cells.push(buf.trim()); buf = ''; continue; }
+        buf += ch;
+      }
+      cells.push(buf.trim());
+      return cells;
+    };
+    const isTableSep = (s) => /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/.test(s);
+    const isTableRow = (s) => s.trim().includes('|');
+
+    for (let li = 0; li < lines.length; li++) {
+      const rawLine = lines[li];
       const line = rawLine.replace(/\s+$/, '');
       const fence = line.match(/^```([\w-]*)\s*$/);
+      // 表格探测：当前行像表格行、下一行是分隔行，且不在代码块内
+      if (!inCode && isTableRow(line) && li + 1 < lines.length && isTableSep(lines[li + 1])) {
+        flushBlocks();
+        const headers = splitTableRow(line);
+        const aligns = splitTableRow(lines[li + 1]).map(seg => {
+          const l = seg.startsWith(':'), r = seg.endsWith(':');
+          return l && r ? 'center' : (r ? 'right' : (l ? 'left' : ''));
+        });
+        const bodyRows = [];
+        let j = li + 2;
+        for (; j < lines.length; j++) {
+          const r = lines[j].replace(/\s+$/, '');
+          if (!r.trim() || !isTableRow(r) || /^```/.test(r)) break;
+          bodyRows.push(splitTableRow(r));
+        }
+        const alignAttr = (i) => aligns[i] ? ` style="text-align:${aligns[i]}"` : '';
+        const thead = `<thead><tr>${headers.map((h, i) => `<th${alignAttr(i)}>${renderInlineMarkdown(h)}</th>`).join('')}</tr></thead>`;
+        const tbody = `<tbody>${bodyRows.map(cells => `<tr>${headers.map((_, i) => `<td${alignAttr(i)}>${renderInlineMarkdown(cells[i] || '')}</td>`).join('')}</tr>`).join('')}</tbody>`;
+        html.push(`<div class="md-table-wrap"><table class="md-table">${thead}${tbody}</table></div>`);
+        li = j - 1;
+        continue;
+      }
       if (fence) {
         if (inCode) {
           flushCode();
@@ -3452,16 +3515,16 @@
           codeLang = fence[1] || '';
           codeLines = [];
         }
-        return;
+        continue;
       }
       if (inCode) {
         codeLines.push(rawLine);
-        return;
+        continue;
       }
 
       if (!line.trim()) {
         flushBlocks();
-        return;
+        continue;
       }
 
       const heading = line.match(/^(#{1,6})\s+(.+)$/);
@@ -3469,7 +3532,7 @@
         flushBlocks();
         const level = Math.min(heading[1].length, 6);
         html.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
-        return;
+        continue;
       }
 
       const quoteMatch = line.match(/^>\s?(.*)$/);
@@ -3477,7 +3540,7 @@
         flushParagraph();
         flushList();
         quote.push(quoteMatch[1]);
-        return;
+        continue;
       }
 
       const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
@@ -3489,13 +3552,13 @@
         if (!list || list.type !== type) flushList();
         if (!list) list = { type, items: [] };
         list.items.push((unordered || ordered)[1].trim());
-        return;
+        continue;
       }
 
       flushList();
       flushQuote();
       paragraph.push(line.trim());
-    });
+    }
 
     if (inCode) flushCode();
     flushBlocks();
@@ -3701,10 +3764,26 @@
   // 框架注入的上下文包裹标签（兼容单复数）。新版 Agent 框架会把这些注入块拼在真实提问之前
   // 塞进同一条 user 消息：<system-reminder(s)> / <project-memory> / <related-conversation(s)>。
   const INJECTED_CONTEXT_TAGS = ['system-reminders?', 'project-memory', 'related-conversations?'];
+  // 注入块的闭合标签。用作切分锚点：闭合标签（含）之前视为注入上下文，之后才是真实用户输入。
+  // 这样即使上游只截到了残缺标签（如缺开标签、只剩 </system-reminder>）也能正确分离；
+  // 同时真实用户几乎不可能手打出闭合标签，误判率极低。
+  const INJECTED_CLOSE_TAG_RE = /<\/(system-reminders?|project-memory|related-conversations?)>/gi;
 
-  // 抽取框架注入的上下文块（用于单独折叠展示，而非丢弃），按出现顺序拼接返回。
+  // 返回最后一个注入闭合标签的结束位置（即真实用户输入的起点）；无则返回 -1。
+  function lastInjectedCloseEnd(raw) {
+    let end = -1, m;
+    INJECTED_CLOSE_TAG_RE.lastIndex = 0;
+    while ((m = INJECTED_CLOSE_TAG_RE.exec(raw)) !== null) end = m.index + m[0].length;
+    return end;
+  }
+
+  // 抽取框架注入的上下文块（用于单独折叠展示，而非丢弃）。
+  // 优先按"最后闭合标签"锚点切分：闭合标签（含）之前整体视为注入上下文。
   function extractInjectedContext(text) {
     const raw = String(text || '');
+    const end = lastInjectedCloseEnd(raw);
+    if (end >= 0) return raw.slice(0, end).trim();
+    // 回退：仅命中成对标签的旧逻辑（极端情况下闭合标签缺失但成对块存在）。
     const blocks = [];
     INJECTED_CONTEXT_TAGS.forEach(tag => {
       const re = new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi');
@@ -3717,7 +3796,11 @@
   // 剥离框架注入的上下文包裹块，保留其后真实用户输入。
   // 不剥离会导致气泡显示成系统注入、且多轮因 prompt 判空而塌缩成一轮。
   function stripInjectedContext(text) {
-    let cleaned = String(text || '');
+    const raw = String(text || '');
+    const end = lastInjectedCloseEnd(raw);
+    if (end >= 0) return raw.slice(end).trim();
+    // 回退：仅命中成对标签的旧逻辑。
+    let cleaned = raw;
     INJECTED_CONTEXT_TAGS.forEach(tag => {
       cleaned = cleaned.replace(new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi'), '');
     });
@@ -4063,20 +4146,56 @@
       </div>`;
   }
 
-  // 解析计划卡片数据：从工具 args 里取 todos 数组（含 content/status）。
-  function parsePlanItems(argsStr) {
-    const obj = safeJSON(argsStr);
-    if (!obj) return null;
-    const list = obj.todos || obj.plan || obj.tasks || obj.items;
+  function normalizePlanItems(list) {
     if (!Array.isArray(list) || !list.length) return null;
-    return list.map(it => ({
-      content: String(it.content || it.text || it.title || it.task || ''),
-      status: String(it.status || it.state || 'pending').toLowerCase(),
-    })).filter(it => it.content);
+    return list.map(it => {
+      const content = String(it.content || it.text || it.title || it.task || it.name || '');
+      let status = String(it.status || it.state || '').toLowerCase();
+      if (!status && typeof it.checked === 'boolean') status = it.checked ? 'completed' : 'pending';
+      if (!status) status = 'pending';
+      const desc = String(it.desc || it.description || it.subtitle || it.detail || '');
+      return { content, desc, status };
+    }).filter(it => it.content);
   }
 
-  // 渲染计划卡片：对应图中 IMessageText(<task-progress>) / PlanUpdate。
-  function renderPlanCard(items) {
+  // 解析计划卡片数据：支持工具 args（todos/tasks/items）以及文本型 <checklist>{...}</checklist>。
+  function parsePlanPayload(source) {
+    if (!source) return null;
+    const tryBuild = (obj, leadText = '') => {
+      if (!obj || typeof obj !== 'object') return null;
+      const list = normalizePlanItems(obj.todos || obj.plan || obj.tasks || obj.items);
+      if (!list || !list.length) return null;
+      return {
+        title: String(obj.title || obj.name || obj.label || '计划清单'),
+        leadText: String(leadText || '').trim(),
+        items: list,
+      };
+    };
+
+    if (typeof source === 'object') {
+      return tryBuild(source);
+    }
+
+    const text = String(source || '').trim();
+    if (!text) return null;
+    const direct = safeJSON(text);
+    if (direct) return tryBuild(direct);
+
+    const m = text.match(/<checklist>([\s\S]*?)<\/checklist>/i);
+    if (m) {
+      const obj = safeJSON(m[1].trim());
+      const leadText = text.replace(m[0], '').trim();
+      const payload = tryBuild(obj, leadText);
+      if (payload) return payload;
+    }
+    return null;
+  }
+
+  // 渲染计划卡片：对应图中 IMessageText(<task-progress>) / PlanUpdate / 文本型 checklist。
+  function renderPlanCard(plan) {
+    const payload = Array.isArray(plan) ? { title: '计划清单', items: plan, leadText: '' } : plan;
+    const items = (payload && payload.items) || [];
+    const title = (payload && payload.title) || '计划清单';
     const statusMeta = {
       completed: { icon: '✓', cls: 'done', label: '已完成' },
       done:      { icon: '✓', cls: 'done', label: '已完成' },
@@ -4089,11 +4208,11 @@
     const done = items.filter(i => i.status === 'completed' || i.status === 'done').length;
     const rows = items.map(it => {
       const m = statusMeta[it.status] || statusMeta.pending;
-      return `<div class="plan-item ${m.cls}"><span class="plan-item-mark">${m.icon}</span><span class="plan-item-text">${escapeHTML(it.content)}</span></div>`;
+      return `<div class="plan-item ${m.cls}"><span class="plan-item-mark">${m.icon}</span><span class="plan-item-text">${escapeHTML(it.content)}${it.desc ? `<div class="text-[11px] font-normal leading-[1.5] text-[--text-secondary] mt-0.5">${escapeHTML(it.desc)}</div>` : ''}</span></div>`;
     }).join('');
     return `
       <div class="plan-card">
-        <div class="plan-card-head"><span class="plan-card-icon">📋</span>计划清单 <span class="plan-card-progress">${done}/${items.length}</span></div>
+        <div class="plan-card-head"><span class="plan-card-icon">📋</span>${escapeHTML(title)} <span class="plan-card-progress">${done}/${items.length}</span></div>
         ${rows}
       </div>`;
   }
@@ -4900,8 +5019,8 @@
       if (grp.userPrompt && !attachedToPreviousClarify) {
         html.push(`
           <div class="flex justify-end">
-            <div class="max-w-[88%] flex flex-col items-end">
-              <div class="msg-user rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">${escapeHTML(grp.userPrompt)}</div>
+            <div class="max-w-[88%] min-w-0 flex flex-col items-end">
+              <div class="msg-user rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">${escapeHTML(grp.userPrompt)}</div>
               ${renderInjectedContextBlock(grp.injectedContext)}
             </div>
           </div>
@@ -4954,7 +5073,13 @@
             if (isIntentClarificationText(text)) {
               parts.push(renderIntentClarifyCard(text, nextUserReply));
             } else {
-              parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(text)}</div>`);
+              const plan = parsePlanPayload(text);
+              if (plan && plan.items && plan.items.length) {
+                if (plan.leadText) parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(plan.leadText)}</div>`);
+                parts.push(renderPlanCard(plan));
+              } else {
+                parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(text)}</div>`);
+              }
             }
           }
           // 隐式决策：这一步 LLM 没有输出文本/思考，直接产出 tool_calls。
@@ -4985,8 +5110,8 @@
             if (art) artifacts.push({ ...art, tool: tc.name });
             // 计划卡片：todowrite 等 → 渲染成待办清单卡片（含进度），而非普通工具行。
             if (cls.kind === 'plan') {
-              const items = parsePlanItems(tc.args);
-              if (items && items.length) { parts.push(renderPlanCard(items)); return; }
+              const plan = parsePlanPayload(tc.args);
+              if (plan && plan.items && plan.items.length) { parts.push(renderPlanCard(plan)); return; }
             }
             // 澄清卡片：模型向用户发起澄清提问。
             if (cls.kind === 'clarify') {
@@ -5013,8 +5138,8 @@
             const execArt = execInp ? extractArtifact(exec.span_name, JSON.stringify(execInp)) : null;
             if (execArt) artifacts.push({ ...execArt, tool: exec.span_name });
             if (cls.kind === 'plan') {
-              const items = parsePlanItems(exec.input);
-              if (items && items.length) { parts.push(renderPlanCard(items)); continue; }
+              const plan = parsePlanPayload(exec.input);
+              if (plan && plan.items && plan.items.length) { parts.push(renderPlanCard(plan)); continue; }
             }
             if (cls.kind === 'clarify') {
               parts.push(renderClarifyCard(exec.input, nextUserReply));
@@ -5203,6 +5328,7 @@
 
   const state = {
     running: false,
+    abortCtrl: null,
     askMode: 'consult_only',
     reportMarkdown: '',
     reportUpdates: [],
@@ -5324,7 +5450,19 @@
     mask.classList.remove('show');
     document.removeEventListener('keydown', onEsc);
   }
-  function onEsc(e) { if (e.key === 'Escape' && !state.running) closeModal(); }
+  // 中断正在进行的诊断生成：取消请求 + 复位状态。
+  function abortDiagnose() {
+    if (state.abortCtrl) { try { state.abortCtrl.abort(); } catch (e) {} state.abortCtrl = null; }
+    state.pending = null;
+    state.running = false;
+    setStatus('已停止生成。', false);
+    if (typeof render === 'function') render();
+  }
+  function onEsc(e) {
+    if (e.key !== 'Escape') return;
+    if (state.running) abortDiagnose();
+    closeModal();
+  }
 
   function setMode(mode) {
     state.askMode = mode === 'report_update' ? 'report_update' : 'consult_only';
@@ -5400,7 +5538,7 @@
     reportTitleEl.textContent = titleText;
     const titleWrap = document.getElementById('diag-report-title-wrap');
     if (titleWrap) titleWrap.setAttribute('data-tooltip', titleText);
-    if (reportSubEl) reportSubEl.textContent = state.reportMeta.id || '-';
+    if (reportSubEl) reportSubEl.textContent = String(state.reportMeta.id || '-').replace(/\.json$/i, '');
     if (historyPillEl && historyCountEl && historyMenuEl && historyListEl) {
       const hasUpdates = state.reportUpdates.length > 0;
       historyPillEl.hidden = !hasUpdates;
@@ -5474,11 +5612,14 @@
 
   async function streamRequest(payload, onDelta) {
     const url = window.AgentTraceDB.buildUrl('/api/ai-diagnose');
+    const ctrl = new AbortController();
+    state.abortCtrl = ctrl;
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify(payload),
+      signal: ctrl.signal,
     });
     if (!resp.ok || !resp.body) {
       const t = await resp.text().catch(() => '');
@@ -5487,26 +5628,30 @@
     const reader = resp.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const blocks = buf.split('\n\n');
-      buf = blocks.pop();
-      for (const block of blocks) {
-        let ev = '';
-        let dataStr = '';
-        for (const ln of block.split('\n')) {
-          if (ln.startsWith('event:')) ev = ln.slice(6).trim();
-          else if (ln.startsWith('data:')) dataStr += ln.slice(5).trim();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const blocks = buf.split('\n\n');
+        buf = blocks.pop();
+        for (const block of blocks) {
+          let ev = '';
+          let dataStr = '';
+          for (const ln of block.split('\n')) {
+            if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+            else if (ln.startsWith('data:')) dataStr += ln.slice(5).trim();
+          }
+          if (!dataStr) continue;
+          let data;
+          try { data = JSON.parse(dataStr); } catch (e) { continue; }
+          if (ev === 'error') throw new Error(data.error || '诊断失败');
+          if (ev === 'done') continue;
+          if (typeof data.delta === 'string') onDelta(data.delta, data);
         }
-        if (!dataStr) continue;
-        let data;
-        try { data = JSON.parse(dataStr); } catch (e) { continue; }
-        if (ev === 'error') throw new Error(data.error || '诊断失败');
-        if (ev === 'done') continue;
-        if (typeof data.delta === 'string') onDelta(data.delta, data);
       }
+    } finally {
+      if (state.abortCtrl === ctrl) state.abortCtrl = null;
     }
   }
 
@@ -5581,6 +5726,7 @@
       state.running = false;
       render();
     } catch (err) {
+      if (err && err.name === 'AbortError') return;
       state.pending = null;
       state.running = false;
       setStatus('请求失败：' + (err.message || String(err)), false);
@@ -5655,6 +5801,7 @@
       state.running = false;
       render();
     } catch (err) {
+      if (err && err.name === 'AbortError') return;
       state.pending = null;
       state.running = false;
       setStatus('请求失败：' + (err.message || String(err)), false);
@@ -5759,7 +5906,7 @@
   sendBtn.addEventListener('click', () => submitFollowup());
   btn.addEventListener('click', () => { runDiagnose(false); });
   if (regenBtn) regenBtn.addEventListener('click', () => { if (!state.running) runDiagnose(true); });
-  closeBtn.addEventListener('click', () => { if (!state.running) closeModal(); });
+  closeBtn.addEventListener('click', () => { if (state.running) abortDiagnose(); closeModal(); });
   mask.addEventListener('click', (e) => { if (e.target === mask && !state.running) closeModal(); });
   dlBtn.addEventListener('click', downloadReport);
   setMode('consult_only');
