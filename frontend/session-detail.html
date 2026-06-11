@@ -3753,12 +3753,36 @@
   // 框架会以 user 角色把结果回填给模型（如 "The user requested the following: ...
   // I was unable to access the URL... I have fetched the raw content ..."）。
   // 这类不是真实用户提问，识别 prompt 时必须排除，否则会被误显示成用户输入。
-  function isSyntheticToolPrompt(text) {
+  //
+  // 此外还兼容三类「框架内部 prompt」（同样以 role:user 通道发送，并非用户输入）：
+  //   1) Edit 转义自检（Context: A text replacement operation is planned ... new_string ...）
+  //   2) 长上下文压缩 / 跨 Agent 续接（Provide a detailed prompt for continuing ...）
+  //   3) Edit 工具失败后的自我修复（# Goal of the Original Edit / # Failed Attempt Details ...）
+  function detectSyntheticPromptKind(text) {
     const t = String(text || '');
-    return /The user requested the following/i.test(t)
+    if (/The user requested the following/i.test(t)
       || /I have fetched the raw content/i.test(t)
       || /I was unable to access the URL/i.test(t)
-      || /<tool_call_result>|<function_results>|<system-reminders?>/i.test(t);
+      || /<tool_call_result>|<function_results>|<system-reminders?>/i.test(t)) {
+      return { kind: 'tool_result', label: '工具结果回填', desc: '工具调用结果以 role:user 回填给模型，非用户输入' };
+    }
+    if (/^Context:\s+A text replacement operation is planned/m.test(t)
+      || /\bpotentially_problematic_new_string\b/.test(t)) {
+      return { kind: 'edit_escape_check', label: '编辑转义自检', desc: '框架在 Edit 工具调用前做的字符串转义检查 prompt' };
+    }
+    if (/^Provide a detailed prompt for continuing our conversation above/m.test(t)
+      || (/##\s*Goal\b/.test(t) && /##\s*Instructions\b/.test(t) && /##\s*Discoveries\b/.test(t) && /##\s*Accomplished\b/.test(t))) {
+      return { kind: 'compact_handoff', label: '上下文续接', desc: '长会话压缩 / 跨 Agent 接力总结 prompt' };
+    }
+    if (/^# Goal of the Original Edit/m.test(t)
+      || (/# Failed Attempt Details/.test(t) && /\*\*Original `(search|replace)` parameter/i.test(t))
+      || (/<search>[\s\S]*<\/search>/i.test(t) && /<replace>[\s\S]*<\/replace>/i.test(t) && /# Full File Content/.test(t))) {
+      return { kind: 'edit_retry', label: '编辑失败重试', desc: 'Edit 工具调用失败后框架的自动修复 prompt' };
+    }
+    return null;
+  }
+  function isSyntheticToolPrompt(text) {
+    return detectSyntheticPromptKind(text) !== null;
   }
 
   // 框架注入的上下文包裹标签（兼容单复数）。新版 Agent 框架会把这些注入块拼在真实提问之前
@@ -3862,6 +3886,29 @@
       }
     }
     return String((trace && (trace.user_prompt || trace.title)) || '');
+  }
+
+  // 折叠的「框架内部 prompt」块：以 role:user 通道发出但并非用户输入的合成消息。
+  // 与 inj-ctx 同款灰色样式，但显示在对话流主轴（左对齐独占一行），强调"非用户输入"。
+  let __synSeq = 0;
+  function renderSyntheticPromptBlock(info, rawText) {
+    if (!info) return '';
+    const id = 'synprm-' + (++__synSeq);
+    const label = info.label || '框架内部消息';
+    const desc = info.desc || '由 Agent 框架以 role:user 通道发送，并非真实用户输入';
+    const safeRaw = escapeHTML(String(rawText || '').trim());
+    return `
+      <div class="inj-ctx" style="margin-left:0;margin-right:0;max-width:100%">
+        <div class="inj-ctx-head" onclick="(function(el){var b=el.parentNode.querySelector('.inj-ctx-body');var c=el.querySelector('.inj-ctx-caret');var open=b.style.display==='block';b.style.display=open?'none':'block';c.textContent=open?'▸':'▾';})(this)">
+          <span class="inj-ctx-caret">▸</span>
+          <span>🛠 框架内部 prompt（非用户输入）</span>
+          <span class="inj-ctx-tag">${escapeHTML(label)}</span>
+        </div>
+        <div class="inj-ctx-body" id="${id}" style="display:none">
+          <div style="color:var(--text-tertiary);font-size:11px;margin-bottom:6px">${escapeHTML(desc)}</div>
+          ${safeRaw}
+        </div>
+      </div>`;
   }
 
   // 折叠的「框架注入上下文」引用块：灰字、默认折叠、点击展开。挂在用户气泡下方。
@@ -4983,19 +5030,32 @@
     // 常被 cleanUserPrompt 过滤成空（如"继续/继续执行/continue"），一旦按 prompt 合并，
     // 这些轮的 up 全为空就会被折叠进同一组，导致整个 session 误显示成"只有一轮"。
     // 后端 buildBundleFromTOS 已保证 1 round = 1 trace，这里直接逐 trace 成轮即可。
-    const groups = traces.map(t => { // [{ userPrompt, traces:[trace] }]
+    const groups = traces.map(t => { // [{ userPrompt, traces:[trace], synthetic? }]
       const spans = (t.spans || []);
       const firstLLM = spans.find(s => s.span_type === 'model');
       const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
       // up 为空时回退到原始 prompt 文本（不过滤控制词），尽量展示真实提问而非占位。
       // 仍需剥离注入块，避免旧 bundle 里 user_prompt 是整坨 <system-reminder> 时直接外泄到气泡。
+      const rawUser = pickRawUserText(firstLLM, t);
       const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
+      // 如果 cleanUserPrompt 把内容清空了，说明这条"用户消息"是框架内部 prompt（工具回填 / 转义自检 / 续接 / 重试）。
+      // 此时识别它的种类，渲染时折叠成灰色块，且不计入轮次。
+      const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
       const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
-      const injectedContext = extractInjectedContext(pickRawUserText(firstLLM, t));
-      return { userPrompt: displayPrompt, injectedContext, traces: [t] };
+      const injectedContext = extractInjectedContext(rawUser);
+      return {
+        userPrompt: displayPrompt,
+        injectedContext,
+        traces: [t],
+        synthetic: syntheticInfo,
+        // 完整原始文本，仅在 synthetic 折叠块中按需展示
+        syntheticRaw: syntheticInfo ? stripInjectedContext(rawUser) : '',
+      };
     });
 
-    if (cnt) cnt.textContent = `· ${groups.length} 轮`;
+    // 轮次显示口径：仅统计真实用户轮次，框架内部 prompt（synthetic）不计入分母。
+    const realRoundCount = groups.filter(g => !g.synthetic).length;
+    if (cnt) cnt.textContent = `· ${realRoundCount} 轮`;
 
     // 全局执行步数（Step）：以所有 trace 下 model span 总数为准，与概览/KPI 口径一致
     const totalSteps = traces.reduce((sum, t) => sum + (t.spans || []).filter(s => s.span_type === 'model').length, 0);
@@ -5016,7 +5076,10 @@
     groups.forEach((grp, groupIndex) => {
       // user 气泡（如果该组有 prompt）
       const attachedToPreviousClarify = groupIndex > 0 && groupClarifies[groupIndex - 1];
-      if (grp.userPrompt && !attachedToPreviousClarify) {
+      if (grp.synthetic && !attachedToPreviousClarify) {
+        // 框架内部 prompt：不渲染蓝色用户气泡，改为左对齐的灰色折叠块（与系统注入引用块同款）
+        html.push(renderSyntheticPromptBlock(grp.synthetic, grp.syntheticRaw));
+      } else if (grp.userPrompt && !attachedToPreviousClarify) {
         html.push(`
           <div class="flex justify-end">
             <div class="max-w-[88%] min-w-0 flex flex-col items-end">
