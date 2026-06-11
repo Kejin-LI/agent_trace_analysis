@@ -45,7 +45,17 @@ type Aggregator struct {
 	// 一旦上游鉴权失败会被清空，自动回退到"用户访问触发"模式。
 	cookieMu   sync.RWMutex
 	lastCookie string
+
+	// startedAt 记录进程启动时刻，用于启动保护期：实例刚启动（如 TCE 升级/重启
+	// 流量切换窗口）时不立即触发自动聚合，避免与健康检查、流量切换叠加引发内存尖峰。
+	startedAt time.Time
 }
+
+// startupGrace 启动保护期：进程启动后该时间窗内不接受访问触发的自动聚合。
+const startupGrace = 2 * time.Minute
+
+// staleRunningTimeout 判定 running 状态为"陈旧"（残留自被杀实例）的阈值。
+const staleRunningTimeout = 15 * time.Minute
 
 // NewAggregator 构造 DB-backed 聚合器。
 //
@@ -59,12 +69,16 @@ func NewAggregator(db *gorm.DB, client *modellog.Client, fetcher *tracelog.Fetch
 		return nil, fmt.Errorf("db is nil")
 	}
 	a := &Aggregator{
-		db:       db,
-		upstream: client,
-		fetcher:  fetcher,
-		jobs:     make(chan aggregateJob, 8),
-		flight:   make(map[string]bool),
+		db:        db,
+		upstream:  client,
+		fetcher:   fetcher,
+		jobs:      make(chan aggregateJob, 8),
+		flight:    make(map[string]bool),
+		startedAt: time.Now(),
 	}
+	// 启动时清理上一个实例残留的 running 状态：实例被 OOM/升级杀掉后，
+	// DB 里的聚合状态会永远停在 running，既误导监控也会阻塞同日期重试。
+	a.cleanupStaleRunning()
 	go a.worker()
 	go a.nightlyCron()
 	return a, nil
@@ -113,6 +127,7 @@ func (a *Aggregator) nightlyCron() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	lastRunDate := ""
+	lastSkipLogDate := ""
 	for range ticker.C {
 		now := time.Now()
 		if now.Hour() != 3 {
@@ -124,7 +139,11 @@ func (a *Aggregator) nightlyCron() {
 		}
 		cookie := a.currentCookie()
 		if strings.TrimSpace(cookie) == "" {
-			log.Printf("aggregator: nightly cron skipped (no cached cookie), fallback to access-triggered backfill")
+			// 仅每天提示一次，避免 03:00~03:59 内每分钟刷屏 60 条 skipped 日志。
+			if today != lastSkipLogDate {
+				log.Printf("aggregator: nightly cron skipped (no cached cookie), fallback to access-triggered backfill")
+				lastSkipLogDate = today
+			}
 			continue
 		}
 		lastRunDate = today
@@ -171,6 +190,12 @@ func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	}
 	// 记住最近一次用户访问携带的 Cookie，供凌晨 cron 复用（仅内存）。
 	a.rememberCookie(cookie)
+	// 启动保护期：实例刚启动（TCE 升级/重启流量切换窗口）时不立即触发聚合，
+	// 避免与健康检查、流量预热叠加导致内存尖峰。Cookie 已记住，过保护期后的
+	// 后续访问或凌晨 cron 仍会触发补库，不影响数据最终补齐。
+	if time.Since(a.startedAt) < startupGrace {
+		return
+	}
 	date, ok := mostRecentDay(dates)
 	if !ok {
 		return
@@ -351,6 +376,30 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 		percent(int(failCount.Load()), listTotal),
 		time.Since(startedAt),
 	)
+}
+
+// cleanupStaleRunning 把残留的 running 状态（通常来自被 OOM/升级杀掉的旧实例）
+// 标记为 failed，避免 /api/aggregate-status 永远显示 running，也避免误导排查。
+// 只处理早于阈值且确实仍是 running 的行，不会影响当前实例正在跑的任务。
+func (a *Aggregator) cleanupStaleRunning() {
+	if a == nil || a.db == nil {
+		return
+	}
+	cutoff := time.Now().Add(-staleRunningTimeout)
+	res := a.db.Model(&model.APIDailyAggregateStatus{}).
+		Where("status = ? AND (started_at IS NULL OR started_at < ?)", "running", cutoff).
+		Updates(map[string]interface{}{
+			"status":     "failed",
+			"last_error": "interrupted: instance restarted while running",
+			"updated_at": time.Now(),
+		})
+	if res.Error != nil {
+		log.Printf("aggregator: cleanup stale running failed: %v", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("aggregator: cleaned up %d stale running aggregate status", res.RowsAffected)
+	}
 }
 
 func (a *Aggregator) isDateCompleted(date string) bool {
