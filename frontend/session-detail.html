@@ -578,6 +578,7 @@
     background: rgba(255,149,0,0.06);
     border: 1px solid rgba(255,149,0,0.2);
     border-radius: 10px;
+    overflow-x: auto;
   }
   .clarify-head {
     display: flex; align-items: center; gap: 6px;
@@ -591,7 +592,7 @@
     font-variant-numeric: tabular-nums;
   }
   .clarify-badge.answered { color: #34C759; background: rgba(48,209,88,0.12); }
-  .clarify-q { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 4px; white-space: pre-wrap; }
+  .clarify-q { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 4px; white-space: pre-wrap; word-break: break-word; }
   .clarify-fields { display: flex; flex-direction: column; margin-top: 2px; }
   .clarify-field {
     display: flex; align-items: flex-start; gap: 7px;
@@ -600,13 +601,42 @@
   }
   .clarify-field-num { flex: none; width: 14px; text-align: center; font-weight: 700; color: #FF9500; }
   .clarify-field-title { font-size: 11.5px; font-weight: 500; color: var(--text-primary); }
-  .clarify-field-desc { margin-top: 1px; font-size: 11px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; }
+  .clarify-field-desc { margin-top: 1px; font-size: 11px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
   .clarify-opt {
     font-size: 11.5px; color: var(--text-secondary);
     padding: 3px 8px; margin-top: 4px;
     background: rgba(255,149,0,0.07);
     border: 1px solid rgba(255,149,0,0.16);
     border-radius: 8px;
+  }
+  .clarify-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .clarify-opts .clarify-opt { margin-top: 2px; display: inline-block; }
+
+  /* 框架注入的上下文：默认折叠的灰色引用块，挂在用户气泡下方 */
+  .inj-ctx {
+    margin-top: 5px; width: 100%; max-width: 100%;
+    border-left: 2px solid rgba(120,120,128,0.3);
+    background: rgba(120,120,128,0.05);
+    border-radius: 0 8px 8px 0;
+  }
+  .inj-ctx-head {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 8px; cursor: pointer; user-select: none;
+    font-size: 10.5px; color: var(--text-tertiary);
+  }
+  .inj-ctx-head:hover { color: var(--text-secondary); }
+  .inj-ctx-caret { font-size: 9px; width: 10px; flex: none; }
+  .inj-ctx-tag {
+    margin-left: auto; padding: 0 6px; border-radius: 6px;
+    font-size: 9.5px; color: var(--text-tertiary);
+    background: rgba(120,120,128,0.1);
+  }
+  .inj-ctx-body {
+    padding: 6px 10px 8px; margin: 0;
+    font-size: 10.5px; line-height: 1.5; color: var(--text-tertiary);
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .clarify-reply {
     margin-top: 7px; padding: 7px 9px;
@@ -619,7 +649,11 @@
     margin-bottom: 3px;
     font-size: 10.5px; font-weight: 600; color: var(--apple-blue);
   }
-  .clarify-reply-text { font-size: 11.5px; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; }
+  .clarify-reply-text {
+    font-size: 11.5px; line-height: 1.5; color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 
   /* 同 prompt 下多 trace 的轻量分隔（在合并气泡内） */
   .agent-turn-sep {
@@ -630,6 +664,16 @@
     padding: 4px 0;
     border-top: 1px dashed rgba(0,0,0,0.08);
     letter-spacing: 0.3px;
+  }
+
+  /* 甘特图点击进度条 → 左侧对话流定位高亮 */
+  .chat-locate-flash {
+    animation: chatLocateFlash 1.4s ease-out;
+    border-radius: 8px;
+  }
+  @keyframes chatLocateFlash {
+    0% { background: rgba(255,149,0,0.22); box-shadow: 0 0 0 2px rgba(255,149,0,0.35); }
+    100% { background: transparent; box-shadow: 0 0 0 0 rgba(255,149,0,0); }
   }
 
   /* 隐式决策行：LLM 未输出可见文本，直接产生工具调用 */
@@ -1649,8 +1693,41 @@
     document.querySelectorAll('.gantt-bar').forEach(b => b.classList.remove('selected'));
     bar.classList.add('selected');
     const spanId = bar.dataset.spanId;
-    if (spanId && typeof openSpanDrawer === 'function') openSpanDrawer(spanId);
+    if (!spanId) return;
+    if (typeof openSpanDrawer === 'function') openSpanDrawer(spanId);
+    // 同步在左侧对话流定位到对应位置并高亮
+    locateSpanInChat(spanId);
   });
+
+  // locateSpanInChat 把甘特节点映射到左侧对话流元素，滚动定位并高亮闪烁。
+  // 优先精确匹配 data-span-id；匹配不到（如合成的「对话轮次」根节点）则降级到该 trace 的首个可定位步骤。
+  function locateSpanInChat(spanId) {
+    const stream = document.getElementById('chat-stream');
+    if (!stream) return;
+    let target = stream.querySelector(`[data-span-id="${(window.CSS && CSS.escape) ? CSS.escape(spanId) : spanId}"]`);
+    if (!target) {
+      // 降级：找出该 spanId 所属 trace（含合成 round 节点 span_id == trace_id），
+      // 再取该 trace 里第一个在左侧有锚点的 span。
+      const real = (window.SESSION && window.SESSION._real) || null;
+      if (real && real.traces) {
+        const trace = real.traces.find(t =>
+          t.trace_id === spanId || (t.spans || []).some(s => s.span_id === spanId));
+        if (trace) {
+          for (const s of (trace.spans || [])) {
+            const el = stream.querySelector(`[data-span-id="${(window.CSS && CSS.escape) ? CSS.escape(s.span_id) : s.span_id}"]`);
+            if (el) { target = el; break; }
+          }
+        }
+      }
+    }
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.remove('chat-locate-flash');
+    void target.offsetWidth;
+    target.classList.add('chat-locate-flash');
+    setTimeout(() => target.classList.remove('chat-locate-flash'), 1400);
+  }
+
 
   /* ===== Resizable Chat Pane (左右拖拽分隔条) ===== */
   (function() {
@@ -1767,7 +1844,7 @@
             if (!inp || typeof inp !== 'object') return;
             const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
             if (!path || typeof path !== 'string') return;
-            if (!/[\\/].+\.\w{1,8}$/.test(path)) return;
+            if (!/(^|[\\/])[^\\/]+\.\w{1,8}$/.test(path)) return;
             
             let content = '';
             let oldStr = '';
@@ -1820,7 +1897,7 @@
             if (!inp || typeof inp !== 'object') return;
             const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
             if (!path || typeof path !== 'string') return;
-            if (!/[\\/].+\.\w{1,8}$/.test(path)) return;
+            if (!/(^|[\\/])[^\\/]+\.\w{1,8}$/.test(path)) return;
             if (isWrite && toolSpanWrites.has(path + '::' + name.replace(/^Tool:/i, '').replace(/_file$/i, '').replace(/_content$/i, ''))) return;
             
             let content = '';
@@ -2488,10 +2565,23 @@
 
     async function loadRealData(sessionId, opts) {
       try {
-        return await window.AgentTraceDB.loadSession(sessionId, opts);
-      } catch (e) {
-        return null;
+        const r = await window.AgentTraceDB.loadSession(sessionId, opts);
+        if (r) return r;
+      } catch (e) {}
+      // 仅本地开发兜底：无后端时直接读静态 data/sessions.json，方便本地预览。
+      // 线上有后端（上面已返回），此分支不会触发，对生产零影响。
+      const host = location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+        try {
+          const resp = await fetch('./data/sessions.json', { cache: 'no-store' });
+          if (resp.ok) {
+            const d = await resp.json();
+            const hit = (d.sessions || []).find(x => x.id === sessionId || x.session_id === sessionId);
+            if (hit) return hit;
+          }
+        } catch (e) {}
       }
+      return null;
     }
 
     const params = new URLSearchParams(location.search);
@@ -3572,16 +3662,31 @@
     return /The user requested the following/i.test(t)
       || /I have fetched the raw content/i.test(t)
       || /I was unable to access the URL/i.test(t)
-      || /<tool_call_result>|<function_results>|<system-reminder>/i.test(t);
+      || /<tool_call_result>|<function_results>|<system-reminders?>/i.test(t);
   }
 
-  // 剥离框架注入的上下文包裹块（<system-reminder>/<project-memory>/<related-conversations>），
-  // 保留其后真实用户输入。新版 Agent 框架会把这些注入块拼在真实提问之前塞进同一条 user 消息，
+  // 框架注入的上下文包裹标签（兼容单复数）。新版 Agent 框架会把这些注入块拼在真实提问之前
+  // 塞进同一条 user 消息：<system-reminder(s)> / <project-memory> / <related-conversation(s)>。
+  const INJECTED_CONTEXT_TAGS = ['system-reminders?', 'project-memory', 'related-conversations?'];
+
+  // 抽取框架注入的上下文块（用于单独折叠展示，而非丢弃），按出现顺序拼接返回。
+  function extractInjectedContext(text) {
+    const raw = String(text || '');
+    const blocks = [];
+    INJECTED_CONTEXT_TAGS.forEach(tag => {
+      const re = new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi');
+      let m;
+      while ((m = re.exec(raw)) !== null) blocks.push(m[0].trim());
+    });
+    return blocks.join('\n\n').trim();
+  }
+
+  // 剥离框架注入的上下文包裹块，保留其后真实用户输入。
   // 不剥离会导致气泡显示成系统注入、且多轮因 prompt 判空而塌缩成一轮。
   function stripInjectedContext(text) {
     let cleaned = String(text || '');
-    ['system-reminder', 'project-memory', 'related-conversations'].forEach(tag => {
-      cleaned = cleaned.replace(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'gi'), '');
+    INJECTED_CONTEXT_TAGS.forEach(tag => {
+      cleaned = cleaned.replace(new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi'), '');
     });
     return cleaned.trim();
   }
@@ -3622,6 +3727,42 @@
     return preferTracePrompt
       ? (tracePrompt || spanPrompt || titlePrompt)
       : (spanPrompt || tracePrompt || titlePrompt);
+  }
+
+  // 取一个 trace 里真实用户消息的「原始文本」（未剥离注入块），用于把注入的上下文
+  // 单独折叠展示。优先从首个 model span 的 input.messages 最后一条 user 消息取，
+  // 回退到 trace.user_prompt / title。
+  function pickRawUserText(span, trace) {
+    if (span) {
+      const inp = safeJSON(span.user_prompt ? null : span.input);
+      const direct = String(span.user_prompt || '');
+      if (direct && extractInjectedContext(direct)) return direct;
+      if (inp && Array.isArray(inp.messages)) {
+        const userMsgs = inp.messages.filter(m => m.role === 'user');
+        for (let i = userMsgs.length - 1; i >= 0; i--) {
+          const c = contentToText(userMsgs[i].content);
+          if (c && extractInjectedContext(c)) return c;
+        }
+      }
+    }
+    return String((trace && (trace.user_prompt || trace.title)) || '');
+  }
+
+  // 折叠的「框架注入上下文」引用块：灰字、默认折叠、点击展开。挂在用户气泡下方。
+  let __injCtxSeq = 0;
+  function renderInjectedContextBlock(rawText) {
+    const ctx = extractInjectedContext(rawText);
+    if (!ctx) return '';
+    const id = 'injctx-' + (++__injCtxSeq);
+    return `
+      <div class="inj-ctx">
+        <div class="inj-ctx-head" onclick="(function(el){var b=el.parentNode.querySelector('.inj-ctx-body');var c=el.querySelector('.inj-ctx-caret');var open=b.style.display==='block';b.style.display=open?'none':'block';c.textContent=open?'▸':'▾';})(this)">
+          <span class="inj-ctx-caret">▸</span>
+          <span>框架注入的上下文（非用户输入）</span>
+          <span class="inj-ctx-tag">记忆 / 历史会话</span>
+        </div>
+        <div class="inj-ctx-body" id="${id}" style="display:none">${escapeHTML(ctx)}</div>
+      </div>`;
   }
 
   function computeSegmentDurationMs(spans) {
@@ -3825,9 +3966,28 @@
   }
 
   function renderIntentClarifyCard(text, replyText = '') {
-    const fields = extractClarifyFields(text);
     const answered = !!String(replyText || '').trim() && replyText !== '（本轮未识别到用户提问）';
-    const fieldHTML = fields.length ? `
+    // 优先识别内嵌的结构化 JSON（<question>{ "questions": [...] }</question> 或裸 JSON），
+    // 按「每问一排」排版；解析不到再退回原有的「1. 标题：描述」文本解析。
+    const questions = extractClarifyQuestions({}, text);
+    let fieldHTML;
+    if (questions.length) {
+      fieldHTML = `
+        <div class="clarify-fields">
+          ${questions.map((q, idx) => `
+            <div class="clarify-field">
+              <span class="clarify-field-num">${idx + 1}</span>
+              <div>
+                ${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}
+                ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : ''}
+                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => `<span class="clarify-opt">${escapeHTML(o)}</span>`).join('')}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>`;
+    } else {
+      const fields = extractClarifyFields(text);
+      fieldHTML = fields.length ? `
       <div class="clarify-fields">
         ${fields.map((f, idx) => `
           <div class="clarify-field">
@@ -3839,11 +3999,12 @@
           </div>
         `).join('')}
       </div>` : `<div class="clarify-q">${renderAssistantMarkdown(text)}</div>`;
+    }
     return `
       <div class="clarify-card">
         <div class="clarify-head">
           <span class="clarify-icon">❓</span>意图澄清
-          <span class="clarify-badge ${answered ? 'answered' : ''}">${answered ? '已回复' : '等待用户'}</span>
+          <span class="clarify-badge ${answered ? 'answered' : ''}">${answered ? '已回复' : '未回复'}</span>
         </div>
         <div class="clarify-q">模型需要先确认以下信息，再继续生成后续方案。</div>
         ${fieldHTML}
@@ -3886,24 +4047,88 @@
       </div>`;
   }
 
+  // 从澄清内容里尽力解析出结构化的「问题数组」：
+  // 支持 ① args 直接带 questions 数组对象；② question/prompt 文本里内嵌 <question>{...}</question>
+  // 或裸 JSON（{ "questions": [...] }）。每项形如 { title, question, options[] }。
+  function extractClarifyQuestions(obj, questionText) {
+    const normalize = (arr) => (Array.isArray(arr) ? arr : [])
+      .map(q => {
+        if (typeof q === 'string') return { title: '', question: q, options: [] };
+        if (!q || typeof q !== 'object') return null;
+        let options = q.options || q.choices || [];
+        if (!Array.isArray(options)) options = [];
+        options = options.map(o => typeof o === 'string' ? o : (o.label || o.text || o.option || '')).filter(Boolean);
+        const title = q.title || q.name || q.label || '';
+        const question = q.question || q.prompt || q.desc || q.description || '';
+        if (!title && !question && !options.length) return null;
+        return { title: String(title), question: String(question), options };
+      })
+      .filter(Boolean);
+
+    // ① 直接字段
+    if (Array.isArray(obj.questions) && obj.questions.some(q => q && typeof q === 'object')) {
+      const r = normalize(obj.questions);
+      if (r.length) return r;
+    }
+    // ② 从文本里抠 JSON：先剥 <question> 包裹，再找首个 { 到末个 } 的 JSON
+    const raw = String(questionText || '');
+    let jsonStr = '';
+    const m = raw.match(/<question[^>]*>([\s\S]*?)<\/question>/i);
+    const candidate = (m ? m[1] : raw).trim();
+    const s = candidate.indexOf('{');
+    const e = candidate.lastIndexOf('}');
+    if (s !== -1 && e > s) jsonStr = candidate.slice(s, e + 1);
+    if (jsonStr) {
+      const parsed = safeJSON(jsonStr);
+      if (parsed && Array.isArray(parsed.questions)) {
+        const r = normalize(parsed.questions);
+        if (r.length) return r;
+      }
+    }
+    return [];
+  }
+
   // 渲染澄清卡片：模型在流式回复中向用户发起的澄清提问。
   function renderClarifyCard(argsStr, replyText = '') {
     const obj = safeJSON(argsStr) || {};
     const question = obj.question || obj.prompt || obj.message || obj.text || '';
-    let opts = obj.options || obj.choices || obj.questions || [];
-    if (!Array.isArray(opts)) opts = [];
-    const optHTML = opts.map(o => {
-      const label = typeof o === 'string' ? o : (o.label || o.text || o.option || JSON.stringify(o));
-      return `<div class="clarify-opt">${escapeHTML(String(label))}</div>`;
-    }).join('');
+    const questions = extractClarifyQuestions(obj, question);
+
+    let bodyHTML;
+    if (questions.length) {
+      // 结构化排版：每个问题一排（序号 + 标题 + 问题文本 + 选项）
+      bodyHTML = `
+        <div class="clarify-fields">
+          ${questions.map((q, idx) => `
+            <div class="clarify-field">
+              <span class="clarify-field-num">${idx + 1}</span>
+              <div>
+                ${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}
+                ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : ''}
+                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => `<span class="clarify-opt">${escapeHTML(o)}</span>`).join('')}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>`;
+    } else {
+      // 兜底：无法解析成结构化问题时，沿用纯文本 + 扁平选项
+      let opts = obj.options || obj.choices || [];
+      if (!Array.isArray(opts)) opts = [];
+      const optHTML = opts.map(o => {
+        const label = typeof o === 'string' ? o : (o.label || o.text || o.option || JSON.stringify(o));
+        return `<div class="clarify-opt">${escapeHTML(String(label))}</div>`;
+      }).join('');
+      bodyHTML = `${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}${optHTML}`;
+    }
+
     return `
       <div class="clarify-card">
         <div class="clarify-head">
           <span class="clarify-icon">❓</span>意图澄清
-          <span class="clarify-badge ${replyText ? 'answered' : ''}">${replyText ? '已回复' : '等待用户'}</span>
+          <span class="clarify-badge ${replyText ? 'answered' : ''}">${replyText ? '已回复' : '未回复'}</span>
         </div>
-        ${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}
-        ${optHTML}
+        ${questions.length ? `<div class="clarify-q">模型需要先确认以下信息，再继续生成后续方案。</div>` : ''}
+        ${bodyHTML}
         ${renderClarifyReply(replyText)}
       </div>`;
   }
@@ -4113,12 +4338,50 @@
       </div>
       <div class="px-5 py-4 border-b border-black/5" id="span-tab-content">${renderTab(failed ? 'Error' : 'Input')}</div>
       <div class="p-5">
-        <button class="w-full px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[--apple-blue] to-[--apple-purple] text-white text-[13px] font-medium flex items-center justify-center gap-1.5">
+        <button id="span-ai-btn" class="w-full px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[--apple-blue] to-[--apple-purple] text-white text-[13px] font-medium flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          AI 分析此 Span
+          <span id="span-ai-btn-label">AI 分析此 Span</span>
         </button>
+        <div id="span-ai-result" class="mt-3 doc-prose text-[12.5px] leading-relaxed" hidden></div>
       </div>
     `;
+
+    // ----- AI 分析此 Span：缓存 + 流式 -----
+    const aiBtn = document.getElementById('span-ai-btn');
+    const aiBtnLabel = document.getElementById('span-ai-btn-label');
+    const aiResult = document.getElementById('span-ai-result');
+    // 重开抽屉时若已有缓存结果则直接展示（需求：结果保留）。
+    const cached = window.__spanAnalysisCache && window.__spanAnalysisCache.get(spanId);
+    if (cached) {
+      aiResult.hidden = false;
+      aiResult.innerHTML = renderAssistantMarkdown(cached);
+      aiBtnLabel.textContent = '重新分析此 Span';
+    }
+    if (aiBtn) {
+      aiBtn.addEventListener('click', () => {
+        const inputObj = sp.input ?? sp.attributes?.input ?? tags.input ?? null;
+        const outputObj = sp.output ?? sp.attributes?.output ?? tags.output ?? null;
+        const errMsg = sp.status_message || tags.error || tags.error_message || '';
+        const toStr = (v) => v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+        analyzeSpanAI({
+          btn: aiBtn,
+          label: aiBtnLabel,
+          resultEl: aiResult,
+          spanId,
+          payload: {
+            action: 'analyze_span',
+            session_id: (window.SESSION && window.SESSION.id) || '',
+            span_name: titleText,
+            span_type: sp.span_type || '',
+            span_status: failed ? 'Failed' : 'Success',
+            span_duration: fmtDur(sp.duration_ms || 0),
+            span_input: toStr(inputObj),
+            span_output: toStr(outputObj),
+            span_error: failed ? String(errMsg || '') : '',
+          },
+        });
+      });
+    }
 
     // Tab 切换
     document.querySelectorAll('.span-tab').forEach(btn => {
@@ -4136,6 +4399,75 @@
     document.getElementById('span-drawer').classList.add('open');
   }
   window.openSpanDrawer = openSpanDrawer;
+
+  // span 级 AI 分析结果缓存（spanId -> markdown）。页面级内存缓存，不落库。
+  // 重开抽屉保留结果；重新点击分析则覆盖。
+  window.__spanAnalysisCache = window.__spanAnalysisCache || new Map();
+
+  // analyzeSpanAI 调用 /api/ai-diagnose（action=analyze_span），流式渲染单 span 分析结果。
+  async function analyzeSpanAI({ btn, label, resultEl, spanId, payload }) {
+    if (btn.dataset.running === '1') return;
+    btn.dataset.running = '1';
+    btn.disabled = true;
+    const labelText = label.textContent;
+    label.textContent = '分析中…';
+    resultEl.hidden = false;
+    resultEl.innerHTML = '<span class="diag-typing-cursor"></span>';
+
+    let acc = '';
+    const flush = () => { resultEl.innerHTML = renderAssistantMarkdown(acc) + '<span class="diag-typing-cursor"></span>'; };
+
+    try {
+      const url = window.AgentTraceDB.buildUrl('/api/ai-diagnose');
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok || !resp.body) {
+        const t = await resp.text().catch(() => '');
+        throw new Error('HTTP ' + resp.status + (t ? (' · ' + t) : ''));
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const blocks = buf.split('\n\n');
+        buf = blocks.pop();
+        for (const block of blocks) {
+          let ev = '', dataStr = '';
+          for (const ln of block.split('\n')) {
+            if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+            else if (ln.startsWith('data:')) dataStr += ln.slice(5).trim();
+          }
+          if (!dataStr) continue;
+          let data;
+          try { data = JSON.parse(dataStr); } catch (e) { continue; }
+          if (ev === 'error') throw new Error(data.error || '分析失败');
+          if (ev === 'done') continue;
+          if (typeof data.delta === 'string') { acc += data.delta; flush(); }
+        }
+      }
+      if (!acc.trim()) {
+        resultEl.innerHTML = '<span class="text-[--text-tertiary]">（模型未返回内容）</span>';
+        label.textContent = '重新分析此 Span';
+        return;
+      }
+      window.__spanAnalysisCache.set(spanId, acc);
+      resultEl.innerHTML = renderAssistantMarkdown(acc);
+      label.textContent = '重新分析此 Span';
+    } catch (err) {
+      resultEl.innerHTML = `<div class="text-[--apple-red] text-[12px]">分析失败：${escapeHTML(String(err && err.message || err))}</div>`;
+      label.textContent = labelText;
+    } finally {
+      btn.dataset.running = '0';
+      btn.disabled = false;
+    }
+  }
 
   function basename(p) {
     return String(p).split(/[\\/]/).pop();
@@ -4489,7 +4821,8 @@
       // 仍需剥离注入块，避免旧 bundle 里 user_prompt 是整坨 <system-reminder> 时直接外泄到气泡。
       const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
       const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
-      return { userPrompt: displayPrompt, traces: [t] };
+      const injectedContext = extractInjectedContext(pickRawUserText(firstLLM, t));
+      return { userPrompt: displayPrompt, injectedContext, traces: [t] };
     });
 
     if (cnt) cnt.textContent = `· ${groups.length} 轮`;
@@ -4514,7 +4847,10 @@
       if (grp.userPrompt && !attachedToPreviousClarify) {
         html.push(`
           <div class="flex justify-end">
-            <div class="msg-user max-w-[88%] rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">${escapeHTML(grp.userPrompt)}</div>
+            <div class="max-w-[88%] flex flex-col items-end">
+              <div class="msg-user rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">${escapeHTML(grp.userPrompt)}</div>
+              ${renderInjectedContextBlock(grp.injectedContext)}
+            </div>
           </div>
         `);
       }
@@ -4545,7 +4881,7 @@
           // 每次 LLMCall = 一步（执行步数 Step 的全局编号）
           globalStepIdx++;
           const sepStyle = (ti === 0 && isFirstSpanInTrace) ? ' style="margin-top:4px"' : '';
-          parts.push(`<div class="agent-turn-sep"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
+          parts.push(`<div class="agent-turn-sep" data-span-id="${escapeHTML(sp.span_id)}"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
           isFirstSpanInTrace = false;
 
           const { text, reasoning, tool_calls } = extractAssistantOutput(sp);
@@ -4605,7 +4941,7 @@
               return;
             }
             parts.push(`
-              <div class="tool-line ${ok ? '' : 'fail'}">
+              <div class="tool-line ${ok ? '' : 'fail'}"${exec && exec.span_id ? ` data-span-id="${escapeHTML(exec.span_id)}"` : ''}>
                 <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
                 <span class="tool-line-label">${cls.label}: <span class="tool-line-name">${escapeHTML(tc.name)}</span></span>
                 ${execDur ? `<span class="tool-line-dur">${execDur}</span>` : ''}
