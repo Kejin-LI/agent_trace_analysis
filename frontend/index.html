@@ -809,6 +809,14 @@
       if (score >= 50) return 'purple';
       return 'red';
     }
+    // 指标未聚合判定：来自上游 light bundle 时无任何已解析指标。
+    // 这类空骨架不能参与健康/异常统计，否则会被误判为满分健康。
+    // trace_count 不可作判据——light bundle 默认带 trace_count=1。
+    function isPendingSession(s) {
+      return !((s.duration_ms > 0) || (s.turns > 0)
+        || (s.input_tokens > 0) || (s.output_tokens > 0)
+        || (Array.isArray(s.rules) && s.rules.length > 0));
+    }
     // 与 sessions.html buildAnomalies 一致：用轨迹健康信号动态校准"执行效率健康"
     function buildAnomalies(s) {
       const rulesRaw = s.rules || [];
@@ -927,11 +935,7 @@
     }
 
     function renderRow(s) {
-      // 指标未聚合判定：来自上游 light bundle 时无任何已解析指标。
-      // trace_count 不可作判据——light bundle 默认带 trace_count=1。
-      const isPending = !((s.duration_ms > 0) || (s.turns > 0)
-        || (s.input_tokens > 0) || (s.output_tokens > 0)
-        || (Array.isArray(s.rules) && s.rules.length > 0));
+      const isPending = isPendingSession(s);
       const score = adjustedScore(s);
       const color = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
@@ -1023,19 +1027,26 @@
       if (!total) { renderEmpty('此时间范围内暂无 session 数据'); return; }
 
       // ===== 聚合 =====
-      const scores = sessions.map(adjustedScore);
-      const durations = sessions.map(s => s.duration_ms || 0);
-      const totalTokens = sessions.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
+      // 仅对已聚合指标的 session 做健康/异常统计；
+      // 未聚合的空骨架（light bundle，指标尚未算出）单独计为「待分析」，
+      // 不能算进健康档，否则会被误判为满分导致异常数恒为 0。
+      const analyzed = sessions.filter(s => !isPendingSession(s));
+      const pendingCount = total - analyzed.length;
+      const analyzedTotal = analyzed.length;
+
+      const scores = analyzed.map(adjustedScore);
+      const durations = analyzed.map(s => s.duration_ms || 0);
+      const totalTokens = analyzed.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
       const avgScore = avg(scores);
 
       // 分档计数
       const band = { green: 0, orange: 0, purple: 0, red: 0 };
       scores.forEach(sc => band[scoreBand(sc)]++);
-      const anomalyCount = total - band.green;
+      const anomalyCount = analyzedTotal - band.green;
 
       // 异常聚合：按 failed_label
       const issueMap = new Map();
-      sessions.forEach(s => {
+      analyzed.forEach(s => {
         const ano = buildAnomalies(s);
         if (!ano) return;
         ano.list.forEach(it => issueMap.set(it.label, (issueMap.get(it.label) || 0) + 1));
@@ -1045,7 +1056,7 @@
       // 雷达 5 维平均
       const avgRadar = { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 };
       const radarCount = { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 };
-      sessions.forEach(s => {
+      analyzed.forEach(s => {
         if (!s.radar) return;
         const r = adjustedRadar(s);
         Object.keys(avgRadar).forEach(k => {
@@ -1062,16 +1073,21 @@
       // ===== H1 标题 =====
       const issueCountEl = document.getElementById('hdr-issue-count');
       if (issueCountEl) issueCountEl.textContent = `${anomalyCount} 个`;
-      document.getElementById('hdr-avg-score').textContent = Math.round(avgScore);
+      document.getElementById('hdr-avg-score').textContent = analyzedTotal ? Math.round(avgScore) : '—';
       document.getElementById('hdr-total').textContent = total;
       document.getElementById('hdr-anomaly').textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {
+        const pendingHint = pendingCount > 0
+          ? `另有 <span class="num-mono">${pendingCount}</span> 个 session 指标待分析（暂未纳入健康统计）。`
+          : '';
         if (topIssues.length) {
           const [label, count] = topIssues[0];
-          topIssueEl.innerHTML = `最常见的问题是「<span class="text-[--text-primary] font-medium">${escapeHtml(label)}</span>」，命中 <span class="num-mono">${count}</span> 次。`;
+          topIssueEl.innerHTML = `最常见的问题是「<span class="text-[--text-primary] font-medium">${escapeHtml(label)}</span>」，命中 <span class="num-mono">${count}</span> 次。${pendingHint}`;
+        } else if (analyzedTotal) {
+          topIssueEl.innerHTML = `已分析的 session 均处于健康档位。${pendingHint}`;
         } else {
-          topIssueEl.textContent = '所有 session 均处于健康档位。';
+          topIssueEl.innerHTML = pendingHint || '暂无可分析的 session 指标。';
         }
       }
       // 标题超长 tooltip
@@ -1079,10 +1095,10 @@
       if (h1) h1.title = h1.innerText;
 
       // ===== 雷达 =====
-      document.getElementById('radar-total').textContent = Math.round(avgScore);
+      document.getElementById('radar-total').textContent = analyzedTotal ? Math.round(avgScore) : '—';
       const totalBand = scoreBand(avgScore);
       document.getElementById('radar-total').style.color = totalBand === 'green' ? 'var(--text-primary)' : `var(--apple-${totalBand})`;
-      document.getElementById('radar-n').textContent = total;
+      document.getElementById('radar-n').textContent = analyzedTotal;
       renderRadar(avgRadar);
 
       // ===== 核心指标 =====
@@ -1096,12 +1112,12 @@
       document.getElementById('kpi-cost').textContent = fmtCost(totalTokens);
       document.getElementById('kpi-tokens').textContent = fmtTokens(totalTokens) + ' tokens';
 
-      // 分档堆叠条宽度（按 session 数占比）
+      // 分档堆叠条宽度（按已分析 session 数占比）
       const bandBar = document.getElementById('band-bar');
-      if (bandBar && total > 0) {
+      if (bandBar && analyzedTotal > 0) {
         ['green', 'orange', 'purple', 'red'].forEach(k => {
           const seg = bandBar.querySelector(`[data-band="${k}"]`);
-          if (seg) seg.style.width = (band[k] / total * 100).toFixed(1) + '%';
+          if (seg) seg.style.width = (band[k] / analyzedTotal * 100).toFixed(1) + '%';
         });
       }
 
