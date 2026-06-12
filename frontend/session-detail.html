@@ -625,6 +625,8 @@
   }
   .clarify-field-num { flex: none; width: 14px; text-align: center; font-weight: 700; color: #FF9500; }
   .clarify-field-title { font-size: 11.5px; font-weight: 500; color: var(--text-primary); }
+  .clarify-field-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .clarify-field-type { font-size: 10px; line-height: 1.2; color: #FF9500; background: rgba(255,149,0,0.10); border: 1px solid rgba(255,149,0,0.16); border-radius: 999px; padding: 1px 6px; }
   .clarify-field-desc { margin-top: 1px; font-size: 11px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
   .clarify-opt {
     font-size: 11.5px; color: var(--text-secondary);
@@ -4107,6 +4109,32 @@
     return String(text || '').replace(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g, '$1').trim();
   }
 
+  function formatClarifyQuestionType(type) {
+    const raw = String(type || '').trim();
+    const key = raw.toLowerCase();
+    const labelMap = {
+      single_choice: '单选',
+      single_select: '单选',
+      multiple_choice: '多选',
+      multi_choice: '多选',
+      multiple_select: '多选',
+      multi_select: '多选',
+      free_text: '自由输入',
+      text: '自由输入',
+    };
+    return labelMap[key] || raw.replace(/_/g, ' ');
+  }
+
+  function stripClarifyQuestionPayload(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const stripped = raw.replace(/<question[^>]*>[\s\S]*?<\/question>/ig, '').trim();
+    if (stripped !== raw) return stripped;
+    const parsed = safeJSON(raw);
+    if (parsed && Array.isArray(parsed.questions)) return '';
+    return raw;
+  }
+
   function extractClarifyFields(text) {
     const body = stripMdFence(text);
     const lines = body.split('\n');
@@ -4151,6 +4179,7 @@
     // 优先识别内嵌的结构化 JSON（<question>{ "questions": [...] }</question> 或裸 JSON），
     // 按「每问一排」排版；解析不到再退回原有的「1. 标题：描述」文本解析。
     const questions = extractClarifyQuestions({}, text);
+    const leadText = stripClarifyQuestionPayload(text);
     let fieldHTML;
     if (questions.length) {
       fieldHTML = `
@@ -4159,8 +4188,8 @@
             <div class="clarify-field">
               <span class="clarify-field-num">${idx + 1}</span>
               <div>
-                ${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}
-                ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : ''}
+                ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
+                ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
                 ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => `<span class="clarify-opt">${escapeHTML(o)}</span>`).join('')}</div>` : ''}
               </div>
             </div>
@@ -4187,7 +4216,7 @@
           <span class="clarify-icon">❓</span>意图澄清
           <span class="clarify-badge ${answered ? 'answered' : ''}">${answered ? '已回复' : '未回复'}</span>
         </div>
-        <div class="clarify-q">模型需要先确认以下信息，再继续生成后续方案。</div>
+        <div class="clarify-q">${questions.length && leadText ? renderAssistantMarkdown(leadText) : '模型需要先确认以下信息，再继续生成后续方案。'}</div>
         ${fieldHTML}
         ${renderClarifyReply(replyText)}
       </div>`;
@@ -4277,8 +4306,9 @@
         options = options.map(o => typeof o === 'string' ? o : (o.label || o.text || o.option || '')).filter(Boolean);
         const title = q.title || q.name || q.label || '';
         const question = q.question || q.prompt || q.desc || q.description || '';
-        if (!title && !question && !options.length) return null;
-        return { title: String(title), question: String(question), options };
+        const type = q.type || q.question_type || q.kind || '';
+        if (!title && !question && !options.length && !type) return null;
+        return { title: String(title), question: String(question), options, type: String(type) };
       })
       .filter(Boolean);
 
@@ -4305,11 +4335,20 @@
     return [];
   }
 
+  function hasStructuredClarifyPayload(text) {
+    return extractClarifyQuestions({}, text).length > 0;
+  }
+
+  function isClarifyMessageText(text) {
+    return isIntentClarificationText(text) || hasStructuredClarifyPayload(text);
+  }
+
   // 渲染澄清卡片：模型在流式回复中向用户发起的澄清提问。
   function renderClarifyCard(argsStr, replyText = '') {
     const obj = safeJSON(argsStr) || {};
     const question = obj.question || obj.prompt || obj.message || obj.text || '';
     const questions = extractClarifyQuestions(obj, question);
+    const leadText = stripClarifyQuestionPayload(question);
 
     let bodyHTML;
     if (questions.length) {
@@ -4320,8 +4359,8 @@
             <div class="clarify-field">
               <span class="clarify-field-num">${idx + 1}</span>
               <div>
-                ${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}
-                ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : ''}
+                ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
+                ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
                 ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => `<span class="clarify-opt">${escapeHTML(o)}</span>`).join('')}</div>` : ''}
               </div>
             </div>
@@ -4344,10 +4383,59 @@
           <span class="clarify-icon">❓</span>意图澄清
           <span class="clarify-badge ${replyText ? 'answered' : ''}">${replyText ? '已回复' : '未回复'}</span>
         </div>
-        ${questions.length ? `<div class="clarify-q">模型需要先确认以下信息，再继续生成后续方案。</div>` : ''}
+        ${questions.length ? `<div class="clarify-q">${leadText ? renderAssistantMarkdown(leadText) : '模型需要先确认以下信息，再继续生成后续方案。'}</div>` : ''}
         ${bodyHTML}
         ${renderClarifyReply(replyText)}
       </div>`;
+  }
+
+  function buildConversationGroups(real) {
+    const traces = (real?.traces || [])
+      .slice()
+      .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0))
+      .flatMap(segmentTraceByPrompt);
+    const baseGroups = traces.map(t => {
+      const spans = (t.spans || []);
+      const firstLLM = spans.find(s => s.span_type === 'model');
+      const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
+      const rawUser = pickRawUserText(firstLLM, t);
+      const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
+      const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
+      const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
+      const injectedContext = extractInjectedContext(rawUser);
+      return {
+        userPrompt: displayPrompt,
+        injectedContext,
+        traces: [t],
+        synthetic: syntheticInfo,
+        syntheticRaw: syntheticInfo ? stripInjectedContext(rawUser) : '',
+      };
+    });
+    const isGroupClarify = (grp) => grp.traces.some(t => (t.spans || []).some(sp => {
+      if (sp.span_type === 'tool' && isClarifyTool(sp.span_name || '')) return true;
+      if (sp.span_type !== 'model') return false;
+      const { text, tool_calls } = extractAssistantOutput(sp);
+      return isClarifyMessageText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''));
+    }));
+    const groups = [];
+    for (let i = 0; i < baseGroups.length; i++) {
+      const grp = baseGroups[i];
+      const merged = {
+        ...grp,
+        traces: [...grp.traces],
+        clarifyReply: '',
+        mergedClarifyReply: false,
+      };
+      if (isGroupClarify(grp) && i + 1 < baseGroups.length && !baseGroups[i + 1].synthetic) {
+        const next = baseGroups[i + 1];
+        merged.traces.push(...next.traces);
+        merged.clarifyReply = String(next.userPrompt || '').trim();
+        merged.mergedClarifyReply = true;
+        i++;
+      }
+      groups.push(merged);
+    }
+    return { traces, groups };
   }
 
   // 从工具调用 args 中尝试抽取产物路径/文件（仅写入类工具）
@@ -4720,43 +4808,49 @@
     const axisEl = document.getElementById('gantt-axis');
     const metaEl = document.getElementById('gantt-meta');
     if (!card || !body || !axisEl) return;
-    if (!real || !real.traces || !real.traces.length) {
+    const convo = buildConversationGroups(real);
+    const groups = convo.groups || [];
+    if (!groups.length) {
       body.innerHTML = '<div class="px-5 py-6 text-[11px] text-[--text-tertiary] text-center">暂无 span 数据</div>';
       return;
     }
 
-    // 1) 收集所有 spans，并附带 trace 边界（用于跨 trace 计时）
-    // 关键：后端把每个 model span 的 parent_id 设为 PromptID，但日志里并没有"轮次"容器 span，
-    // 导致前端找不到父节点、所有大模型 step 都成了一级根节点。这里为每个 trace（=1 个用户轮次）
-    // 合成一个 span_id == trace_id 的「对话轮次」根节点，让 model step 自然挂到它下面，
-    // 形成「一级=每轮 / 二级=大模型 step / 三级=工具」的正确层级。对线上已缓存的旧 bundle 同样生效。
+    // 1) 收集所有 spans，并按「有效对话轮次」分组。
+    // 若上一轮是澄清提问，则把用户回复 + 后续继续执行并入同一轮，避免把澄清回复误记成新轮次。
     const allSpans = [];
-    real.traces.forEach((t, ti) => {
-      const childSpans = (t.spans || []).map(sp => ({
+    groups.forEach((grp, gi) => {
+      const traceRootIds = new Set((grp.traces || []).map(t => t.trace_id || t.span_id).filter(Boolean));
+      const roundId = `conv-round-${gi + 1}`;
+      const childSpans = (grp.traces || []).flatMap((t) => (t.spans || []).map(sp => ({
         ...sp,
-        _trace_idx: ti,
+        parent_id: (!sp.parent_id || traceRootIds.has(sp.parent_id)) ? roundId : sp.parent_id,
+        _trace_idx: gi,
         _trace_id: t.trace_id,
         started_at_ms: Number(sp.started_at_ms) || 0,
         duration_ms: Number(sp.duration_ms) || 0,
-      }));
-      // 合成轮次根节点：span_id 取 trace_id（与 model span 的 parent_id 对齐）。
-      const roundId = t.trace_id || t.span_id || `round-${ti}`;
+      })));
       const alreadyHasRoot = childSpans.some(sp => sp.span_id === roundId);
       if (!alreadyHasRoot && childSpans.length) {
-        const startMs = Number(t.started_at_ms) || childSpans.reduce((m, sp) => Math.min(m, sp.started_at_ms || Infinity), Infinity);
-        const endMs = childSpans.reduce((m, sp) => Math.max(m, (sp.started_at_ms || 0) + (sp.duration_ms || 0)), 0);
-        const roundDur = Number(t.duration_ms) || Math.max(0, endMs - (isFinite(startMs) ? startMs : 0));
+        const startMs = (grp.traces || []).reduce((m, t) => {
+          const started = Number(t.started_at_ms) || 0;
+          return started ? Math.min(m, started) : m;
+        }, Infinity);
+        const childStartMs = childSpans.reduce((m, sp) => Math.min(m, sp.started_at_ms || Infinity), Infinity);
+        const childEndMs = childSpans.reduce((m, sp) => Math.max(m, (sp.started_at_ms || 0) + (sp.duration_ms || 0)), 0);
+        const endMs = childEndMs || (grp.traces || []).reduce((m, t) => Math.max(m, (Number(t.started_at_ms) || 0) + (Number(t.duration_ms) || 0)), 0);
+        const roundStart = isFinite(startMs) ? startMs : childStartMs;
+        const roundDur = Math.max(0, endMs - (isFinite(roundStart) ? roundStart : 0));
         allSpans.push({
           span_id: roundId,
           parent_id: '0',
-          span_name: `对话轮次 ${ti + 1}`,
+          span_name: `对话轮次 ${gi + 1}`,
           span_type: 'round',
-          started_at_ms: isFinite(startMs) ? startMs : 0,
+          started_at_ms: isFinite(roundStart) ? roundStart : 0,
           duration_ms: roundDur,
           status_code: 0,
           custom_tags: {},
-          _trace_idx: ti,
-          _trace_id: t.trace_id,
+          _trace_idx: gi,
+          _trace_id: roundId,
           _is_round: true,
         });
       }
@@ -4795,7 +4889,7 @@
     const roots = [];
     let lastTurn = null;
     rawRoots.forEach(sp => {
-      const isTurn = sp.span_name === 'NeekoTurn';
+      const isTurn = sp.span_type === 'round' || sp.span_name === 'NeekoTurn';
       const isModel = sp.span_type === 'model';
       if (isTurn) {
         roots.push(sp);
@@ -5015,43 +5109,14 @@
     const stream = document.getElementById('chat-stream');
     const cnt = document.getElementById('chat-trace-count');
     if (!stream || !real) return;
-    const traces = (real.traces || [])
-      .slice()
-      .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0))
-      .flatMap(segmentTraceByPrompt);
+    const convo = buildConversationGroups(real);
+    const traces = convo.traces || [];
+    const groups = convo.groups || [];
     if (!traces.length) { 
       if (cnt) cnt.textContent = `· 0 轮`;
       stream.innerHTML = '<div class="text-[11px] text-[--text-tertiary] text-center">无对话数据</div>'; 
       return; 
     }
-
-    // ===== 第 1 步：按轮次分组（每个 trace = 后端按 promptId 切好的 1 个真实用户轮次）=====
-    // 重要：不要再用 "prompt 文本是否相同" 去合并多个 trace。线上多轮里某些轮的 prompt
-    // 常被 cleanUserPrompt 过滤成空（如"继续/继续执行/continue"），一旦按 prompt 合并，
-    // 这些轮的 up 全为空就会被折叠进同一组，导致整个 session 误显示成"只有一轮"。
-    // 后端 buildBundleFromTOS 已保证 1 round = 1 trace，这里直接逐 trace 成轮即可。
-    const groups = traces.map(t => { // [{ userPrompt, traces:[trace], synthetic? }]
-      const spans = (t.spans || []);
-      const firstLLM = spans.find(s => s.span_type === 'model');
-      const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
-      // up 为空时回退到原始 prompt 文本（不过滤控制词），尽量展示真实提问而非占位。
-      // 仍需剥离注入块，避免旧 bundle 里 user_prompt 是整坨 <system-reminder> 时直接外泄到气泡。
-      const rawUser = pickRawUserText(firstLLM, t);
-      const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
-      // 如果 cleanUserPrompt 把内容清空了，说明这条"用户消息"是框架内部 prompt（工具回填 / 转义自检 / 续接 / 重试）。
-      // 此时识别它的种类，渲染时折叠成灰色块，且不计入轮次。
-      const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
-      const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
-      const injectedContext = extractInjectedContext(rawUser);
-      return {
-        userPrompt: displayPrompt,
-        injectedContext,
-        traces: [t],
-        synthetic: syntheticInfo,
-        // 完整原始文本，仅在 synthetic 折叠块中按需展示
-        syntheticRaw: syntheticInfo ? stripInjectedContext(rawUser) : '',
-      };
-    });
 
     // 轮次显示口径：仅统计真实用户轮次，框架内部 prompt（synthetic）不计入分母。
     const realRoundCount = groups.filter(g => !g.synthetic).length;
@@ -5066,20 +5131,13 @@
     if (truncationBanner) html.push(truncationBanner);
     // 全局产物登记：同一 path 多次出现 → 计版本（v1, v2, v3...）
     const artifactVersions = new Map();
-    const groupClarifies = groups.map(grp => grp.traces.some(t => (t.spans || []).some(sp => {
-      if (sp.span_type === 'tool' && isClarifyTool(sp.span_name || '')) return true;
-      if (sp.span_type !== 'model') return false;
-      const { text, tool_calls } = extractAssistantOutput(sp);
-      return isIntentClarificationText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''));
-    })));
 
     groups.forEach((grp, groupIndex) => {
       // user 气泡（如果该组有 prompt）
-      const attachedToPreviousClarify = groupIndex > 0 && groupClarifies[groupIndex - 1];
-      if (grp.synthetic && !attachedToPreviousClarify) {
+      if (grp.synthetic) {
         // 框架内部 prompt：不渲染蓝色用户气泡，改为左对齐的灰色折叠块（与系统注入引用块同款）
         html.push(renderSyntheticPromptBlock(grp.synthetic, grp.syntheticRaw));
-      } else if (grp.userPrompt && !attachedToPreviousClarify) {
+      } else if (grp.userPrompt) {
         html.push(`
           <div class="flex justify-end">
             <div class="max-w-[88%] min-w-0 flex flex-col items-end">
@@ -5101,9 +5159,7 @@
       const modelsUsed = new Set();
       let totalLLMms = 0;
       const artifacts = [];
-      const nextUserReply = groupClarifies[groupIndex] && groups[groupIndex + 1]
-        ? String(groups[groupIndex + 1].userPrompt || '').trim()
-        : '';
+      const nextUserReply = String(grp.clarifyReply || '').trim();
 
       grp.traces.forEach((t, ti) => {
         const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
@@ -5133,7 +5189,7 @@
             `);
           }
           if (text) {
-            if (isIntentClarificationText(text)) {
+            if (isClarifyMessageText(text)) {
               parts.push(renderIntentClarifyCard(text, nextUserReply));
             } else {
               const plan = parsePlanPayload(text);
