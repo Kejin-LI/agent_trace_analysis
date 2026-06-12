@@ -820,11 +820,14 @@
     // 与 sessions.html buildAnomalies 一致：用轨迹健康信号动态校准"执行效率健康"
     function buildAnomalies(s) {
       const rulesRaw = s.rules || [];
+      // 仅当 session 带了对话明细（traces/spans）时才用前端逻辑重算校准；
+      // 大盘列表概览接口不返回明细，此时直接信任后端 rules，避免把每个 session 误判为「轨迹异常」。
+      const hasTraceDetail = (s.traces || []).some(t => (t.spans || []).length > 0);
       const thinkingMetric = efficiencyHelper.computeThinkingMetric(s);
       const turnsN = thinkingMetric.turnsN || ((typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0));
       const rules = rulesRaw.map(r => {
         if (!r) return r;
-        if (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少' || r.failed_label === '轨迹异常') {
+        if (hasTraceDetail && (r.name === '轮数合理' || r.name === '执行步数合理' || r.name === '执行效率健康' || r.failed_label === '轮数过多' || r.failed_label === '轮数过少' || r.failed_label === '执行步数过多' || r.failed_label === '执行步数过少' || r.failed_label === '轨迹异常')) {
           const checks = [];
           if (!thinkingMetric.hasFinalAnswer) checks.push('未产出最终答复');
           if (thinkingMetric.truncatedByMax) checks.push('触达 max_steps 截断');
