@@ -4013,9 +4013,8 @@
 
   function findQuestionAnswerResultPayload(text) {
     const raw = String(text || '');
-    const marker = '"type":"question_answer_result"';
-    let idx = raw.indexOf(marker);
-    if (idx < 0) idx = raw.indexOf('"type": "question_answer_result"');
+    const marker = raw.match(/"type"\s*:\s*"question_answer_result"/);
+    const idx = marker ? marker.index : -1;
     if (idx < 0) return null;
     const start = raw.lastIndexOf('{', idx);
     if (start < 0) return null;
@@ -4065,6 +4064,34 @@
       })
       .filter(Boolean)
       .join('；');
+  }
+
+  function collectSpanUserMessageTexts(span) {
+    const texts = [];
+    if (!span) return texts;
+    if (span.user_prompt) texts.push(String(span.user_prompt));
+    const inp = safeJSON(span.input);
+    if (inp && Array.isArray(inp.messages)) {
+      inp.messages
+        .filter(m => m && m.role === 'user')
+        .forEach(m => {
+          const text = contentToText(m.content);
+          if (text) texts.push(text);
+        });
+    }
+    return texts;
+  }
+
+  function formatQuestionAnswerReplyFromTrace(trace) {
+    const candidates = [trace?.user_prompt, trace?.title].filter(Boolean).map(String);
+    (trace?.spans || [])
+      .filter(sp => sp && sp.span_type === 'model')
+      .forEach(sp => candidates.push(...collectSpanUserMessageTexts(sp)));
+    for (const text of candidates) {
+      const reply = formatQuestionAnswerReply(text);
+      if (reply) return reply;
+    }
+    return '';
   }
 
   function isGeneratedRoundTitle(text) {
@@ -4478,7 +4505,7 @@
     if (!t) return false;
     const compact = t.replace(/\s+/g, '');
     const hasClarifyIntent = /意图澄清|澄清需求|反向确认|找用户确认|确认一些信息/.test(compact);
-    const asksForReply = /你回复|请回复|补全|填写|确认后|确认这些/.test(compact);
+    const asksForReply = /你回复|请回复|请补全|请填写|需要你补全|需要你填写|确认后|确认这些/.test(compact);
     const hasTemplate = /空白项|____|___|模板|业务背景|数据内容|取标数据|产线流程/.test(compact);
     const numberedItems = (t.match(/^\s*\d+[.、]\s*.+[：:]/gm) || []).length;
     return hasClarifyIntent || (asksForReply && (hasTemplate || numberedItems >= 3));
@@ -4819,6 +4846,35 @@
       </div>`;
   }
 
+  function extractClarifyAcknowledgementReply(text) {
+    const reply = stripWrapperTags(String(text || '').trim());
+    if (!reply) return '';
+    const compact = reply.replace(/\s+/g, '');
+    if (/已收到(你的)?(选择|回复|答案|确认)/.test(compact)) return reply;
+    if (/按(你|这些|上述).*(选择|回复|答案|确认).*(继续|生成|落地|处理)/.test(compact)) return reply;
+    return '';
+  }
+
+  function inferClarifyReplyFromGroup(grp) {
+    let seenClarify = false;
+    const traces = (grp?.traces || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+    for (const t of traces) {
+      const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+      for (const sp of spans) {
+        if (sp.span_type !== 'model') continue;
+        const { text, tool_calls } = extractAssistantOutput(sp);
+        if (seenClarify) {
+          const reply = extractClarifyAcknowledgementReply(text);
+          if (reply) return reply;
+        }
+        if (isClarifyMessageText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''))) {
+          seenClarify = true;
+        }
+      }
+    }
+    return '';
+  }
+
   function buildConversationGroups(real) {
     const traces = (real?.traces || [])
       .slice()
@@ -4834,8 +4890,7 @@
       const displayPrompt = up || rawPrompt || '';
       const injectedContext = extractInjectedContext(rawUser);
       const clarifyAnswerReply = formatQuestionAnswerReply(rawUser)
-        || formatQuestionAnswerReply(t.user_prompt)
-        || formatQuestionAnswerReply(t.title);
+        || formatQuestionAnswerReplyFromTrace(t);
       return {
         userPrompt: displayPrompt,
         injectedContext,
@@ -4876,7 +4931,7 @@
         ...grp,
         traces: [...grp.traces],
         internalPrompts: [...(grp.internalPrompts || [])],
-        clarifyReply: grp.clarifyAnswerReply || '',
+        clarifyReply: grp.clarifyAnswerReply || inferClarifyReplyFromGroup(grp),
         mergedClarifyReply: false,
       };
       const nextReply = i + 1 < normalizedBaseGroups.length ? String(normalizedBaseGroups[i + 1].userPrompt || '').trim() : '';
