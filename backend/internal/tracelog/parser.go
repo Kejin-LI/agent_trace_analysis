@@ -1402,7 +1402,8 @@ func stripInjectedContext(text string) string {
 }
 
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
-// 执行后框架以 user 角色把结果回填给模型），这类不是真实用户提问，提取轮次 prompt 时排除。
+// 执行后框架以 user 角色把结果回填给模型），以及其他框架内部 prompt（如子代理任务下发、工具中断收尾），
+// 这类都不是真实用户提问，提取轮次 prompt 时排除。
 func isSyntheticToolPrompt(text string) bool {
 	lower := strings.ToLower(text)
 	for _, sig := range []string{
@@ -1416,6 +1417,16 @@ func isSyntheticToolPrompt(text string) bool {
 		if strings.Contains(lower, sig) {
 			return true
 		}
+	}
+	if (strings.HasPrefix(lower, "your task is to do a deep investigation") || strings.HasPrefix(lower, "your task is to")) &&
+		strings.Contains(lower, "<objective>") && strings.Contains(lower, "</objective>") {
+		return true
+	}
+	if strings.Contains(lower, "you have stopped calling tools without finishing") ||
+		(strings.Contains(lower, "you have one final chance") && strings.Contains(lower, "short grace period")) ||
+		(strings.Contains(lower, "must call `complete_task` immediately") && strings.Contains(lower, "do not call any other tools")) ||
+		(strings.Contains(lower, "must call complete_task immediately") && strings.Contains(lower, "do not call any other tools")) {
+		return true
 	}
 	return false
 }

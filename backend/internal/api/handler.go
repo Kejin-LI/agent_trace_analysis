@@ -1183,10 +1183,12 @@ func stripInjectedContext(raw string) string {
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
 // 执行后框架以 user 角色回填的结果），这类不是真实用户提问，提取 prompt 时必须排除。
 //
-// 同时识别三类「框架内部 prompt」（同样以 role:user 通道发送）：
+// 同时识别四类「框架内部 prompt」（同样以 role:user 通道发送）：
 //  1. Edit 转义自检（Context: A text replacement operation is planned ... new_string ...）
 //  2. 长上下文压缩 / 跨 Agent 续接（Provide a detailed prompt for continuing ...）
 //  3. Edit 工具失败后的自我修复（# Goal of the Original Edit / # Failed Attempt Details ...）
+//  4. 子代理任务下发（Your task is to do a deep investigation ... <objective>...</objective>）
+//  5. 工具中断后的收尾控制（You have stopped calling tools without finishing ... complete_task ...）
 //
 // 这些消息会污染轮次/空转/耗时等指标，必须在指标计算时识别并剔除。
 func isSyntheticToolPrompt(raw string) bool {
@@ -1215,6 +1217,16 @@ func isSyntheticToolPrompt(raw string) bool {
 	if strings.Contains(lower, "<search>") && strings.Contains(lower, "</search>") &&
 		strings.Contains(lower, "<replace>") && strings.Contains(lower, "</replace>") &&
 		strings.Contains(lower, "# full file content") {
+		return true
+	}
+	if (strings.HasPrefix(lower, "your task is to do a deep investigation") || strings.HasPrefix(lower, "your task is to")) &&
+		strings.Contains(lower, "<objective>") && strings.Contains(lower, "</objective>") {
+		return true
+	}
+	if strings.Contains(lower, "you have stopped calling tools without finishing") ||
+		(strings.Contains(lower, "you have one final chance") && strings.Contains(lower, "short grace period")) ||
+		(strings.Contains(lower, "must call `complete_task` immediately") && strings.Contains(lower, "do not call any other tools")) ||
+		(strings.Contains(lower, "must call complete_task immediately") && strings.Contains(lower, "do not call any other tools")) {
 		return true
 	}
 	return false

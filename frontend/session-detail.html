@@ -350,8 +350,10 @@
   .badge-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
 
   .seg { background: rgba(120,120,128,0.12); border-radius: 8px; padding: 2px; display: inline-flex; }
-  .seg button { padding: 4px 10px; font-size: 11px; border-radius: 6px; color: var(--text-secondary); }
+  .seg button { padding: 4px 10px; font-size: 11px; border-radius: 6px; color: var(--text-secondary); cursor: pointer; transition: background .15s ease, color .15s ease, opacity .15s ease; }
+  .seg button:hover { background: rgba(255,255,255,0.55); color: var(--text-primary); }
   .seg button.active { background: white; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .seg button[disabled] { opacity: .4; cursor: not-allowed; pointer-events: none; }
 
   /* DAG */
   .gantt-row { transition: background .15s ease; }
@@ -407,17 +409,20 @@
   }
 
   /* Time axis ticks */
-  .axis-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.04); }
-  .axis-label { position: absolute; top: -16px; transform: translateX(-50%); font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .axis-tick { position: absolute; top: 16px; bottom: 0; width: 1px; background: rgba(0,0,0,0.04); }
+  .axis-label { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 
   /* Critical path overlay */
   .cp-line { stroke: var(--apple-orange); stroke-width: 1.2; stroke-dasharray: 4 4; fill: none; opacity: 0.55; }
 
-  .shape-agent { width: 12px; height: 12px; border-radius: 4px; background: var(--apple-cyan); display: inline-block; }
+  .shape-round { width: 12px; height: 12px; border-radius: 4px; background: var(--apple-cyan); display: inline-block; }
+  .shape-agent { width: 12px; height: 12px; border-radius: 4px; background: rgba(120,120,128,0.35); display: inline-block; }
+  .shape-segment { width: 13px; height: 13px; background: linear-gradient(135deg, var(--apple-purple), #7c6cff); clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%); display: inline-block; }
   .shape-tool { width: 12px; height: 12px; background: var(--apple-green); display: inline-block; }
   .shape-mcp { width: 12px; height: 12px; background: var(--apple-purple); transform: rotate(45deg); display: inline-block; }
   .shape-skill { width: 14px; height: 12px; background: var(--apple-orange); clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); display: inline-block; }
   .shape-llm { width: 12px; height: 12px; border-radius: 50%; background: var(--apple-blue); display: inline-block; }
+  .shape-gap { width: 12px; height: 12px; border-radius: 3px; background: repeating-linear-gradient(45deg, rgba(120,120,128,0.55), rgba(120,120,128,0.55) 2px, rgba(120,120,128,0.2) 2px, rgba(120,120,128,0.2) 4px); display: inline-block; }
 
   .lift { transition: transform .25s ease, box-shadow .25s ease; }
   .lift:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(0,0,0,0.06); }
@@ -1520,11 +1525,19 @@
           <div class="flex items-center gap-3 flex-shrink-0">
             <!-- 窄屏下隐藏图例文本，只保留图标，或者直接允许横向滚动/截断 -->
             <div class="hidden sm:flex items-center gap-3 text-[10.5px] text-[--text-secondary]" id="gantt-legend">
-              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-agent"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-agent"></span></span> Agent</span>
+              <span class="flex items-center gap-1 whitespace-nowrap" id="legend-agent"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-round"></span></span> 轮次</span>
               <span class="flex items-center gap-1 whitespace-nowrap" id="legend-tool"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg></span> Tool</span>
               <span class="flex items-center gap-1 whitespace-nowrap" id="legend-mcp"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-purple)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></span> MCP</span>
               <span class="flex items-center gap-1 whitespace-nowrap" id="legend-skill"><span class="flex items-center justify-center w-[14px] h-[14px]"><svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></span> Skill</span>
               <span class="flex items-center gap-1 whitespace-nowrap" id="legend-llm"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-llm"></span></span> LLM</span>
+              <span class="flex items-center gap-1 whitespace-nowrap help" id="legend-gap"><span class="flex items-center justify-center w-[14px] h-[14px]"><span class="shape-gap"></span></span> 其他
+                <div class="tip">
+                  <div class="tip-title">⏳ 其他耗时</div>
+                  相邻大模型调用之间的时间空档。由于 trace 未采集工具执行时间（tool span 恒为 0ms），这段空档是唯一可信的非 LLM 耗时来源。
+                  <div class="tip-formula">其他 = 轮次总耗时 − 大模型耗时</div>
+                  <div class="tip-row"><span>包含</span><span>工具执行 / 框架编排 / 等待调度</span></div>
+                </div>
+              </span>
               <span class="flex items-center gap-1 whitespace-nowrap help"><span class="inline-block w-3 h-2 rounded border-2 border-[--apple-orange]"></span> 关键路径
                 <div class="tip">
                   <div class="tip-title">🛤 关键路径 (Critical Path)</div>
@@ -1535,16 +1548,16 @@
                 </div>
               </span>
             </div>
-            <div class="seg flex-shrink-0">
-              <button>−</button><button class="active mono">100%</button><button>+</button>
+            <div class="seg flex-shrink-0 no-tooltip">
+              <button type="button" class="no-tooltip" data-gantt-zoom="out" title="缩小时间轴">−</button><button type="button" class="active mono no-tooltip" data-gantt-zoom="reset" title="重置缩放">100%</button><button type="button" class="no-tooltip" data-gantt-zoom="in" title="放大时间轴">+</button>
             </div>
           </div>
         </div>
         <!-- Time axis -->
-        <div class="px-4 h-7 relative border-b border-black/5" style="margin-top: 16px;">
-          <div class="absolute inset-x-4 top-0 h-7" id="gantt-axis"></div>
+        <div class="px-0 h-9 relative border-b border-black/5 overflow-x-auto overflow-y-visible scroll-x" style="margin-top: 16px;" id="gantt-axis-viewport">
+          <div class="relative h-9" id="gantt-axis"></div>
         </div>
-        <div id="gantt-body" class="overflow-y-auto scroll-y" style="max-height: 400px;">
+        <div id="gantt-body" class="overflow-auto scroll-y scroll-x" style="max-height: 400px;">
           <div class="px-5 py-6 text-[11px] text-[--text-tertiary] text-center">加载中…</div>
         </div>
       </div><!-- /DAG 甘特图卡 -->
@@ -1722,15 +1735,26 @@
     if (!spanId) return;
     if (typeof openSpanDrawer === 'function') openSpanDrawer(spanId);
     // 同步在左侧对话流定位到对应位置并高亮
-    locateSpanInChat(spanId);
+    locateSpanInChat(spanId, {
+      spanType: bar.dataset.spanType || '',
+      traceIdx: Number(bar.dataset.traceIdx),
+    });
   });
 
   // locateSpanInChat 把甘特节点映射到左侧对话流元素，滚动定位并高亮闪烁。
   // 优先精确匹配 data-span-id；匹配不到（如合成的「对话轮次」根节点）则降级到该 trace 的首个可定位步骤。
-  function locateSpanInChat(spanId) {
+  function locateSpanInChat(spanId, options) {
     const stream = document.getElementById('chat-stream');
     if (!stream) return;
-    let target = stream.querySelector(`[data-span-id="${(window.CSS && CSS.escape) ? CSS.escape(spanId) : spanId}"]`);
+    const traceIdx = Number(options && options.traceIdx);
+    const isRound = (options && options.spanType) === 'round';
+    let target = null;
+    if (isRound && Number.isFinite(traceIdx)) {
+      target = stream.querySelector(`[data-chat-round-idx="${traceIdx}"]`);
+    }
+    if (!target) {
+      target = stream.querySelector(`[data-span-id="${(window.CSS && CSS.escape) ? CSS.escape(spanId) : spanId}"]`);
+    }
     if (!target) {
       // 降级：找出该 spanId 所属 trace（含合成 round 节点 span_id == trace_id），
       // 再取该 trace 里第一个在左侧有锚点的 span。
@@ -2583,7 +2607,7 @@
         // 如果这个元素有特定的 id 或类名说明已经有特定功能了，不提示
         const ignoreList = ['main-tab', 'ver-chip', 'gantt-bar', 'chat-collapse-btn', 'chat-expand-float-btn', 'ai-btn'];
         const isHandled = ignoreList.some(cls => el.classList.contains(cls) || el.id === cls);
-        if (!isHandled && !el.closest('#art-view-seg') && !el.onclick) {
+        if (!isHandled && !el.classList.contains('no-tooltip') && !el.closest('.no-tooltip') && !el.closest('#art-view-seg') && !el.onclick) {
           const text = (el.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 10);
           showToast(`「${text}」仅为原型展示，尚未实现交互`);
         }
@@ -3756,10 +3780,11 @@
   // I was unable to access the URL... I have fetched the raw content ..."）。
   // 这类不是真实用户提问，识别 prompt 时必须排除，否则会被误显示成用户输入。
   //
-  // 此外还兼容三类「框架内部 prompt」（同样以 role:user 通道发送，并非用户输入）：
+  // 此外还兼容四类「框架内部 prompt」（同样以 role:user 通道发送，并非用户输入）：
   //   1) Edit 转义自检（Context: A text replacement operation is planned ... new_string ...）
   //   2) 长上下文压缩 / 跨 Agent 续接（Provide a detailed prompt for continuing ...）
   //   3) Edit 工具失败后的自我修复（# Goal of the Original Edit / # Failed Attempt Details ...）
+  //   4) 子代理任务下发（Your task is to do a deep investigation ... <objective>...</objective>）
   function detectSyntheticPromptKind(text) {
     const t = String(text || '');
     if (/The user requested the following/i.test(t)
@@ -3780,6 +3805,15 @@
       || (/# Failed Attempt Details/.test(t) && /\*\*Original `(search|replace)` parameter/i.test(t))
       || (/<search>[\s\S]*<\/search>/i.test(t) && /<replace>[\s\S]*<\/replace>/i.test(t) && /# Full File Content/.test(t))) {
       return { kind: 'edit_retry', label: '编辑失败重试', desc: 'Edit 工具调用失败后框架的自动修复 prompt' };
+    }
+    if ((/^Your task is to do a deep investigation\b/i.test(t) || /^Your task is to\b/i.test(t))
+      && /<objective>[\s\S]*<\/objective>/i.test(t)) {
+      return { kind: 'subagent_task', label: '子代理任务下发', desc: '主代理给搜索/子代理下发的内部任务 prompt，非用户输入' };
+    }
+    if (/You have stopped calling tools without finishing/i.test(t)
+      || (/You have one final chance/i.test(t) && /short grace period/i.test(t))
+      || (/MUST call [`']?complete_task[`']? immediately/i.test(t) && /Do not call any other tools/i.test(t))) {
+      return { kind: 'grace_retry', label: '工具中断收尾', desc: '框架在工具调用中断后下发的收尾控制 prompt，非用户输入' };
     }
     return null;
   }
@@ -4001,8 +4035,15 @@
       const currentPrompt = current ? cleanUserPrompt(current.user_prompt) : '';
       const shouldStartNewByRound = !!(roundIndex && current && currentRoundIndex && roundIndex !== currentRoundIndex);
       const shouldStartNewByPrompt = !!(prompt && !!currentPrompt && prompt !== currentPrompt);
-      const shouldStartNew = !current || shouldStartNewByRound || shouldStartNewByPrompt;
+      // 空 prompt 的 trace 不是新的用户输入，不应新增一个蓝色用户气泡/对话轮次；
+      // 它们应继续挂到当前轮次里，仅作为该轮内部的后续执行。
+      const shouldStartNew = !current ? !!prompt : (shouldStartNewByRound || shouldStartNewByPrompt);
       const target = shouldStartNew ? startSegment(sp, prompt, roundIndex) : current;
+      if (!target) {
+        pendingSpans.push(sp);
+        if (roundIndex) currentRoundIndex = roundIndex;
+        return;
+      }
       target.spans.push(sp);
       if (prompt && !target.user_prompt) target.user_prompt = prompt;
       if (roundIndex) {
@@ -4166,7 +4207,7 @@
 
   function renderClarifyReply(replyText) {
     const reply = String(replyText || '').trim();
-    if (!reply || reply === '（本轮未识别到用户提问）') return '';
+    if (!reply) return '';
     return `
       <div class="clarify-reply">
         <div class="clarify-reply-label">用户已回复</div>
@@ -4175,7 +4216,7 @@
   }
 
   function renderIntentClarifyCard(text, replyText = '') {
-    const answered = !!String(replyText || '').trim() && replyText !== '（本轮未识别到用户提问）';
+    const answered = !!String(replyText || '').trim();
     // 优先识别内嵌的结构化 JSON（<question>{ "questions": [...] }</question> 或裸 JSON），
     // 按「每问一排」排版；解析不到再退回原有的「1. 标题：描述」文本解析。
     const questions = extractClarifyQuestions({}, text);
@@ -4401,7 +4442,7 @@
       const rawUser = pickRawUserText(firstLLM, t);
       const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
       const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
-      const displayPrompt = up || rawPrompt || '（本轮未识别到用户提问）';
+      const displayPrompt = up || rawPrompt || '';
       const injectedContext = extractInjectedContext(rawUser);
       return {
         userPrompt: displayPrompt,
@@ -4513,7 +4554,9 @@
     const isMCP = !!tags.mcp_server_name;
     const isSkill = !!tags.skill_name;
 
-    const kind = isMCP ? { shape: 'shape-mcp', label: 'MCP' }
+    const kind = (sp._is_round || sp.span_type === 'round') ? { shape: 'shape-round', label: '对话轮次' }
+              : (sp.span_name === 'NeekoTurn') ? { shape: 'shape-segment', label: '执行段' }
+              : isMCP ? { shape: 'shape-mcp', label: 'MCP' }
               : isSkill ? { shape: 'shape-skill', label: 'Skill' }
               : isLLM ? { shape: 'shape-llm', label: 'LLM' }
               : isTool ? { shape: 'shape-tool', label: 'Tool' }
@@ -4801,13 +4844,91 @@
     });
   }
 
+  const GANTT_ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2];
+  let ganttZoom = 1;
+
+  function nearestGanttZoomIndex() {
+    let best = 0;
+    let bestDiff = Infinity;
+    GANTT_ZOOM_STEPS.forEach((v, i) => {
+      const diff = Math.abs(v - ganttZoom);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  function syncGanttZoomButtons() {
+    const card = document.getElementById('gantt-card');
+    if (!card) return;
+    const outBtn = card.querySelector('[data-gantt-zoom="out"]');
+    const resetBtn = card.querySelector('[data-gantt-zoom="reset"]');
+    const inBtn = card.querySelector('[data-gantt-zoom="in"]');
+    if (!outBtn || !resetBtn || !inBtn) return;
+    const idx = nearestGanttZoomIndex();
+    outBtn.toggleAttribute('disabled', idx <= 0);
+    inBtn.toggleAttribute('disabled', idx >= GANTT_ZOOM_STEPS.length - 1);
+    resetBtn.textContent = `${Math.round(ganttZoom * 100)}%`;
+    resetBtn.classList.toggle('active', Math.abs(ganttZoom - 1) < 0.001);
+  }
+
+  function bindGanttZoomControls() {
+    const card = document.getElementById('gantt-card');
+    if (!card || card.dataset.zoomBound === '1') {
+      syncGanttZoomButtons();
+      return;
+    }
+    const outBtn = card.querySelector('[data-gantt-zoom="out"]');
+    const resetBtn = card.querySelector('[data-gantt-zoom="reset"]');
+    const inBtn = card.querySelector('[data-gantt-zoom="in"]');
+    if (!outBtn || !resetBtn || !inBtn) return;
+
+    const rerender = () => {
+      syncGanttZoomButtons();
+      const real = (window.SESSION && window.SESSION._real) || null;
+      if (real) renderGantt(real);
+    };
+    const stepZoom = (delta) => {
+      const idx = nearestGanttZoomIndex();
+      const nextIdx = Math.max(0, Math.min(GANTT_ZOOM_STEPS.length - 1, idx + delta));
+      if (nextIdx === idx) return;
+      ganttZoom = GANTT_ZOOM_STEPS[nextIdx];
+      rerender();
+    };
+
+    outBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      stepZoom(-1);
+    });
+    inBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      stepZoom(1);
+    });
+    resetBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (Math.abs(ganttZoom - 1) < 0.001) return;
+      ganttZoom = 1;
+      rerender();
+    });
+
+    card.dataset.zoomBound = '1';
+    syncGanttZoomButtons();
+  }
+
   // ===== DAG 甘特图：基于真实 spans 渲染 =====
   function renderGantt(real) {
     const card = document.getElementById('gantt-card');
     const body = document.getElementById('gantt-body');
     const axisEl = document.getElementById('gantt-axis');
+    const axisViewport = document.getElementById('gantt-axis-viewport');
     const metaEl = document.getElementById('gantt-meta');
-    if (!card || !body || !axisEl) return;
+    if (!card || !body || !axisEl || !axisViewport) return;
+    bindGanttZoomControls();
     const convo = buildConversationGroups(real);
     const groups = convo.groups || [];
     if (!groups.length) {
@@ -4819,11 +4940,14 @@
     // 若上一轮是澄清提问，则把用户回复 + 后续继续执行并入同一轮，避免把澄清回复误记成新轮次。
     const allSpans = [];
     groups.forEach((grp, gi) => {
-      const traceRootIds = new Set((grp.traces || []).map(t => t.trace_id || t.span_id).filter(Boolean));
+      const traceRootIds = new Set((grp.traces || []).flatMap(t => [t.trace_id, t.span_id]).filter(Boolean));
       const roundId = `conv-round-${gi + 1}`;
       const childSpans = (grp.traces || []).flatMap((t) => (t.spans || []).map(sp => ({
         ...sp,
-        parent_id: (!sp.parent_id || traceRootIds.has(sp.parent_id)) ? roundId : sp.parent_id,
+        // trace 根节点可能表现为 parent_id 为空、'0'，或直接挂在 trace_id/span_id 下；
+        // 这些都应统一收拢到合成的 round 根下，否则会把同一轮拆成多个顶层节点，
+        // 导致「总耗时 = LLM + 未归因」的拆解漏算 LLM。
+        parent_id: (!sp.parent_id || String(sp.parent_id) === '0' || traceRootIds.has(sp.parent_id)) ? roundId : sp.parent_id,
         _trace_idx: gi,
         _trace_id: t.trace_id,
         started_at_ms: Number(sp.started_at_ms) || 0,
@@ -4862,6 +4986,59 @@
         if (isToolLike && !(Number(sp.duration_ms) > 0)) return;
         allSpans.push(sp);
       });
+
+      // 反推「未归因耗时」：trace 未采集 tool 执行时间（tool span 恒为 0ms），因此一轮里
+      // 「相邻大模型调用之间的时间空档」就是唯一可信的非 LLM 耗时来源——它包含工具执行、
+      // 框架编排、等待/调度等无法形成可视 span 的黑盒时间。把这段空档渲染成灰色条挂在轮次下，
+      // 使「子节点耗时之和 ≈ 轮次总耗时」，消除「轮次 35s 但子项加起来对不上」的困惑。
+      const GAP_MIN_MS = 300; // 低于该阈值视为时钟抖动，忽略
+      const modelChildren = childSpans
+        .filter(sp => sp.span_type === 'model')
+        .sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+      if (modelChildren.length) {
+        // 已单独成条的「有耗时工具」需从空档中扣除，避免重复计时
+        const durTools = childSpans.filter(sp => {
+          const tags = sp.custom_tags || {};
+          const isToolLike = sp.span_type === 'tool' || tags.skill_name || tags.mcp_server_name;
+          return isToolLike && Number(sp.duration_ms) > 0;
+        });
+        const roundStartMs = childSpans.reduce((m, sp) => Math.min(m, sp.started_at_ms || Infinity), Infinity);
+        const roundEndMs = childSpans.reduce((m, sp) => Math.max(m, (sp.started_at_ms || 0) + (sp.duration_ms || 0)), 0);
+        const windows = [];
+        const firstStart = modelChildren[0].started_at_ms || 0;
+        if (isFinite(roundStartMs) && firstStart - roundStartMs >= GAP_MIN_MS) windows.push([roundStartMs, firstStart]);
+        for (let i = 0; i < modelChildren.length - 1; i++) {
+          const prevEnd = (modelChildren[i].started_at_ms || 0) + (modelChildren[i].duration_ms || 0);
+          const nextStart = modelChildren[i + 1].started_at_ms || 0;
+          if (nextStart - prevEnd >= GAP_MIN_MS) windows.push([prevEnd, nextStart]);
+        }
+        const last = modelChildren[modelChildren.length - 1];
+        const lastEnd = (last.started_at_ms || 0) + (last.duration_ms || 0);
+        if (roundEndMs - lastEnd >= GAP_MIN_MS) windows.push([lastEnd, roundEndMs]);
+
+        windows.forEach(([ws, we], wi) => {
+          let toolMsInWindow = 0;
+          durTools.forEach(t => {
+            const s = t.started_at_ms || 0;
+            if (s >= ws && s < we) toolMsInWindow += Math.min(Number(t.duration_ms) || 0, we - s);
+          });
+          const gapMs = (we - ws) - toolMsInWindow;
+          if (gapMs < GAP_MIN_MS) return;
+          allSpans.push({
+            span_id: `${roundId}-gap-${wi}`,
+            parent_id: roundId,
+            span_name: '未归因耗时',
+            span_type: 'gap',
+            started_at_ms: ws,
+            duration_ms: gapMs,
+            status_code: 0,
+            custom_tags: {},
+            _trace_idx: gi,
+            _trace_id: roundId,
+            _is_gap: true,
+          });
+        });
+      }
     });
     if (!allSpans.length) {
       body.innerHTML = '<div class="px-5 py-6 text-[11px] text-[--text-tertiary] text-center">暂无 span 数据</div>';
@@ -4945,17 +5122,32 @@
     }
     roots.forEach(markCritical);
 
-    // 5) DFS 输出顺序 + 深度
+    // 5) 生成「可见树」：
+    // NeekoTurn 仅作为内部容器保留，不渲染成可见行；其子节点直接提升到 round 下展示。
     const flat = []; // [{span, depth, rootIdx}]
+    const visibleParentMap = new Map();
+    const visibleChildrenMap = new Map();
     let rootCounter = 0;
-    function dfs(node, depth, rootIdx) {
-      flat.push({ span: node, depth, rootIdx });
+    function addVisibleEdge(parentId, child) {
+      visibleParentMap.set(child.span_id, parentId || '');
+      if (!parentId) return;
+      if (!visibleChildrenMap.has(parentId)) visibleChildrenMap.set(parentId, []);
+      visibleChildrenMap.get(parentId).push(child);
+    }
+    function dfs(node, depth, rootIdx, visibleParentId = '') {
       const kids = childrenMap.get(node.span_id) || [];
-      kids.forEach(k => dfs(k, depth + 1, rootIdx));
+      const isHiddenSegment = node.span_name === 'NeekoTurn' && !(node._is_round || node.span_type === 'round');
+      if (!isHiddenSegment) {
+        flat.push({ span: node, depth, rootIdx });
+        addVisibleEdge(visibleParentId, node);
+      }
+      const nextParentId = isHiddenSegment ? visibleParentId : node.span_id;
+      const nextDepth = isHiddenSegment ? depth : depth + 1;
+      kids.forEach(k => dfs(k, nextDepth, rootIdx, nextParentId));
     }
     roots.forEach(r => {
       rootCounter++;
-      dfs(r, 0, rootCounter);
+      dfs(r, 0, rootCounter, '');
     });
 
     const maxDepth = flat.reduce((m, f) => Math.max(m, f.depth), 0);
@@ -4967,26 +5159,40 @@
       const m = Math.floor(s / 60), r = s - m * 60;
       return `${m}m${r.toFixed(0)}s`;
     };
-    axisEl.innerHTML = [0, 25, 50, 75, 100].map(p => `
-      <div class="axis-label" style="left:${p}%">${escapeHTML(fmtAxis(totalMs * p / 100))}</div>
-      <div class="axis-tick" style="left:${p}%"></div>
-    `).join('');
+    const LEFT_COL_PX = 220;
+    const TRACK_SIDE_PADDING_PX = 40; // px-5
+    const TRACK_LEFT_PAD_PX = TRACK_SIDE_PADDING_PX / 2;
+    const trackViewportPx = Math.max(280, body.clientWidth - LEFT_COL_PX - TRACK_SIDE_PADDING_PX);
+    const trackWidthPx = Math.max(trackViewportPx, Math.round(trackViewportPx * ganttZoom));
+    const rowMinWidthPx = LEFT_COL_PX + TRACK_SIDE_PADDING_PX + trackWidthPx;
+    axisEl.style.width = `${rowMinWidthPx}px`;
+    axisEl.innerHTML = [0, 25, 50, 75, 100].map(p => {
+      const leftPx = LEFT_COL_PX + TRACK_LEFT_PAD_PX + (trackWidthPx * p / 100);
+      return `
+      <div class="axis-label" style="left:${leftPx}px">${escapeHTML(fmtAxis(totalMs * p / 100))}</div>
+      <div class="axis-tick" style="left:${leftPx}px"></div>
+    `;
+    }).join('');
 
     // 7) 渲染甘特行
     const typeMap = (sp) => {
       const tags = sp.custom_tags || {};
       const t = sp.span_type;
+      if (sp._is_round || t === 'round') return { kind: 'agent', shape: 'shape-round', bar: 'bar-agent', icon: '<span class="shape-round"></span>' };
+      if (sp.span_name === 'NeekoTurn')  return { kind: 'agent', shape: 'shape-segment', bar: 'bar-agent', icon: '<span class="shape-segment"></span>' };
       if (tags.mcp_server_name) return { kind: 'mcp', shape: 'shape-mcp', bar: 'bar-mcp', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-purple)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>' };
       if (tags.skill_name)      return { kind: 'skill', shape: 'shape-skill', bar: 'bar-skill', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-orange)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>' };
       if (t === 'model')        return { kind: 'llm', shape: 'shape-llm', bar: 'bar-llm', icon: '<span class="shape-llm"></span>' };
+      if (t === 'gap')          return { kind: 'gap', shape: 'shape-gap', bar: 'bar-queue', icon: '<span class="shape-gap"></span>' };
       if (t === 'tool')         return { kind: 'tool', shape: 'shape-tool', bar: 'bar-tool', icon: '<svg class="w-3.5 h-3.5" style="color:var(--apple-blue)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>' };
-      // 其余视为 agent / 调度容器（含合成的轮次根节点）
+      // 其余视为 agent / 调度容器
       return { kind: 'agent', shape: 'shape-agent', bar: 'bar-agent', icon: '<span class="shape-agent"></span>' };
     };
     const labelOf = (sp, rootIdx) => {
       const t = sp.span_type;
       if (sp._is_round || t === 'round') return sp.span_name || `对话轮次 ${rootIdx || ''}`.trim();
       if (t === 'model') return '大模型';
+      if (t === 'gap')   return '工具/编排/等待';
       if (t === 'tool')  return `工具: ${sp.span_name || ''}`;
       if (sp.span_name === 'NeekoTurn') return `对话轮次 ${rootIdx || ''}`.trim();
       return sp.span_name || '(span)';
@@ -4999,12 +5205,6 @@
       const m = Math.floor(s / 60), r = s - m * 60;
       return `${m}m${r.toFixed(0)}s`;
     };
-
-    // 反查每个 span 真实的「挂载父节点」（孤立 LLM 已被挂到 NeekoTurn 下）
-    const realParentMap = new Map();
-    childrenMap.forEach((kids, pid) => {
-      kids.forEach(k => realParentMap.set(k.span_id, pid));
-    });
 
     const html = flat.map(({ span: sp, depth, rootIdx }) => {
       const tm = typeMap(sp);
@@ -5025,32 +5225,39 @@
         ? (sp.custom_tags.model_name)
         : (sp.span_name || '');
       
-      const hasKids = (childrenMap.get(sp.span_id) || []).length > 0;
+      const hasKids = (visibleChildrenMap.get(sp.span_id) || []).length > 0;
       // 关键：用 DFS 的 depth 判定根（而不是原始 parent_id），这样孤立 LLM 被挂到 Turn 下时 depth=1 会被默认隐藏
       const isRoot = depth === 0;
       // 默认将根节点折叠
       const collapsedClass = isRoot && hasKids ? 'is-collapsed' : '';
       const hiddenClass = !isRoot ? 'is-hidden' : ''; // 初始状态隐藏子节点
       // data-parent-id 用「挂载后」的真实父节点 id（用于折叠/展开事件）
-      const mountedParentId = realParentMap.get(sp.span_id) || '';
-      
+      const mountedParentId = visibleParentMap.get(sp.span_id) || '';
       const spLabel = labelOf(sp, rootIdx);
 
+      const isRoundRow = sp._is_round || sp.span_type === 'round';
+      const totalMsRow = sp.duration_ms || 0;
+      let barTitle = `${escapeHTML(spLabel)} · ${escapeHTML(fmtDur(totalMsRow))}${failed ? ' · 失败' : ''}`;
+
       return `
-        <div class="gantt-row flex items-stretch border-b border-black/5 h-9 ${hiddenClass}" data-row-id="${escapeHTML(sp.span_id)}" data-parent-id="${escapeHTML(mountedParentId)}">
-          <div class="w-[260px] flex-shrink-0 pr-3 flex items-center gap-1.5 text-[12px]" style="padding-left:${indent}px">
+        <div class="gantt-row flex items-stretch border-b border-black/5 h-9 ${hiddenClass}" data-row-id="${escapeHTML(sp.span_id)}" data-parent-id="${escapeHTML(mountedParentId)}" style="min-width:${rowMinWidthPx}px">
+          <div class="flex-shrink-0 pr-2 flex items-center gap-1.5 text-[12px] min-w-0" style="width:${LEFT_COL_PX}px; padding-left:${indent}px">
             ${hasKids ? `<span class="gantt-toggle ${collapsedClass}" data-toggle="${escapeHTML(sp.span_id)}"><svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></span>` : `<span class="w-[18px] flex-shrink-0"></span>`}
             <span class="flex items-center justify-center w-[14px] h-[14px] flex-shrink-0">${tm.icon}</span>
-            <span class="font-medium truncate ml-1" title="${escapeHTML(spLabel)}${failed ? ' · 失败' : ''}">${escapeHTML(spLabel)}</span>
+            <span class="font-medium truncate ml-1 min-w-0" title="${escapeHTML(spLabel)}${failed ? ' · 失败' : ''}">${escapeHTML(spLabel)}</span>
             ${failed ? '<span class="text-[10px] text-[--apple-red] flex-shrink-0">✕</span>' : ''}
             <span class="mono text-[10px] text-[--text-tertiary] ml-auto flex-shrink-0">${escapeHTML(fmtDur(sp.duration_ms || 0))}</span>
           </div>
-          <div class="flex-1 relative px-5">
-            <div class="gantt-bar ${tm.bar} ${isCritical ? 'bar-critical' : ''}"
-                 style="left:${left.toFixed(2)}%; width:${widthCss}"
-                 data-span-id="${escapeHTML(sp.span_id)}"
-                 title="${escapeHTML(spLabel)} · ${escapeHTML(fmtDur(sp.duration_ms || 0))}${failed ? ' · 失败' : ''}">
-              <span class="gantt-bar-text">${escapeHTML(barLabel)}</span>
+          <div class="px-5 overflow-visible flex-shrink-0" style="width:${trackWidthPx + TRACK_SIDE_PADDING_PX}px">
+            <div class="relative h-full" style="width:${trackWidthPx}px">
+              <div class="gantt-bar ${tm.bar} ${isCritical ? 'bar-critical' : ''}"
+                   style="left:${left.toFixed(2)}%; width:${widthCss}"
+                   data-span-id="${escapeHTML(sp.span_id)}"
+                   data-span-type="${escapeHTML(isRoundRow ? 'round' : (sp.span_type || ''))}"
+                   data-trace-idx="${escapeHTML(String(sp._trace_idx != null ? sp._trace_idx : ''))}"
+                   title="${barTitle}">
+                <span class="gantt-bar-text">${escapeHTML(barLabel)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -5062,12 +5269,14 @@
     // 顶部图例：只显示甘特图里实际出现的节点类型，不涉及的隐藏（如本次无工具/Skill/MCP）。
     const presentKinds = new Set(flat.map(({ span }) => typeMap(span).kind));
     [['legend-agent', ['agent']], ['legend-tool', ['tool']], ['legend-mcp', ['mcp']],
-     ['legend-skill', ['skill']], ['legend-llm', ['llm']]].forEach(([id, kinds]) => {
+     ['legend-skill', ['skill']], ['legend-llm', ['llm']], ['legend-gap', ['gap']]].forEach(([id, kinds]) => {
       const el = document.getElementById(id);
       if (el) el.style.display = kinds.some(k => presentKinds.has(k)) ? '' : 'none';
     });
 
-    const metaStr = `总计 ${flat.length} 个步骤 · 关键路径 ${critical.size} 步 · 最大嵌套深度 ${maxDepth + 1} 层`;
+    const stepCount = flat.filter(f => f.span.span_type !== 'gap').length;
+    const criticalStepCount = flat.filter(f => critical.has(f.span.span_id)).length;
+    const metaStr = `总计 ${stepCount} 个步骤 · 关键路径 ${criticalStepCount} 步 · 最大嵌套深度 ${maxDepth + 1} 层`;
     if (metaEl) metaEl.textContent = metaStr;
     const tooltipEl = document.getElementById('gantt-meta-tooltip');
     if (tooltipEl) tooltipEl.textContent = metaStr;
@@ -5103,6 +5312,20 @@
         toggleChildren(spanId, isCollapsed);
       });
     });
+
+    if (body.dataset.ganttScrollBound !== '1') {
+      body.addEventListener('scroll', () => {
+        if (axisViewport.scrollLeft !== body.scrollLeft) axisViewport.scrollLeft = body.scrollLeft;
+      });
+      body.dataset.ganttScrollBound = '1';
+    }
+    if (axisViewport.dataset.ganttScrollBound !== '1') {
+      axisViewport.addEventListener('scroll', () => {
+        if (body.scrollLeft !== axisViewport.scrollLeft) body.scrollLeft = axisViewport.scrollLeft;
+      });
+      axisViewport.dataset.ganttScrollBound = '1';
+    }
+    axisViewport.scrollLeft = body.scrollLeft;
   }
 
   function renderChatStream(real) {
@@ -5139,7 +5362,7 @@
         html.push(renderSyntheticPromptBlock(grp.synthetic, grp.syntheticRaw));
       } else if (grp.userPrompt) {
         html.push(`
-          <div class="flex justify-end">
+          <div class="flex justify-end" data-chat-round-idx="${groupIndex}">
             <div class="max-w-[88%] min-w-0 flex flex-col items-end">
               <div class="msg-user rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">${escapeHTML(grp.userPrompt)}</div>
               ${renderInjectedContextBlock(grp.injectedContext)}
