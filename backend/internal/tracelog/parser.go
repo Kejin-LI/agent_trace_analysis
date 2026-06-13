@@ -1372,7 +1372,7 @@ func extractUserPrompt(msgs []chatMessage) string {
 		if m.Role != "user" {
 			continue
 		}
-		t := stripInjectedContext(contentText(m.Content))
+		t := stripQuestionAnswerResultPayload(stripInjectedContext(contentText(m.Content)))
 		if t != "" && !isSyntheticToolPrompt(t) {
 			return t
 		}
@@ -1401,11 +1401,77 @@ func stripInjectedContext(text string) string {
 	return strings.TrimSpace(injectedContextRe.ReplaceAllString(text, ""))
 }
 
+func stripQuestionAnswerResultPayload(text string) string {
+	start, end, ok := findQuestionAnswerResultPayload(text)
+	if !ok {
+		return text
+	}
+	return strings.TrimSpace(text[:start] + " " + text[end:])
+}
+
+func findQuestionAnswerResultPayload(text string) (int, int, bool) {
+	idx := strings.Index(text, `"type":"question_answer_result"`)
+	if idx < 0 {
+		idx = strings.Index(text, `"type": "question_answer_result"`)
+	}
+	if idx < 0 {
+		return 0, 0, false
+	}
+	start := strings.LastIndex(text[:idx], "{")
+	if start < 0 {
+		return 0, 0, false
+	}
+	depth := 0
+	inStr := false
+	esc := false
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if inStr {
+			if esc {
+				esc = false
+			} else if ch == '\\' {
+				esc = true
+			} else if ch == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inStr = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				var payload struct {
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal([]byte(text[start:i+1]), &payload); err == nil && payload.Type == "question_answer_result" {
+					return start, i + 1, true
+				}
+				return 0, 0, false
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
 // 执行后框架以 user 角色把结果回填给模型），以及其他框架内部 prompt（如子代理任务下发、工具中断收尾），
 // 这类都不是真实用户提问，提取轮次 prompt 时排除。
 func isSyntheticToolPrompt(text string) bool {
+	if strings.TrimSpace(stripQuestionAnswerResultPayload(text)) == "" {
+		if _, _, ok := findQuestionAnswerResultPayload(text); ok {
+			return true
+		}
+	}
 	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, "continue if you have next steps") &&
+		strings.Contains(lower, "stop and ask for clarification") &&
+		strings.Contains(lower, "unsure how to proceed") {
+		return true
+	}
 	for _, sig := range []string{
 		"the user requested the following",
 		"i have fetched the raw content",
@@ -1426,6 +1492,11 @@ func isSyntheticToolPrompt(text string) bool {
 		(strings.Contains(lower, "you have one final chance") && strings.Contains(lower, "short grace period")) ||
 		(strings.Contains(lower, "must call `complete_task` immediately") && strings.Contains(lower, "do not call any other tools")) ||
 		(strings.Contains(lower, "must call complete_task immediately") && strings.Contains(lower, "do not call any other tools")) {
+		return true
+	}
+	if strings.Contains(lower, "/root/neeko-workspace/delivery/") &&
+		strings.Contains(lower, "process only entries with sheetrow") &&
+		strings.Contains(lower, "return only json") {
 		return true
 	}
 	return false
@@ -1626,7 +1697,7 @@ func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
 		}
 		// 先剥离 <system-reminder> 等框架注入块，再取真实用户输入。注入块常被拼在
 		// 真实提问之前塞进同一条 user 消息，不剥离会导致 prompt 显示成系统注入、多轮塌缩。
-		t := stripInjectedContext(neekoContentText(msgs[i].Content))
+		t := stripQuestionAnswerResultPayload(stripInjectedContext(neekoContentText(msgs[i].Content)))
 		if t != "" && !isSyntheticToolPrompt(t) {
 			return t, model
 		}

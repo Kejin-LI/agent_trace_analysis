@@ -739,7 +739,7 @@ func buildTraceSpans(rows []model.StgArtifactSpan) []apiSpan {
 		roundIndex := 0
 		if summary, ok := parseModelInputSummary(sp.InputPreview); ok {
 			inputPreview = summary.InputPreview
-			userPrompt = summary.UserPrompt
+			userPrompt = cleanUserPrompt(summary.UserPrompt)
 			promptSource = summary.PromptSource
 			roundIndex = summary.RoundIndex
 		}
@@ -1120,8 +1120,9 @@ func extractUserPromptFromInput(input string) string {
 		if prompt := cleanUserPrompt(content); prompt != "" {
 			return prompt
 		}
-		if fallback == "" {
-			fallback = normalizePromptText(content)
+		stripped := stripQuestionAnswerResultPayload(stripInjectedContext(content))
+		if fallback == "" && strings.TrimSpace(stripped) != "" && !isSyntheticToolPrompt(stripped) {
+			fallback = normalizePromptText(stripped)
 		}
 	}
 	return fallback
@@ -1154,7 +1155,7 @@ func messageContentToText(raw interface{}) string {
 }
 
 func cleanUserPrompt(raw string) string {
-	stripped := stripInjectedContext(raw)
+	stripped := stripQuestionAnswerResultPayload(stripInjectedContext(raw))
 	prompt := normalizePromptText(stripped)
 	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(stripped) {
 		return ""
@@ -1180,6 +1181,62 @@ func stripInjectedContext(raw string) string {
 	return strings.TrimSpace(injectedContextRe.ReplaceAllString(raw, ""))
 }
 
+func stripQuestionAnswerResultPayload(raw string) string {
+	start, end, ok := findQuestionAnswerResultPayload(raw)
+	if !ok {
+		return raw
+	}
+	return strings.TrimSpace(raw[:start] + " " + raw[end:])
+}
+
+func findQuestionAnswerResultPayload(raw string) (int, int, bool) {
+	idx := strings.Index(raw, `"type":"question_answer_result"`)
+	if idx < 0 {
+		idx = strings.Index(raw, `"type": "question_answer_result"`)
+	}
+	if idx < 0 {
+		return 0, 0, false
+	}
+	start := strings.LastIndex(raw[:idx], "{")
+	if start < 0 {
+		return 0, 0, false
+	}
+	depth := 0
+	inStr := false
+	esc := false
+	for i := start; i < len(raw); i++ {
+		ch := raw[i]
+		if inStr {
+			if esc {
+				esc = false
+			} else if ch == '\\' {
+				esc = true
+			} else if ch == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inStr = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				var payload struct {
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal([]byte(raw[start:i+1]), &payload); err == nil && payload.Type == "question_answer_result" {
+					return start, i + 1, true
+				}
+				return 0, 0, false
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // isSyntheticToolPrompt 识别工具回填的"合成 user 消息"（如 web_fetch / web_search
 // 执行后框架以 user 角色回填的结果），这类不是真实用户提问，提取 prompt 时必须排除。
 //
@@ -1192,7 +1249,17 @@ func stripInjectedContext(raw string) string {
 //
 // 这些消息会污染轮次/空转/耗时等指标，必须在指标计算时识别并剔除。
 func isSyntheticToolPrompt(raw string) bool {
+	if strings.TrimSpace(stripQuestionAnswerResultPayload(raw)) == "" {
+		if _, _, ok := findQuestionAnswerResultPayload(raw); ok {
+			return true
+		}
+	}
 	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "continue if you have next steps") &&
+		strings.Contains(lower, "stop and ask for clarification") &&
+		strings.Contains(lower, "unsure how to proceed") {
+		return true
+	}
 	for _, sig := range []string{
 		"the user requested the following",
 		"i have fetched the raw content",
@@ -1229,6 +1296,11 @@ func isSyntheticToolPrompt(raw string) bool {
 		(strings.Contains(lower, "must call complete_task immediately") && strings.Contains(lower, "do not call any other tools")) {
 		return true
 	}
+	if strings.Contains(lower, "/root/neeko-workspace/delivery/") &&
+		strings.Contains(lower, "process only entries with sheetrow") &&
+		strings.Contains(lower, "return only json") {
+		return true
+	}
 	return false
 }
 
@@ -1240,6 +1312,12 @@ func normalizePromptText(raw string) string {
 func isControlLikePrompt(raw string) bool {
 	if raw == "" {
 		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if strings.HasPrefix(lower, "continue if you have next steps") &&
+		strings.Contains(lower, "stop and ask for clarification") &&
+		strings.Contains(lower, "unsure how to proceed") {
+		return true
 	}
 	compact := strings.ToLower(raw)
 	replacer := strings.NewReplacer(

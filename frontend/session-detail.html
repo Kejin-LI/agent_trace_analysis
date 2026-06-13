@@ -673,6 +673,26 @@
   .clarify-opt:not(.selected):hover { transform: translateY(-1px); border-color: rgba(255,149,0,0.26); box-shadow: 0 3px 8px rgba(0,0,0,0.06); }
   .clarify-opts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 5px; }
   .clarify-opts .clarify-opt { margin-top: 2px; display: inline-flex; }
+  .clarify-text-input {
+    margin-top: 6px;
+    min-height: 30px;
+    width: min(360px, 100%);
+    display: flex;
+    align-items: center;
+    padding: 6px 9px;
+    border-radius: 10px;
+    border: 1px solid rgba(120,120,128,0.18);
+    background: rgba(255,255,255,0.64);
+    color: var(--text-tertiary);
+    font-size: 11.5px;
+    line-height: 1.45;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .clarify-text-input.answered {
+    color: var(--text-primary);
+    border-color: rgba(255,149,0,0.26);
+    background: rgba(255,149,0,0.07);
+  }
 
   /* 框架注入的上下文：默认折叠的灰色引用块，挂在用户气泡下方 */
   .inj-ctx {
@@ -716,6 +736,50 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .json-result-card {
+    margin-top: 6px;
+    border: 1px solid rgba(120,120,128,0.14);
+    background: rgba(255,255,255,0.72);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+  }
+  .json-result-head {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(120,120,128,0.12);
+    background: rgba(255,149,0,0.06);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .json-result-table-wrap { max-height: 360px; overflow: auto; }
+  .json-result-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .json-result-table th {
+    position: sticky; top: 0; z-index: 1;
+    padding: 7px 8px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: rgba(250,250,252,0.94);
+    border-bottom: 1px solid rgba(120,120,128,0.14);
+  }
+  .json-result-table td {
+    vertical-align: top;
+    padding: 7px 8px;
+    color: var(--text-primary);
+    border-bottom: 1px solid rgba(120,120,128,0.10);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .json-result-table tr:last-child td { border-bottom: none; }
+  .json-result-table .row-num { width: 58px; color: #B5650A; font-weight: 600; }
 
   /* 同 prompt 下多 trace 的轻量分隔（在合并气泡内） */
   .agent-turn-sep {
@@ -2660,6 +2724,103 @@
       loaderEl.classList.add('is-hidden');
       window.setTimeout(() => loaderEl.remove(), 380);
     }
+    function buildClarifyDemoSession() {
+      const start = Date.now() - 62000;
+      const clarifyPayload = [
+        '我需要先确认几个标注配置项，方便生成准确的质检规则。',
+        '<question>{',
+        '  "questions": [',
+        '    {',
+        '      "title": "分类标签规则",',
+        '      "type": "qna",',
+        '      "question": "请提供要打的标签列表或分类规则。例如：安全/不安全/不确定，或 违规类型A/违规类型B/无问题。",',
+        '      "options": ["安全/不安全/不确定", "违规类型A/违规类型B/无问题", "自定义标签"]',
+        '    },',
+        '    {',
+        '      "title": "评价规则",',
+        '      "type": "single_choice",',
+        '      "question": "你提到提交字段是评分，评分方式是哪一种？",',
+        '      "options": ["单个总分", "多个维度分别评分", "先分类打标签，再给总分", "每个标签都要单独评分"]',
+        '    },',
+        '    {',
+        '      "title": "是否记录时间戳",',
+        '      "type": "single_choice",',
+        '      "question": "如果视频中出现问题，是否需要标注问题发生的开始/结束时间？",',
+        '      "options": ["需要记录开始/结束时间", "只需要记录关键帧时间点", "不需要记录时间"]',
+        '    }',
+        '  ]',
+        '}</question>',
+      ].join('\n');
+      const reply = '分类标签规则：安全/不安全/不确定；评价规则：多个维度分别评分；是否记录时间戳：不需要记录时间。';
+      return {
+        id: 'clarify-demo',
+        session_id: 'clarify-demo',
+        title: '意图澄清卡片样式预览',
+        user: 'preview',
+        trace: 'clarify-demo-trace-1',
+        started_at_ms: start,
+        duration_ms: 25000,
+        input_tokens: 4200,
+        output_tokens: 780,
+        tool_calls: 0,
+        turns: 2,
+        trace_count: 2,
+        score: 92,
+        color: 'green',
+        chip: '预览',
+        radar: { response: 92, stability: 100, thinking: 88, resource: 96, orchestration: 90 },
+        features: { tool_calls: 0, tool_failures: 0, unique_tools: 0, max_serial_run: 0 },
+        rules: [],
+        traces: [
+          {
+            trace_id: 'clarify-demo-trace-1',
+            span_id: 'clarify-demo-root-1',
+            title: '帮我做一个视频质检标注模板',
+            user_prompt: '帮我做一个视频质检标注模板',
+            started_at_ms: start,
+            duration_ms: 9000,
+            spans: [
+              {
+                span_id: 'clarify-demo-llm-1',
+                parent_id: '',
+                span_name: 'LLMCall',
+                span_type: 'model',
+                started_at_ms: start + 800,
+                duration_ms: 5200,
+                status_code: 0,
+                input: JSON.stringify({ messages: [{ role: 'user', content: '帮我做一个视频质检标注模板' }] }),
+                output: JSON.stringify({ choices: [{ message: { content: clarifyPayload } }] }),
+                custom_tags: { model_name: 'preview-model', input_tokens: 3200, output_tokens: 560 },
+                user_prompt: '帮我做一个视频质检标注模板',
+              },
+            ],
+          },
+          {
+            trace_id: 'clarify-demo-trace-2',
+            span_id: 'clarify-demo-root-2',
+            title: reply,
+            user_prompt: reply,
+            started_at_ms: start + 10000,
+            duration_ms: 15000,
+            spans: [
+              {
+                span_id: 'clarify-demo-llm-2',
+                parent_id: '',
+                span_name: 'LLMCall',
+                span_type: 'model',
+                started_at_ms: start + 10800,
+                duration_ms: 6400,
+                status_code: 0,
+                input: JSON.stringify({ messages: [{ role: 'user', content: reply }] }),
+                output: JSON.stringify({ choices: [{ message: { content: '已收到你的选择，我会按这些规则继续生成标注模板。' } }] }),
+                custom_tags: { model_name: 'preview-model', input_tokens: 1000, output_tokens: 220 },
+                user_prompt: reply,
+              },
+            ],
+          },
+        ],
+      };
+    }
     const FALLBACK_MOCK = {
       '3cfaea': { title: '帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用', score: 92, color: 'green', chip: '健康', user: 'laipanhao.666', trace: '3cfaea74-fd61-45b5-b67e-98c9b41938ae' },
       'a8f3c2': { title: '专家众测评估模板生成 · database 查询超时', score: 42, color: 'red', chip: 'MCP 重试风暴', user: 'liuyifei', trace: 'a8f3c2b1-6f10-4d2c-9d77-2a14e2c3b71d' },
@@ -2672,6 +2833,7 @@
     };
 
     async function loadRealData(sessionId, opts) {
+      if (sessionId === 'clarify-demo') return buildClarifyDemoSession();
       try {
         const r = await window.AgentTraceDB.loadSession(sessionId, opts);
         if (r) return r;
@@ -2703,8 +2865,10 @@
     if (real) {
       // 真实数据：将后端字段映射到前端展示字段
       const r = real;
+      const cleanedTitle = cleanUserPrompt(r.title, { dropGeneratedRoundTitle: false });
+      const titleIsSynthetic = detectSyntheticPromptKind(stripInjectedContext(r.title));
       s = {
-        title: r.title || ('Session ' + id),
+        title: cleanedTitle || (titleIsSynthetic ? '' : r.title) || ('Session ' + id),
         score: r.score ?? 0,
         color: r.color || 'green',
         chip: r.chip || '健康',
@@ -3478,6 +3642,64 @@
     }).join('');
   }
 
+  function parseAssistantJSONPayload(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+    const direct = safeJSON(raw);
+    if (direct && typeof direct === 'object') return direct;
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const obj = safeJSON(raw.slice(start, end + 1));
+      if (obj && typeof obj === 'object') return obj;
+    }
+    return null;
+  }
+
+  function normalizeJSONCell(value) {
+    if (Array.isArray(value)) return value.map(v => String(v ?? '')).filter(Boolean).join('\n');
+    if (value && typeof value === 'object') return JSON.stringify(value, null, 2);
+    return String(value ?? '');
+  }
+
+  function renderRowsJSONResult(obj) {
+    const rows = Array.isArray(obj?.rows) ? obj.rows : null;
+    if (!rows || !rows.length || !rows.every(r => r && typeof r === 'object' && !Array.isArray(r))) return '';
+    const preferred = [
+      ['sheetRow', '行号'],
+      ['modelOnePois', '模型一 POI'],
+      ['modelTwoPois', '模型二 POI'],
+      ['notes', '备注'],
+    ];
+    const keys = preferred
+      .map(([key]) => key)
+      .filter(key => rows.some(row => row[key] != null && String(row[key]).trim() !== ''));
+    rows.forEach(row => Object.keys(row).forEach(key => { if (!keys.includes(key)) keys.push(key); }));
+    const labelOf = (key) => (preferred.find(([k]) => k === key) || [key, key])[1];
+    const body = rows.map(row => `
+      <tr>
+        ${keys.map(key => `<td class="${key === 'sheetRow' ? 'row-num' : ''}">${escapeHTML(normalizeJSONCell(row[key]))}</td>`).join('')}
+      </tr>
+    `).join('');
+    return `
+      <div class="json-result-card">
+        <div class="json-result-head"><span>📊</span><span>结构化 JSON 结果</span><span class="text-[10.5px] font-normal text-[--text-tertiary]">${rows.length} 行</span></div>
+        <div class="json-result-table-wrap">
+          <table class="json-result-table">
+            <thead><tr>${keys.map(key => `<th class="${key === 'sheetRow' ? 'row-num' : ''}">${escapeHTML(labelOf(key))}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function renderAssistantContent(text) {
+    const obj = parseAssistantJSONPayload(text);
+    const rowsHTML = renderRowsJSONResult(obj);
+    if (rowsHTML) return rowsHTML;
+    return renderAssistantMarkdown(text);
+  }
+
   // 对话流只渲染安全 Markdown 子集，避免引入外部库和不可信 HTML。
   function renderAssistantMarkdown(markdown) {
     const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
@@ -3789,11 +4011,73 @@
     return String(text || '').replace(/\s+/g, ' ').trim();
   }
 
+  function findQuestionAnswerResultPayload(text) {
+    const raw = String(text || '');
+    const marker = '"type":"question_answer_result"';
+    let idx = raw.indexOf(marker);
+    if (idx < 0) idx = raw.indexOf('"type": "question_answer_result"');
+    if (idx < 0) return null;
+    const start = raw.lastIndexOf('{', idx);
+    if (start < 0) return null;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < raw.length; i++) {
+      const ch = raw[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          const jsonText = raw.slice(start, i + 1);
+          const payload = safeJSON(jsonText);
+          if (payload && payload.type === 'question_answer_result') {
+            return { payload, jsonText, start, end: i + 1 };
+          }
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  function stripQuestionAnswerResultPayload(text) {
+    const raw = String(text || '');
+    const hit = findQuestionAnswerResultPayload(raw);
+    if (!hit) return raw;
+    return `${raw.slice(0, hit.start)} ${raw.slice(hit.end)}`.trim();
+  }
+
+  function formatQuestionAnswerReply(text) {
+    const hit = findQuestionAnswerResultPayload(text);
+    const answers = hit?.payload?.answers;
+    if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return '';
+    return Object.entries(answers)
+      .map(([key, value]) => {
+        const v = Array.isArray(value) ? value.join('、') : String(value ?? '');
+        return v ? `${key}: ${v}` : '';
+      })
+      .filter(Boolean)
+      .join('；');
+  }
+
   function isGeneratedRoundTitle(text) {
     return /^Round\s+\d+$/i.test(normalizePromptText(text));
   }
 
   function isControlLikePrompt(text) {
+    const normalized = normalizePromptText(text).toLowerCase();
+    if (/^continue if you have next steps\b/.test(normalized)
+      && /stop and ask for clarification\b/.test(normalized)
+      && /unsure how to proceed\b/.test(normalized)) {
+      return true;
+    }
     const compact = normalizePromptText(text)
       .toLowerCase()
       .replace(/[\s()[\]{}<>（）【】"'“”.,，:：!！?？]/g, '');
@@ -3822,6 +4106,10 @@
   //   4) 子代理任务下发（Your task is to do a deep investigation ... <objective>...</objective>）
   function detectSyntheticPromptKind(text) {
     const t = String(text || '');
+    const strippedQuestionAnswer = stripQuestionAnswerResultPayload(t);
+    if (strippedQuestionAnswer.trim() === '' && findQuestionAnswerResultPayload(t)) {
+      return { kind: 'clarify_answer_result', label: '澄清答案回填', desc: '意图澄清组件提交的结构化答案，非原始用户输入' };
+    }
     if (/The user requested the following/i.test(t)
       || /I have fetched the raw content/i.test(t)
       || /I was unable to access the URL/i.test(t)
@@ -3849,6 +4137,16 @@
       || (/You have one final chance/i.test(t) && /short grace period/i.test(t))
       || (/MUST call [`']?complete_task[`']? immediately/i.test(t) && /Do not call any other tools/i.test(t))) {
       return { kind: 'grace_retry', label: '工具中断收尾', desc: '框架在工具调用中断后下发的收尾控制 prompt，非用户输入' };
+    }
+    if (/^Continue if you have next steps\b/i.test(t)
+      && /stop and ask for clarification/i.test(t)
+      && /unsure how to proceed/i.test(t)) {
+      return { kind: 'continue_or_clarify', label: '续跑控制', desc: '框架提示继续执行或请求澄清的控制消息，非用户输入' };
+    }
+    if (/\/root\/neeko-workspace\/delivery\//i.test(t)
+      && /process only entries with sheetRow/i.test(t)
+      && /Return ONLY JSON/i.test(t)) {
+      return { kind: 'eval_task_instruction', label: '评测任务指令', desc: '评测/任务执行器注入的文件处理指令，并非自然用户输入' };
     }
     return null;
   }
@@ -3903,7 +4201,7 @@
   }
 
   function cleanUserPrompt(text, { dropGeneratedRoundTitle = true } = {}) {
-    const prompt = normalizePromptText(stripInjectedContext(text));
+    const prompt = normalizePromptText(stripQuestionAnswerResultPayload(stripInjectedContext(text)));
     if (!prompt
       || (dropGeneratedRoundTitle && isGeneratedRoundTitle(prompt))
       || isControlLikePrompt(prompt)
@@ -4202,6 +4500,9 @@
       multi_select: '多选',
       free_text: '自由输入',
       text: '自由输入',
+      qna: '问答',
+      qa: '问答',
+      question_answer: '问答',
     };
     return labelMap[key] || raw.replace(/_/g, ' ');
   }
@@ -4275,6 +4576,22 @@
     return `<span class="clarify-opt ${selected ? 'selected' : ''}">${escapeHTML(label)}</span>`;
   }
 
+  function isClarifyTextQuestion(type) {
+    const key = String(type || '').trim().toLowerCase();
+    return ['qna', 'qa', 'question_answer', 'free_text', 'text', 'textarea'].includes(key);
+  }
+
+  function renderClarifyTextInput(q, replyText = '') {
+    const reply = String(replyText || '').trim();
+    const placeholder = q.placeholder || q.example || '请在这里补充文字答案';
+    return `<div class="clarify-text-input ${reply ? 'answered' : ''}">${escapeHTML(reply || placeholder)}</div>`;
+  }
+
+  function renderClarifyQuestionControl(q, replyText = '') {
+    if (isClarifyTextQuestion(q.type)) return renderClarifyTextInput(q, replyText);
+    return q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText)).join('')}</div>` : '';
+  }
+
   function hasSelectedClarifyOptions(questions, replyText = '') {
     return (Array.isArray(questions) ? questions : []).some(q =>
       (q.options || []).some(o => isClarifyOptionSelected(o, replyText))
@@ -4298,7 +4615,7 @@
               <div>
                 ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
                 ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
-                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText)).join('')}</div>` : ''}
+                ${renderClarifyQuestionControl(q, replyText)}
               </div>
             </div>
           `).join('')}
@@ -4470,7 +4787,7 @@
               <div>
                 ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
                 ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
-                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText)).join('')}</div>` : ''}
+                ${renderClarifyQuestionControl(q, replyText)}
               </div>
             </div>
           `).join('')}
@@ -4516,12 +4833,16 @@
       const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
       const displayPrompt = up || rawPrompt || '';
       const injectedContext = extractInjectedContext(rawUser);
+      const clarifyAnswerReply = formatQuestionAnswerReply(rawUser)
+        || formatQuestionAnswerReply(t.user_prompt)
+        || formatQuestionAnswerReply(t.title);
       return {
         userPrompt: displayPrompt,
         injectedContext,
         traces: [t],
         synthetic: syntheticInfo,
         syntheticRaw: syntheticInfo ? stripInjectedContext(rawUser) : '',
+        clarifyAnswerReply,
       };
     });
     const isGroupClarify = (grp) => grp.traces.some(t => (t.spans || []).some(sp => {
@@ -4530,25 +4851,50 @@
       const { text, tool_calls } = extractAssistantOutput(sp);
       return isClarifyMessageText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''));
     }));
+    const normalizedBaseGroups = [];
+    baseGroups.forEach(grp => {
+      const hasRealPrompt = !!String(grp.userPrompt || '').trim() && !grp.synthetic;
+      const shouldAttachToPrevious = normalizedBaseGroups.length && !hasRealPrompt;
+      if (shouldAttachToPrevious) {
+        const prev = normalizedBaseGroups[normalizedBaseGroups.length - 1];
+        prev.traces.push(...grp.traces);
+        prev.internalPrompts = [...(prev.internalPrompts || []), ...(grp.synthetic ? [{ info: grp.synthetic, raw: grp.syntheticRaw }] : [])];
+        if (!prev.clarifyAnswerReply && grp.clarifyAnswerReply) prev.clarifyAnswerReply = grp.clarifyAnswerReply;
+        return;
+      }
+      normalizedBaseGroups.push({
+        ...grp,
+        internalPrompts: grp.synthetic ? [{ info: grp.synthetic, raw: grp.syntheticRaw }] : [],
+        technicalOnly: !hasRealPrompt,
+      });
+    });
+
     const groups = [];
-    for (let i = 0; i < baseGroups.length; i++) {
-      const grp = baseGroups[i];
+    for (let i = 0; i < normalizedBaseGroups.length; i++) {
+      const grp = normalizedBaseGroups[i];
       const merged = {
         ...grp,
         traces: [...grp.traces],
-        clarifyReply: '',
+        internalPrompts: [...(grp.internalPrompts || [])],
+        clarifyReply: grp.clarifyAnswerReply || '',
         mergedClarifyReply: false,
       };
-      const nextReply = i + 1 < baseGroups.length ? String(baseGroups[i + 1].userPrompt || '').trim() : '';
-      if (isGroupClarify(grp) && nextReply && !baseGroups[i + 1].synthetic) {
-        const next = baseGroups[i + 1];
+      const nextReply = i + 1 < normalizedBaseGroups.length ? String(normalizedBaseGroups[i + 1].userPrompt || '').trim() : '';
+      if (isGroupClarify(grp) && !merged.clarifyReply && nextReply && !normalizedBaseGroups[i + 1].synthetic) {
+        const next = normalizedBaseGroups[i + 1];
         merged.traces.push(...next.traces);
+        merged.internalPrompts.push(...(next.internalPrompts || []));
         merged.clarifyReply = nextReply;
         merged.mergedClarifyReply = true;
         i++;
       }
       groups.push(merged);
     }
+    let displayRoundIndex = 0;
+    groups.forEach(grp => {
+      if (String(grp.userPrompt || '').trim() && !grp.synthetic) displayRoundIndex++;
+      grp.displayRoundIndex = displayRoundIndex;
+    });
     return { traces, groups };
   }
 
@@ -4609,6 +4955,57 @@
       config: '业务配置',
     })[kind] || '文件';
   }
+
+  function normalizeSpanTags(rawTags) {
+    if (!rawTags) return {};
+    if (typeof rawTags === 'string') return safeJSON(rawTags) || {};
+    if (typeof rawTags === 'object') return rawTags;
+    return {};
+  }
+
+  function firstTokenValue(...values) {
+    for (const v of values) {
+      if (v === null || v === undefined || v === '') continue;
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+      return String(v);
+    }
+    return null;
+  }
+
+  function extractUsageFromSpan(sp, tags) {
+    const output = safeJSON(sp.output) || (sp.output && typeof sp.output === 'object' ? sp.output : null);
+    const usage = output?.usage
+      || output?.response?.usage
+      || output?.choices?.[0]?.usage
+      || output?.choices?.[0]?.message?.usage
+      || {};
+    const details = usage.output_tokens_details || usage.completion_tokens_details || {};
+    return {
+      input: firstTokenValue(
+        tags.input_tokens, tags.prompt_tokens, tags.tokens_in,
+        sp.input_tokens, sp.prompt_tokens, sp.tokens_in,
+        usage.input_tokens, usage.prompt_tokens, usage.inputTokens
+      ),
+      output: firstTokenValue(
+        tags.output_tokens, tags.completion_tokens, tags.tokens_out,
+        sp.output_tokens, sp.completion_tokens, sp.tokens_out,
+        usage.output_tokens, usage.completion_tokens, usage.outputTokens
+      ),
+      reasoning: firstTokenValue(
+        tags.reasoning_tokens, tags.reasoningTokens,
+        sp.reasoning_tokens, usage.reasoning_tokens, usage.reasoningTokens,
+        details.reasoning_tokens, details.reasoningTokens
+      ),
+    };
+  }
+
+  function formatTokenValue(v) {
+    if (v === null || v === undefined || v === '') return '-';
+    if (typeof v === 'number') return v.toLocaleString();
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString() : String(v);
+  }
   // ===== Span 详情抽屉：基于真实 span 渲染（简洁优先，突出重点） =====
   function openSpanDrawer(spanId) {
     const real = (window.SESSION && window.SESSION._real) || null;
@@ -4620,7 +5017,7 @@
     }
     if (!sp) return;
 
-    const tags = sp.custom_tags || {};
+    const tags = normalizeSpanTags(sp.custom_tags || sp.customTags || sp.tags);
     const failed = sp.status_code !== 0 && sp.status_code !== undefined && sp.status_code !== null;
     const isLLM = sp.span_type === 'model';
     const isTool = sp.span_type === 'tool';
@@ -4661,15 +5058,18 @@
     // ----- 关键参数（按类型只渲染最关键的 2-3 项） -----
     let keyMetricsHtml = '';
     if (isLLM) {
-      const inT = tags.input_tokens || tags.prompt_tokens || tags.tokens_in || '-';
-      const outT = tags.output_tokens || tags.completion_tokens || tags.tokens_out || '-';
+      const usage = extractUsageFromSpan(sp, tags);
+      const inT = formatTokenValue(usage.input);
+      const outT = formatTokenValue(usage.output);
+      const reasonT = usage.reasoning == null ? '' : ` · 推理 ${formatTokenValue(usage.reasoning)}`;
       const cost = tags.cost_usd ?? tags.cost ?? null;
       keyMetricsHtml = `
         <div class="group relative inline-block z-10">
           <div class="text-[10.5px] text-[--text-tertiary] cursor-help border-b border-dashed border-[--text-tertiary]/50 w-max pb-[1px]">词元（Tokens）</div>
-          <div class="text-[13px] font-medium num-mono mt-0.5">${inT} → ${outT}</div>
+          <div class="text-[13px] font-medium num-mono mt-0.5">${escapeHTML(inT)} → ${escapeHTML(outT)}</div>
+          ${reasonT ? `<div class="text-[10.5px] text-[--text-tertiary] num-mono mt-0.5">${escapeHTML(reasonT)}</div>` : ''}
           <div class="pointer-events-none absolute top-full left-1/2 z-50 mt-1 -translate-x-1/2 whitespace-nowrap rounded bg-black/80 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 shadow-sm backdrop-blur-sm">
-            输入 → 输出
+            输入 → 输出${reasonT ? ' · 推理' : ''}
           </div>
         </div>
         ${cost !== null ? `<div><div class="text-[10.5px] text-[--text-tertiary]">成本</div><div class="text-[13px] font-medium num-mono mt-0.5">$${Number(cost).toFixed(4)}</div></div>` : ''}
@@ -5037,10 +5437,13 @@
         const endMs = childEndMs || (grp.traces || []).reduce((m, t) => Math.max(m, (Number(t.started_at_ms) || 0) + (Number(t.duration_ms) || 0)), 0);
         const roundStart = isFinite(startMs) ? startMs : childStartMs;
         const roundDur = Math.max(0, endMs - (isFinite(roundStart) ? roundStart : 0));
+        const roundLabel = grp.technicalOnly && !grp.userPrompt
+          ? `执行片段 ${gi + 1}`
+          : `对话轮次 ${grp.displayRoundIndex || gi + 1}`;
         allSpans.push({
           span_id: roundId,
           parent_id: '0',
-          span_name: `对话轮次 ${gi + 1}`,
+          span_name: roundLabel,
           span_type: 'round',
           started_at_ms: isFinite(roundStart) ? roundStart : 0,
           duration_ms: roundDur,
@@ -5415,7 +5818,7 @@
     }
 
     // 轮次显示口径：仅统计真实用户轮次，框架内部 prompt（synthetic）不计入分母。
-    const realRoundCount = groups.filter(g => !g.synthetic).length;
+    const realRoundCount = groups.filter(g => String(g.userPrompt || '').trim() && !g.synthetic).length;
     if (cnt) cnt.textContent = `· ${realRoundCount} 轮`;
 
     // 全局执行步数（Step）：以所有 trace 下 model span 总数为准，与概览/KPI 口径一致
@@ -5429,13 +5832,15 @@
     const artifactVersions = new Map();
 
     groups.forEach((grp, groupIndex) => {
+      // 每个可视会话组都放一个稳定锚点；甘特图点击 round 根节点时定位这里。
+      html.push(`<div class="chat-round-anchor" data-chat-round-idx="${groupIndex}" aria-hidden="true"></div>`);
       // user 气泡（如果该组有 prompt）
       if (grp.synthetic) {
         // 框架内部 prompt：不渲染蓝色用户气泡，改为左对齐的灰色折叠块（与系统注入引用块同款）
         html.push(renderSyntheticPromptBlock(grp.synthetic, grp.syntheticRaw));
       } else if (grp.userPrompt) {
         html.push(`
-          <div class="flex justify-end" data-chat-round-idx="${groupIndex}">
+          <div class="flex justify-end">
             <div class="max-w-[88%] min-w-0 flex flex-col items-end">
               <div class="msg-user rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">${escapeHTML(grp.userPrompt)}</div>
               ${renderInjectedContextBlock(grp.injectedContext)}
@@ -5443,6 +5848,9 @@
           </div>
         `);
       }
+      (grp.internalPrompts || []).forEach(item => {
+        if (item && item.info && !grp.synthetic) html.push(renderSyntheticPromptBlock(item.info, item.raw));
+      });
 
       // 该组顶部时间戳
       const grpStartMs = grp.traces[0]?.started_at_ms;
@@ -5493,7 +5901,7 @@
                 if (plan.leadText) parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(plan.leadText)}</div>`);
                 parts.push(renderPlanCard(plan));
               } else {
-                parts.push(`<div class="agent-text agent-md">${renderAssistantMarkdown(text)}</div>`);
+                parts.push(`<div class="agent-text agent-md">${renderAssistantContent(text)}</div>`);
               }
             }
           }

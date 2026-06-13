@@ -144,3 +144,93 @@ func TestParseChatCompletionsStyle(t *testing.T) {
 		t.Errorf("duration = %d, want 6933", dur)
 	}
 }
+
+func TestParseStripsQuestionAnswerResultFromPrompt(t *testing.T) {
+	raw := `[
+  {"type":"REQUEST_BODY","timestamp":"2026-06-04T03:12:00.000Z","data":{
+    "model":"gpt","messages":[
+      {"role":"user","content":"帮我搭建一个模板 {\"type\":\"question_answer_result\",\"answers\":{\"dataShape\":\"视频\",\"taskType\":\"分类/打标签\",\"submitFields\":\"评分\"}}"}
+    ]}},
+  {"type":"STREAM_RESPONSE","timestamp":"2026-06-04T03:12:06.000Z","data":{
+    "durationMs":1000,
+    "allChunks":[{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5},"output":[]}}]}}
+]`
+	pr, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pr.Rounds) != 1 {
+		t.Fatalf("rounds = %d, want 1", len(pr.Rounds))
+	}
+	if pr.Rounds[0].UserPrompt != "帮我搭建一个模板" {
+		t.Errorf("user prompt = %q, want question_answer_result stripped", pr.Rounds[0].UserPrompt)
+	}
+}
+
+func TestParseSkipsPureQuestionAnswerResultPrompt(t *testing.T) {
+	raw := `[
+  {"type":"REQUEST_BODY","timestamp":"2026-06-04T03:12:00.000Z","data":{
+    "model":"gpt","messages":[
+      {"role":"user","content":"帮我搭建一个模板"},
+      {"role":"assistant","content":"请选择配置"},
+      {"role":"user","content":"{\"type\":\"question_answer_result\",\"answers\":{\"dataShape\":\"视频\",\"taskType\":\"分类/打标签\",\"submitFields\":\"评分\"}}"}
+    ]}},
+  {"type":"STREAM_RESPONSE","timestamp":"2026-06-04T03:12:06.000Z","data":{
+    "durationMs":1000,
+    "allChunks":[{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5},"output":[]}}]}}
+]`
+	pr, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pr.Rounds) != 1 {
+		t.Fatalf("rounds = %d, want 1", len(pr.Rounds))
+	}
+	if pr.Rounds[0].UserPrompt != "帮我搭建一个模板" {
+		t.Errorf("user prompt = %q, want previous real user prompt", pr.Rounds[0].UserPrompt)
+	}
+}
+
+func TestParseSkipsEvalTaskInstructionPrompt(t *testing.T) {
+	raw := `[
+  {"type":"REQUEST_BODY","timestamp":"2026-06-04T03:12:00.000Z","data":{
+    "model":"gpt","messages":[
+      {"role":"user","content":"Read /root/neeko-workspace/delivery/16a9bc00/poi_source_rows.json and process only entries with sheetRow 23 through 27 inclusive. Return ONLY JSON: {\"rows\":[]}"}
+    ]}},
+  {"type":"STREAM_RESPONSE","timestamp":"2026-06-04T03:12:06.000Z","data":{
+    "durationMs":1000,
+    "allChunks":[{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5},"output":[{"type":"message","content":[{"type":"output_text","text":"{\"rows\":[]}"}]}]}}]}}
+]`
+	pr, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pr.Rounds) != 1 {
+		t.Fatalf("rounds = %d, want 1", len(pr.Rounds))
+	}
+	if pr.Rounds[0].UserPrompt != "" {
+		t.Errorf("user prompt = %q, want eval task instruction suppressed", pr.Rounds[0].UserPrompt)
+	}
+}
+
+func TestParseSkipsContinueOrClarifyControlPrompt(t *testing.T) {
+	raw := `[
+  {"type":"REQUEST_BODY","timestamp":"2026-06-04T03:12:00.000Z","data":{
+    "model":"gpt","messages":[
+      {"role":"user","content":"Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."}
+    ]}},
+  {"type":"STREAM_RESPONSE","timestamp":"2026-06-04T03:12:06.000Z","data":{
+    "durationMs":1000,
+    "allChunks":[{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5},"output":[{"type":"message","content":[{"type":"output_text","text":"先核对当前实现和已确认约束。"}]}]}}]}}
+]`
+	pr, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pr.Rounds) != 1 {
+		t.Fatalf("rounds = %d, want 1", len(pr.Rounds))
+	}
+	if pr.Rounds[0].UserPrompt != "" {
+		t.Errorf("user prompt = %q, want continue/clarify control prompt suppressed", pr.Rounds[0].UserPrompt)
+	}
+}
