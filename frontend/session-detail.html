@@ -600,7 +600,7 @@
   .plan-item.cancel .plan-item-mark { color: var(--apple-red); }
   .plan-item.cancel .plan-item-text { color: var(--text-tertiary); text-decoration: line-through; }
 
-  /* 澄清卡片：模型流式回复中向用户发起的澄清提问（与计划卡片同一套扁平风格） */
+  /* 澄清卡片：模型流式回复中向用户发起的澄清提问 */
   .clarify-card {
     margin: 8px 0 4px;
     padding: 8px 10px;
@@ -620,7 +620,7 @@
     color: #FF9500; background: rgba(255,149,0,0.12);
     font-variant-numeric: tabular-nums;
   }
-  .clarify-badge.answered { color: #34C759; background: rgba(48,209,88,0.12); }
+  .clarify-badge.answered { color: #34A853; background: rgba(52,199,89,0.14); }
   .clarify-q { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 4px; white-space: pre-wrap; word-break: break-word; }
   .clarify-fields { display: flex; flex-direction: column; margin-top: 2px; }
   .clarify-field {
@@ -634,14 +634,45 @@
   .clarify-field-type { font-size: 10px; line-height: 1.2; color: #FF9500; background: rgba(255,149,0,0.10); border: 1px solid rgba(255,149,0,0.16); border-radius: 999px; padding: 1px 6px; }
   .clarify-field-desc { margin-top: 1px; font-size: 11px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
   .clarify-opt {
-    font-size: 11.5px; color: var(--text-secondary);
-    padding: 3px 8px; margin-top: 4px;
-    background: rgba(255,149,0,0.07);
-    border: 1px solid rgba(255,149,0,0.16);
-    border-radius: 8px;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 24px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: rgba(29,29,31,0.76);
+    padding: 4px 9px;
+    margin-top: 4px;
+    background: rgba(255,255,255,0.62);
+    border: 1px solid rgba(120,120,128,0.18);
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    transition: transform .14s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease, color .14s ease;
   }
-  .clarify-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-  .clarify-opts .clarify-opt { margin-top: 2px; display: inline-block; }
+  .clarify-opt.selected {
+    color: #B5650A;
+    background: rgba(255,149,0,0.11);
+    border-color: rgba(255,149,0,0.30);
+    box-shadow: 0 1px 2px rgba(255,149,0,0.08);
+  }
+  .clarify-opt.selected::after {
+    content: "✓";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    color: white;
+    background: rgba(255,149,0,0.82);
+    box-shadow: 0 2px 6px rgba(255,149,0,0.20);
+  }
+  .clarify-opt:not(.selected):hover { transform: translateY(-1px); border-color: rgba(255,149,0,0.26); box-shadow: 0 3px 8px rgba(0,0,0,0.06); }
+  .clarify-opts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 5px; }
+  .clarify-opts .clarify-opt { margin-top: 2px; display: inline-flex; }
 
   /* 框架注入的上下文：默认折叠的灰色引用块，挂在用户气泡下方 */
   .inj-ctx {
@@ -672,13 +703,13 @@
   .clarify-reply {
     margin-top: 7px; padding: 7px 9px;
     border-radius: 10px;
-    background: rgba(0,113,227,0.05);
-    border: 1px solid rgba(0,113,227,0.14);
+    background: rgba(255,149,0,0.05);
+    border: 1px solid rgba(255,149,0,0.16);
   }
   .clarify-reply-label {
     display: flex; align-items: center; gap: 5px;
     margin-bottom: 3px;
-    font-size: 10.5px; font-weight: 600; color: var(--apple-blue);
+    font-size: 10.5px; font-weight: 600; color: #B5650A;
   }
   .clarify-reply-text {
     font-size: 11.5px; line-height: 1.5; color: var(--text-primary);
@@ -3758,6 +3789,10 @@
     return String(text || '').replace(/\s+/g, ' ').trim();
   }
 
+  function isGeneratedRoundTitle(text) {
+    return /^Round\s+\d+$/i.test(normalizePromptText(text));
+  }
+
   function isControlLikePrompt(text) {
     const compact = normalizePromptText(text)
       .toLowerCase()
@@ -3867,9 +3902,12 @@
     return cleaned.trim();
   }
 
-  function cleanUserPrompt(text) {
+  function cleanUserPrompt(text, { dropGeneratedRoundTitle = true } = {}) {
     const prompt = normalizePromptText(stripInjectedContext(text));
-    if (!prompt || isControlLikePrompt(prompt) || isSyntheticToolPrompt(prompt)) return '';
+    if (!prompt
+      || (dropGeneratedRoundTitle && isGeneratedRoundTitle(prompt))
+      || isControlLikePrompt(prompt)
+      || isSyntheticToolPrompt(prompt)) return '';
     return prompt;
   }
 
@@ -3889,7 +3927,8 @@
     for (let i = userMsgs.length - 1; i >= 0; i--) {
       const content = contentToText(userMsgs[i].content);
       if (!content) continue;
-      const cleaned = cleanUserPrompt(content);
+      // role=user 里的真实消息允许用户输入 "Round N"；只有 trace/title 兜底字段里的 Round N 才视为系统生成标题。
+      const cleaned = cleanUserPrompt(content, { dropGeneratedRoundTitle: false });
       if (cleaned) return cleaned;
       if (!fallback) fallback = normalizePromptText(content);
     }
@@ -3897,7 +3936,8 @@
   }
 
   function pickPromptForSpan(span, trace, { preferTracePrompt = false } = {}) {
-    const spanPrompt = cleanUserPrompt(span.user_prompt) || cleanUserPrompt(extractUserPrompt(span));
+    const messagePrompt = cleanUserPrompt(extractUserPrompt(span), { dropGeneratedRoundTitle: false });
+    const spanPrompt = messagePrompt || cleanUserPrompt(span.user_prompt);
     const tracePrompt = cleanUserPrompt(trace.user_prompt);
     const titlePrompt = cleanUserPrompt(trace.title);
     return preferTracePrompt
@@ -4032,7 +4072,7 @@
 
       const prompt = pickPromptForSpan(sp, trace, { preferTracePrompt: segments.length === 0 && !current });
       const roundIndex = Number(sp.round_index || 0);
-      const currentPrompt = current ? cleanUserPrompt(current.user_prompt) : '';
+      const currentPrompt = current ? cleanUserPrompt(current.user_prompt, { dropGeneratedRoundTitle: false }) : '';
       const shouldStartNewByRound = !!(roundIndex && current && currentRoundIndex && roundIndex !== currentRoundIndex);
       const shouldStartNewByPrompt = !!(prompt && !!currentPrompt && prompt !== currentPrompt);
       // 空 prompt 的 trace 不是新的用户输入，不应新增一个蓝色用户气泡/对话轮次；
@@ -4215,12 +4255,39 @@
       </div>`;
   }
 
+  function normalizeClarifySelectionText(text) {
+    return String(text || '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[，,。.;；、|/\\()[\]{}"'“”‘’：:！？!?<>《》【】]/g, '');
+  }
+
+  function isClarifyOptionSelected(option, replyText) {
+    const opt = normalizeClarifySelectionText(option);
+    const reply = normalizeClarifySelectionText(replyText);
+    if (!opt || !reply) return false;
+    return reply.includes(opt);
+  }
+
+  function renderClarifyOption(option, replyText = '') {
+    const label = String(option || '');
+    const selected = isClarifyOptionSelected(label, replyText);
+    return `<span class="clarify-opt ${selected ? 'selected' : ''}">${escapeHTML(label)}</span>`;
+  }
+
+  function hasSelectedClarifyOptions(questions, replyText = '') {
+    return (Array.isArray(questions) ? questions : []).some(q =>
+      (q.options || []).some(o => isClarifyOptionSelected(o, replyText))
+    );
+  }
+
   function renderIntentClarifyCard(text, replyText = '') {
     const answered = !!String(replyText || '').trim();
     // 优先识别内嵌的结构化 JSON（<question>{ "questions": [...] }</question> 或裸 JSON），
     // 按「每问一排」排版；解析不到再退回原有的「1. 标题：描述」文本解析。
     const questions = extractClarifyQuestions({}, text);
     const leadText = stripClarifyQuestionPayload(text);
+    const hasInlineReply = hasSelectedClarifyOptions(questions, replyText);
     let fieldHTML;
     if (questions.length) {
       fieldHTML = `
@@ -4231,7 +4298,7 @@
               <div>
                 ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
                 ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
-                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => `<span class="clarify-opt">${escapeHTML(o)}</span>`).join('')}</div>` : ''}
+                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText)).join('')}</div>` : ''}
               </div>
             </div>
           `).join('')}
@@ -4259,7 +4326,7 @@
         </div>
         <div class="clarify-q">${questions.length && leadText ? renderAssistantMarkdown(leadText) : '模型需要先确认以下信息，再继续生成后续方案。'}</div>
         ${fieldHTML}
-        ${renderClarifyReply(replyText)}
+        ${hasInlineReply ? '' : renderClarifyReply(replyText)}
       </div>`;
   }
 
@@ -4390,6 +4457,7 @@
     const question = obj.question || obj.prompt || obj.message || obj.text || '';
     const questions = extractClarifyQuestions(obj, question);
     const leadText = stripClarifyQuestionPayload(question);
+    let hasInlineReply = hasSelectedClarifyOptions(questions, replyText);
 
     let bodyHTML;
     if (questions.length) {
@@ -4402,7 +4470,7 @@
               <div>
                 ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
                 ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
-                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => `<span class="clarify-opt">${escapeHTML(o)}</span>`).join('')}</div>` : ''}
+                ${q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText)).join('')}</div>` : ''}
               </div>
             </div>
           `).join('')}
@@ -4411,11 +4479,15 @@
       // 兜底：无法解析成结构化问题时，沿用纯文本 + 扁平选项
       let opts = obj.options || obj.choices || [];
       if (!Array.isArray(opts)) opts = [];
+      hasInlineReply = opts.some(o => {
+        const label = typeof o === 'string' ? o : (o.label || o.text || o.option || JSON.stringify(o));
+        return isClarifyOptionSelected(label, replyText);
+      });
       const optHTML = opts.map(o => {
         const label = typeof o === 'string' ? o : (o.label || o.text || o.option || JSON.stringify(o));
-        return `<div class="clarify-opt">${escapeHTML(String(label))}</div>`;
+        return renderClarifyOption(label, replyText);
       }).join('');
-      bodyHTML = `${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}${optHTML}`;
+      bodyHTML = `${question ? `<div class="clarify-q">${escapeHTML(String(question))}</div>` : ''}${optHTML ? `<div class="clarify-opts">${optHTML}</div>` : ''}`;
     }
 
     return `
@@ -4426,7 +4498,7 @@
         </div>
         ${questions.length ? `<div class="clarify-q">${leadText ? renderAssistantMarkdown(leadText) : '模型需要先确认以下信息，再继续生成后续方案。'}</div>` : ''}
         ${bodyHTML}
-        ${renderClarifyReply(replyText)}
+        ${hasInlineReply ? '' : renderClarifyReply(replyText)}
       </div>`;
   }
 
@@ -4440,7 +4512,7 @@
       const firstLLM = spans.find(s => s.span_type === 'model');
       const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
       const rawUser = pickRawUserText(firstLLM, t);
-      const rawPrompt = normalizePromptText(stripInjectedContext(t.user_prompt)) || normalizePromptText(stripInjectedContext(t.title));
+      const rawPrompt = cleanUserPrompt(t.user_prompt) || cleanUserPrompt(t.title);
       const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
       const displayPrompt = up || rawPrompt || '';
       const injectedContext = extractInjectedContext(rawUser);
@@ -4467,10 +4539,11 @@
         clarifyReply: '',
         mergedClarifyReply: false,
       };
-      if (isGroupClarify(grp) && i + 1 < baseGroups.length && !baseGroups[i + 1].synthetic) {
+      const nextReply = i + 1 < baseGroups.length ? String(baseGroups[i + 1].userPrompt || '').trim() : '';
+      if (isGroupClarify(grp) && nextReply && !baseGroups[i + 1].synthetic) {
         const next = baseGroups[i + 1];
         merged.traces.push(...next.traces);
-        merged.clarifyReply = String(next.userPrompt || '').trim();
+        merged.clarifyReply = nextReply;
         merged.mergedClarifyReply = true;
         i++;
       }
