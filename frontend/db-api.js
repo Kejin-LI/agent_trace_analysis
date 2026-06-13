@@ -7,6 +7,18 @@
     return new URLSearchParams(window.location.search).get(name);
   }
 
+  function safeJSON(v) {
+    if (!v || typeof v !== 'string') return null;
+    try { return JSON.parse(v); } catch { return null; }
+  }
+
+  function normalizeCustomTags(tags) {
+    if (!tags) return {};
+    if (typeof tags === 'string') return safeJSON(tags) || {};
+    if (typeof tags === 'object') return tags;
+    return {};
+  }
+
   // 部署在 agentic-aidp.bytedance.net 这种带网关前缀的环境下，本地回环兜底毫无意义且会污染缓存，
   // 因此仅在 localhost / 内网开发地址下才尝试 127.0.0.1。
   function isLocalEnv() {
@@ -79,6 +91,57 @@
     return '严重';
   }
 
+  function stripQuestionAnswerResultPayload(text) {
+    const raw = String(text || '');
+    const marker = '"type":"question_answer_result"';
+    let idx = raw.indexOf(marker);
+    if (idx < 0) idx = raw.indexOf('"type": "question_answer_result"');
+    if (idx < 0) return raw;
+    const start = raw.lastIndexOf('{', idx);
+    if (start < 0) return raw;
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < raw.length; i++) {
+      const ch = raw[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          try {
+            const payload = JSON.parse(raw.slice(start, i + 1));
+            if (payload && payload.type === 'question_answer_result') {
+              return `${raw.slice(0, start)} ${raw.slice(i + 1)}`.replace(/\s+/g, ' ').trim();
+            }
+          } catch {}
+          return raw;
+        }
+      }
+    }
+    return raw;
+  }
+
+  function stripSyntheticPromptPayload(text) {
+    const raw = stripQuestionAnswerResultPayload(text);
+    const lower = raw.toLowerCase();
+    if (lower.includes('/root/neeko-workspace/delivery/')
+      && lower.includes('process only entries with sheetrow')
+      && lower.includes('return only json')) {
+      return '';
+    }
+    if (lower.startsWith('continue if you have next steps')
+      && lower.includes('stop and ask for clarification')
+      && lower.includes('unsure how to proceed')) {
+      return '';
+    }
+    return raw;
+  }
+
   function normalizeTrace(trace) {
     const spans = (trace.spans || []).map(sp => ({
       span_id: sp.span_id,
@@ -91,16 +154,19 @@
       status_code: Number(sp.status_code || 0),
       input: sp.input || '',
       output: sp.output || '',
-      custom_tags: sp.custom_tags || '{}',
-      user_prompt: sp.user_prompt || sp.userPrompt || '',
+      custom_tags: normalizeCustomTags(sp.custom_tags || sp.customTags),
+      input_tokens: Number(sp.input_tokens || sp.inputTokens || sp.prompt_tokens || sp.promptTokens || 0),
+      output_tokens: Number(sp.output_tokens || sp.outputTokens || sp.completion_tokens || sp.completionTokens || 0),
+      total_tokens: Number(sp.total_tokens || sp.totalTokens || 0),
+      user_prompt: stripSyntheticPromptPayload(sp.user_prompt || sp.userPrompt || ''),
       prompt_source: sp.prompt_source || sp.promptSource || '',
       round_index: Number(sp.round_index || sp.roundIndex || 0),
     }));
     return {
       trace_id: trace.trace_id,
       span_id: trace.span_id,
-      title: trace.title || '',
-      user_prompt: trace.user_prompt || trace.userPrompt || '',
+      title: stripSyntheticPromptPayload(trace.title || ''),
+      user_prompt: stripSyntheticPromptPayload(trace.user_prompt || trace.userPrompt || ''),
       round_count: Number(trace.round_count || trace.roundCount || 0),
       model_name: trace.model_name || '',
       turns: Number(trace.turns || 0),
@@ -131,7 +197,7 @@
       id: raw.id || raw.session_id,
       session_id: raw.session_id || raw.id,
       artifact_id: raw.artifact_id || '',
-      title: raw.title || (raw.session_id ? ('Session ' + raw.session_id) : 'Session'),
+      title: stripSyntheticPromptPayload(raw.title) || (raw.session_id ? ('Session ' + raw.session_id) : 'Session'),
       user: raw.user || raw.user_id || 'anonymous',
       user_id: raw.user_id || raw.user || '',
       trace: raw.trace || (traces[0] ? traces[0].trace_id : ''),
