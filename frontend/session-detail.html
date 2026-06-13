@@ -2641,8 +2641,13 @@
       }, 50);
     };
 
+    function hasTraceSpans(real) {
+      return !!(real && Array.isArray(real.traces) && real.traces.some(t => Array.isArray(t.spans) && t.spans.length));
+    }
+
     // 等真实数据加载完毕（renderChatStream 后会有 SESSION._real）
     function init() {
+      const previousPath = currentPath;
       const arts = collectArtifacts();
       FILES = buildFiles(arts);
       // 同步「产物」tab 后的徽标为真实文件数
@@ -2658,18 +2663,25 @@
       if (FILES.length) {
         // 默认选关键产物的第一个，否则任意第一个
         const firstKey = FILES.find(f => (KIND_META[f.kind] || {}).isKey);
-        const first = firstKey || FILES[0];
+        const first = FILES.find(f => f.path === previousPath) || firstKey || FILES[0];
         currentPath = first.path;
-        currentVer = first.latest.ver;
+        currentVer = (first.versions.find(v => v.ver === currentVer) || first.latest).ver;
+      } else {
+        currentPath = null;
+        currentVer = null;
       }
       render();
     }
 
-    // 数据可能延迟加载，轮询直到 SESSION._real 就绪
+    window.addEventListener('agenttrace:session-real-updated', () => {
+      if (hasTraceSpans(window.SESSION && window.SESSION._real)) init();
+    });
+
+    // 数据可能延迟加载，轮询直到完整 traces 就绪；避免 meta_only 骨架提前把产物算成空态。
     let tries = 0;
     const timer = setInterval(() => {
       tries++;
-      if (window.SESSION && window.SESSION._real) { clearInterval(timer); init(); }
+      if (hasTraceSpans(window.SESSION && window.SESSION._real)) { clearInterval(timer); init(); }
       else if (tries > 40) { clearInterval(timer); init(); /* 降级：空态 */ }
     }, 100);
   })();
@@ -3583,6 +3595,7 @@
       }
       // 暴露真实数据给产物 tab IIFE 读取
       window.SESSION = Object.assign(window.SESSION || {}, { _real: s._real });
+      window.dispatchEvent(new CustomEvent('agenttrace:session-real-updated', { detail: { stage, session: s._real } }));
     }
 
     // 文档标题
