@@ -56,10 +56,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		bundles = h.applyQualityEvaluations(bundles)
 		total = int64(len(bundles))
 		if h.aggregator != nil {
-			days := daysFromQueryRange(tr)
-			if day, ok := mostRecentDay(days); ok {
-				h.aggregator.EnsureDays(cookie, []string{day})
-			}
+			h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"data":   bundles,
@@ -107,12 +104,9 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	bundles = filterBundlesByQueryRange(bundles, tr)
 	bundles = h.applyQualityEvaluations(bundles)
 
-	// 异步触发缺失日期的聚合，但后端会强制收敛为最近 1 天，避免随查询窗口放大。
+	// 异步触发缺失日期的聚合，但后端会强制收敛为最近少量未完成日期，避免随查询窗口放大。
 	if h.aggregator != nil {
-		days := daysFromQueryRange(tr)
-		if day, ok := mostRecentDay(days); ok {
-			h.aggregator.EnsureDays(cookie, []string{day})
-		}
+		h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
