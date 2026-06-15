@@ -302,6 +302,7 @@
           <a class="toc-link toc-sub" href="#ch4-3">4.3 步数类</a>
           <a class="toc-link toc-sub" href="#ch4-4">4.4 健康度子项</a>
           <a class="toc-link toc-sub" href="#ch4-5">4.5 异常标签</a>
+          <a class="toc-link toc-sub" href="#ch4-6">4.6 GPT-5.5 评测</a>
 
           <a class="toc-link" href="#ch5">五、问题排查路径</a>
           <a class="toc-link toc-sub" href="#ch5-1">路径 A · P95 飙升</a>
@@ -337,7 +338,7 @@
       <h2><span class="ch-no">01</span>平台速览</h2>
       <div class="ch-cover">
         <div class="text-[15px] font-semibold">这个平台到底是干什么的？</div>
-        <div class="ch-summary">如果把 Agent 看作一个员工，AgentTrace 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话评估它的效率、稳定、思考、资源、编排五项体征，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
+        <div class="ch-summary">如果把 Agent 看作一个员工，AgentTrace 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话用规则评估它的执行规整、工具稳定、重复空转、资源开销、调度编排五项<strong>客观体征</strong>，再叠加 GPT-5.5 对问题解决、意图匹配、效率体感、用户情绪、可执行性、幻觉风险的<strong>语义体验</strong>评测，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
         <div class="ch-meta">本章 · 预计阅读 2 分钟</div>
       </div>
 
@@ -436,17 +437,17 @@
       <table class="doc-table">
         <thead><tr><th style="width:13%">维度</th><th style="width:26%">它在测什么</th><th style="width:31%">不及格代表</th><th>核心信号</th></tr></thead>
         <tbody>
-          <tr><td><span class="dim dim-response">效率</span></td><td>耗时是否合理、有没有时间浪费</td><td>Agent <strong>慢</strong>，或虽然耗时长但过程里有明显空耗</td><td>0.4 × 体感分 + 0.6 × 规则效率分</td></tr>
-          <tr><td><span class="dim dim-stability">稳定</span></td><td>真实工具调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出；无真实工具调用时 N/A</td></tr>
-          <tr><td><span class="dim dim-thinking">思考</span></td><td>轨迹是否健康走完</td><td>Agent <strong>轨迹异常</strong>（无答复/截断/空转/决策未落地）</td><td>最终答复 + 截断检测 + 空转检测 + 工具意图落地检测</td></tr>
-          <tr><td><span class="dim dim-resource">资源</span></td><td>Token 用得省不省</td><td>Agent <strong>烧得多但产出少</strong></td><td>单轮 Token ≤ 76k 满分</td></tr>
-          <tr><td><span class="dim dim-orch">编排</span></td><td>真实工具调度模式合不合理</td><td>Agent <strong>来回踩同一个坑</strong>（过程导向）</td><td>连续重试次数、工具多样性；无真实工具调用时 N/A</td></tr>
+          <tr><td><span class="dim dim-response">执行规整</span></td><td>执行模式是否规整完成（纯客观结构信号）</td><td>Agent <strong>没走完轨迹</strong>（无答复/截断/工具意图未落地/规划缺失）</td><td>最终答复 + 截断 + 工具意图落地 + 规划/思考冗余检测（不含耗时）</td></tr>
+          <tr><td><span class="dim dim-stability">工具稳定</span></td><td>真实工具调用最终成不成功</td><td>Agent <strong>没办成事</strong>（最终结果导向）</td><td>工具调用失败率、根 span 异常退出；无真实工具调用时 N/A</td></tr>
+          <tr><td><span class="dim dim-thinking">重复空转</span></td><td>是否反复空转或无效循环</td><td>Agent <strong>反复踩坑</strong>（空转/串行重试/重复编辑）</td><td>连续空转步数 + 同名工具串行重试 + 同文件重复编辑</td></tr>
+          <tr><td><span class="dim dim-resource">资源开销</span></td><td>Token 用得省不省</td><td>Agent <strong>烧得多但产出少</strong></td><td>单轮 Token ≤ 76k 满分</td></tr>
+          <tr><td><span class="dim dim-orch">调度编排</span></td><td>真实工具调度是否多样高效</td><td>Agent <strong>调度单一</strong>（多样性低）</td><td>工具多样性 unique/total；无真实工具调用时 N/A（串行重试归「重复空转」）</td></tr>
         </tbody>
       </table>
 
       <div class="callout callout-orange">
-        <div class="callout-title">⚠️ 稳定 vs 编排：很容易搞混</div>
-        <strong>稳定看后果，编排看模式。</strong> 两者都只在发生过真实工具调用时适用；纯聊天 session 会置灰，不参与综合分。同一个 session 可能"跌跌撞撞最终成功"——稳定 100、编排 50。这种 case 真实发生：
+        <div class="callout-title">⚠️ 工具稳定 vs 调度编排：很容易搞混</div>
+        <strong>工具稳定看后果，调度编排看模式。</strong> 两者都只在发生过真实工具调用时适用；纯聊天 session 会置灰，不参与综合分。同一个 session 可能"跌跌撞撞最终成功"——工具稳定 100、调度编排 50。这种 case 真实发生：
         <span class="demo-only">参考演示数据 <a class="key-num" href="./session-detail?id=441ce4">441ce4</a>，连续 7 次 retry 同一工具但最终成功。</span>
       </div>
 
@@ -519,7 +520,7 @@
       <h4>健康度分布堆叠条 + 5 维雷达</h4>
       <ul>
         <li><strong>堆叠条</strong>：四档健康度占比一目了然。绿色越长 = 整体越好。</li>
-        <li><strong>雷达图</strong>：5 维平均得分。<strong>形状不对称 → 哪一维拖后腿</strong>。例如雷达明显朝"思考"维度凹陷，说明步数普遍越界，要去看是不是某类工具产生了过多 retry。</li>
+        <li><strong>雷达图</strong>：规则 5 维 + GPT 6 维平均得分。<strong>形状不对称 → 哪一维拖后腿</strong>。例如雷达明显朝"重复空转"维度凹陷，说明串行重试/空转普遍偏多，要去看是不是某类工具产生了过多 retry。</li>
       </ul>
 
       <h4>高风险 session 表</h4>
@@ -630,11 +631,11 @@
       <table class="doc-table">
         <thead><tr><th style="width:14%">维度</th><th style="width:26%">满分条件</th><th>计分公式</th></tr></thead>
         <tbody>
-          <tr><td><span class="dim dim-response">效率</span></td><td>体感耗时合理，且过程无明显空耗</td><td class="col-formula">0.4 × 体感分 + 0.6 × 规则效率分<br>体感分按工具调用数分桶：简单任务 ≤ 30s / 中等任务 ≤ 90s / 复杂任务 ≤ 240s 满分；<br>规则效率分从 100 起扣，命中环境黑洞(-20)、重复编辑(-20)、思考冗余(-10)、缺少规划(-10)、规划偏离(-10)、测试残留(-5)</td></tr>
-          <tr><td><span class="dim dim-stability">稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">无真实工具调用时 N/A；否则基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
-          <tr><td><span class="dim dim-thinking">思考</span></td><td>100 分</td><td class="col-formula">100 − 无答复35 − 截断25 − 空转(每步10,上限30) − 工具意图未落地25</td></tr>
-          <tr><td><span class="dim dim-resource">资源</span></td><td>≤ 76k token / 轮</td><td class="col-formula">100 × (1 − max(0, tokens − 76k) / 76k)</td></tr>
-          <tr><td><span class="dim dim-orch">编排</span></td><td>低 max_serial_run + 高工具多样性</td><td class="col-formula">无真实工具调用时 N/A；否则惩罚连续相同工具调用 (max_serial_run)<br>奖励 unique_tools / tool_calls</td></tr>
+          <tr><td><span class="dim dim-response">执行规整</span></td><td>轨迹规整走完，结构信号无异常</td><td class="col-formula">100 − 无答复35 − 截断25 − 工具意图未落地25 − 思考冗余10 − 缺少规划10 − 规划偏离10 − 测试残留5<br>（纯客观结构信号，<strong>不再计算耗时体感分</strong>，耗时是否合理交给 GPT「效率体感」）</td></tr>
+          <tr><td><span class="dim dim-stability">工具稳定</span></td><td>无失败、根 span 正常</td><td class="col-formula">无真实工具调用时 N/A；否则基于 tool 失败率 + 根 span 退出状态<br>调用失败时硬封顶 50</td></tr>
+          <tr><td><span class="dim dim-thinking">重复空转</span></td><td>无空转、无串行重试、无重复编辑</td><td class="col-formula">100 − 空转(每步10,上限30) − 串行重试(同名工具连续 ≥3/5/7 次扣 10/20/30) − 重复编辑(同文件 ≥3 次 −20)</td></tr>
+          <tr><td><span class="dim dim-resource">资源开销</span></td><td>≤ 76k token / 轮</td><td class="col-formula">100 × (1 − max(0, tokens − 76k) / 76k)</td></tr>
+          <tr><td><span class="dim dim-orch">调度编排</span></td><td>工具调度多样性高</td><td class="col-formula">无真实工具调用时 N/A；否则按调度多样性 unique/total 打分：≥0.6→100 / ≥0.4→85 / ≥0.25→70 / 否则 50<br>（串行重试已归「重复空转」维度，此处不再重复惩罚）</td></tr>
         </tbody>
       </table>
 
@@ -642,12 +643,39 @@
       <table class="doc-table">
         <thead><tr><th style="width:24%">failed_label</th><th>触发条件</th><th>归属维度</th></tr></thead>
         <tbody>
-          <tr><td><strong>轨迹异常</strong></td><td>无答复/截断/空转/工具意图未落地</td><td><span class="dim dim-thinking">思考</span></td></tr>
-          <tr><td><strong>上下文超限</strong></td><td>单次 LLM 调用 token 超出模型上下文窗口</td><td><span class="dim dim-resource">资源</span></td></tr>
-          <tr><td><strong>执行失败</strong></td><td>根 span 异常退出 / 任务未完成</td><td><span class="dim dim-stability">稳定</span></td></tr>
-          <tr><td><strong>出现死循环</strong></td><td>同一工具连续调用 max_serial_run ≥ 阈值</td><td><span class="dim dim-orch">编排</span></td></tr>
+          <tr><td><strong>轨迹异常</strong></td><td>无答复/截断/工具意图未落地</td><td><span class="dim dim-response">执行规整</span></td></tr>
+          <tr><td><strong>上下文超限</strong></td><td>单次 LLM 调用 token 超出模型上下文窗口</td><td><span class="dim dim-resource">资源开销</span></td></tr>
+          <tr><td><strong>执行失败</strong></td><td>根 span 异常退出 / 任务未完成</td><td><span class="dim dim-stability">工具稳定</span></td></tr>
+          <tr><td><strong>出现死循环</strong></td><td>同一工具连续调用 max_serial_run ≥ 阈值</td><td><span class="dim dim-thinking">重复空转</span></td></tr>
         </tbody>
       </table>
+
+      <h3 id="ch4-6">4.6 GPT-5.5 语义体验评测</h3>
+      <p>
+        规则维度只能看<strong>客观执行信号</strong>（步数、工具、Token），无法判断"答得对不对、用户爽不爽、任务难不难"。这部分由 GPT-5.5 作为 <span class="term" data-term="llm-judge">LLM-as-Judge</span> 补齐：只做<strong>语义体验</strong>判断，与规则维度严格互斥，避免双重惩罚。综合健康度 = 规则 50% + GPT-5.5 50%（GPT 缺失时回退规则 100%）。
+      </p>
+      <p>
+        <strong>GPT 总分不是 6 项平均分</strong>，而是 6 个维度按重要性加权后的结果。为了更直观，可以把它理解成：问题解决最多影响总分 30 分，意图匹配 18 分，效率体感 15 分，用户情绪 15 分，可执行性 12 分，幻觉风险 10 分。
+      </p>
+      <table class="doc-table">
+        <thead><tr><th style="width:13%">维度</th><th style="width:15%">最多影响总分</th><th style="width:24%">它在测什么</th><th>判定边界</th></tr></thead>
+        <tbody>
+          <tr><td><span class="dim dim-orch">问题解决</span></td><td>最多 30 分</td><td>用户核心问题是否真正闭环</td><td>声称完成但<strong>无执行证据</strong>视为未真正解决（完成声明须有证据）</td></tr>
+          <tr><td><span class="dim dim-orch">意图匹配</span></td><td>最多 18 分</td><td>回答是否围绕用户真实诉求</td><td>是否答非所问、是否偏离原始目标与最新追问</td></tr>
+          <tr><td><span class="dim dim-orch">效率体感</span></td><td>最多 15 分</td><td>结合任务难度，耗时/步数是否合理</td><td>难度只能语义判断，规则无法判断，故由 GPT 承接（规则侧不再算耗时体感分）</td></tr>
+          <tr><td><span class="dim dim-orch">用户情绪</span></td><td>最多 15 分</td><td>用户是否出现负向或挫败信号</td><td>只看<strong>用户表达的情绪词</strong>（感谢/崩溃/没用），不受是否解决影响</td></tr>
+          <tr><td><span class="dim dim-orch">可执行性</span></td><td>最多 12 分</td><td>建议是否具体可执行</td><td>是否给出可直接执行的步骤、文件、命令或验证方式</td></tr>
+          <tr><td><span class="dim dim-orch">幻觉风险</span></td><td>最多 10 分</td><td>是否凭空编造事实或结论</td><td>只判断<strong>凭空编造</strong>的事实/API/引用/结论；完成声明无证据归「问题解决」</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <div class="callout-title">怎么算 GPT 总分</div>
+        GPT 总分 = 问题解决 × 30% + 意图匹配 × 18% + 效率体感 × 15% + 用户情绪 × 15% + 可执行性 × 12% + 幻觉风险 × 10%。因此它不是 6 项平均分，而是按重要性加权后的结果。
+      </div>
+      <div class="callout callout-orange">
+        <div class="callout-title">⚠️ 规则 vs GPT：职责切分</div>
+        <strong>规则看客观执行信号，GPT 看语义体验。</strong> 例如「重复空转」（规则，看轨迹是否循环）与「效率体感」（GPT，看相对难度是否拖沓）不同；「问题解决」（是否闭环）与「幻觉风险」（是否编造）以"有无执行证据"为分界，互不重叠。
+      </div>
     </section>
 
     <!-- ============ 第五章 ============ -->
@@ -673,7 +701,7 @@
         <div class="path-arrow">↓</div>
         <div class="path-step"><div class="num">3</div><div class="content">
           <div class="step-title">点击 session id 进入<a class="key-purple" href="./sessions.html">明细</a>详情页</div>
-          重点看 <strong>5 维雷达</strong>：是不是<strong>效率</strong>维度独凹下去？是的话进入路径 C。
+          重点看 <strong>规则 5 维雷达</strong>：是不是<strong>执行规整</strong>或<strong>重复空转</strong>维度独凹下去？是的话进入路径 C。
         </div></div>
       </div>
       <p class="demo-only text-[12px] text-[--text-tertiary]">演示样例：点击 <a class="key-num" href="./session-detail?id=af2cb1">af2cb1</a>（健康度 49 / 严重档）查看详情。</p>
@@ -822,6 +850,7 @@
   // ===== 术语 tooltip =====
   const TERMS = {
     'critical-path': '<strong>Critical Path（关键路径）</strong><br>DAG 中最长的串行链路。它的耗时直接等于会话端到端耗时下限：减少它一秒，用户少等一秒。',
+    'llm-judge': '<strong>LLM-as-Judge</strong><br>用大模型（GPT-5.5）当评审，对规则难以量化的"语义体验"打分，如是否真正解决、是否答非所问、用户情绪等。结果与规则评估按 50/50 加权得到综合健康度。',
   };
   const tip = document.getElementById('term-tip-portal');
   document.querySelectorAll('.term').forEach(el => {

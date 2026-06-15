@@ -115,7 +115,7 @@
     const sentimentScore = score(llm.sentiment_score);
     const resolvedScore = score(llm.resolved_score);
     const intentScore = score(llm.intent_match_score);
-    const repeatScore = score(llm.repeat_loop_score);
+    const efficiencyScore = score(llm.efficiency_feel_score);
     const actionScore = score(llm.actionability_score);
     const hallucinationScore = score(llm.hallucination_risk_score);
     const reason = llm.reason || llm.score_basis || '';
@@ -129,8 +129,8 @@
     if (llm.sentiment === '强负向' || (sentimentScore !== null && sentimentScore < 35)) out.push(tag('用户强负向', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 11 }));
     else if (llm.sentiment === '负向' || (sentimentScore !== null && sentimentScore < 60)) out.push(tag('用户负向', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 27 }));
 
-    if (llm.repeat_loop === '循环卡住' || (repeatScore !== null && repeatScore < 35)) out.push(tag('循环卡住', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 13 }));
-    else if (llm.repeat_loop === '明显重复' || (repeatScore !== null && repeatScore < 70)) out.push(tag('重复空转', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 29 }));
+    if (llm.efficiency_feel === '偏低效' || (efficiencyScore !== null && efficiencyScore < 50)) out.push(tag('效率偏低', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 29 }));
+    else if (efficiencyScore !== null && efficiencyScore < 70) out.push(tag('效率一般', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 33 }));
 
     if (llm.actionability === '空泛不可执行' || (actionScore !== null && actionScore < 50)) out.push(tag('建议空泛', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 20 }));
     else if (llm.actionability === '需要补充信息' || (actionScore !== null && actionScore < 70)) out.push(tag('需补充信息', { source: 'llm', severity: 'warn', color: 'purple', detail: reason, priority: 36 }));
@@ -155,7 +155,7 @@
       sentiment_score: session?.llm_sentiment_score,
       resolved_score: session?.llm_resolved_score,
       intent_match_score: session?.llm_intent_match_score,
-      repeat_loop_score: session?.llm_repeat_loop_score,
+      efficiency_feel_score: session?.llm_efficiency_feel_score,
       actionability_score: session?.llm_actionability_score,
       hallucination_risk_score: session?.llm_hallucination_risk_score,
     });
@@ -184,7 +184,7 @@
   }
 
   function dimensionOf(label) {
-    if (/问题|解决|意图|答非所问|情绪|重复|空转|建议|信息|幻觉/.test(label)) return '语义体验';
+    if (/问题|解决|意图|答非所问|情绪|效率|建议|信息|幻觉/.test(label)) return '语义体验';
     if (/上下文|Token|成本|显存|OOM/.test(label)) return '资源维度';
     if (/工具|MCP|Skill|失败|trace/.test(label)) return '稳定维度';
     if (/关键路径|耗时|排队|响应/.test(label)) return '响应维度';

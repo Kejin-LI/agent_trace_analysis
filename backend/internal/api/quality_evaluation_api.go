@@ -40,6 +40,8 @@ type qualityEvaluationRequest struct {
 	LLMResolvedScore          *int            `json:"llm_resolved_score"`
 	LLMIntentMatch            string          `json:"llm_intent_match"`
 	LLMIntentMatchScore       *int            `json:"llm_intent_match_score"`
+	LLMEfficiencyFeel         string          `json:"llm_efficiency_feel"`
+	LLMEfficiencyFeelScore    *int            `json:"llm_efficiency_feel_score"`
 	LLMRepeatLoop             string          `json:"llm_repeat_loop"`
 	LLMRepeatLoopScore        *int            `json:"llm_repeat_loop_score"`
 	LLMActionability          string          `json:"llm_actionability"`
@@ -138,6 +140,8 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 		LLMResolvedScore:          clampScorePtr(req.LLMResolvedScore),
 		LLMIntentMatch:            trimLen(req.LLMIntentMatch, 32),
 		LLMIntentMatchScore:       clampScorePtr(req.LLMIntentMatchScore),
+		LLMEfficiencyFeel:         trimLen(req.LLMEfficiencyFeel, 32),
+		LLMEfficiencyFeelScore:    clampScorePtr(req.LLMEfficiencyFeelScore),
 		LLMRepeatLoop:             trimLen(req.LLMRepeatLoop, 32),
 		LLMRepeatLoopScore:        clampScorePtr(req.LLMRepeatLoopScore),
 		LLMActionability:          trimLen(req.LLMActionability, 32),
@@ -168,7 +172,7 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 			"rule_score", "rule_grade", "rule_tags", "rule_summary", "rule_suggestions", "rule_eval_result", "rule_eval_at",
 			"llm_score", "llm_grade", "llm_model", "llm_eval_version", "llm_eval_status", "llm_triggered_by", "llm_evaluated_at",
 			"llm_sentiment", "llm_sentiment_score", "llm_resolved", "llm_resolved_score",
-			"llm_intent_match", "llm_intent_match_score", "llm_repeat_loop", "llm_repeat_loop_score",
+			"llm_intent_match", "llm_intent_match_score", "llm_efficiency_feel", "llm_efficiency_feel_score", "llm_repeat_loop", "llm_repeat_loop_score",
 			"llm_actionability", "llm_actionability_score", "llm_hallucination_risk", "llm_hallucination_risk_score",
 			"llm_tags", "llm_summary", "llm_score_basis", "llm_suggestions", "llm_evidence", "llm_eval_result", "llm_raw_result", "llm_error",
 			"combined_score", "combined_grade", "combined_tags", "combined_summary", "combined_suggestions", "combined_score_basis",
@@ -215,6 +219,7 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 			"llm_sentiment_score",
 			"llm_resolved_score",
 			"llm_intent_match_score",
+			"llm_efficiency_feel_score",
 			"llm_repeat_loop_score",
 			"llm_actionability_score",
 			"llm_hallucination_risk_score",
@@ -266,6 +271,7 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 	b.LLMSentimentScore = row.LLMSentimentScore
 	b.LLMResolvedScore = row.LLMResolvedScore
 	b.LLMIntentMatchScore = row.LLMIntentMatchScore
+	b.LLMEfficiencyFeelScore = row.LLMEfficiencyFeelScore
 	b.LLMRepeatLoopScore = row.LLMRepeatLoopScore
 	b.LLMActionabilityScore = row.LLMActionabilityScore
 	b.LLMHallucinationRiskScore = row.LLMHallucinationRiskScore
