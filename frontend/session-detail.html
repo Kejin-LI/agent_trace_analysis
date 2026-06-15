@@ -839,6 +839,23 @@
     border-top: 1px dashed rgba(0,0,0,0.08);
     letter-spacing: 0.3px;
   }
+  .agent-turn-model {
+    display: inline-flex;
+    align-items: center;
+    max-width: min(56vw, 360px);
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #5E3A9B;
+    background: rgba(94,58,155,0.08);
+    border: 1px solid rgba(94,58,155,0.12);
+    font-size: 10px;
+    letter-spacing: 0;
+  }
 
   /* 甘特图点击进度条 → 左侧对话流定位高亮 */
   .chat-locate-flash {
@@ -4163,17 +4180,30 @@
     return `${raw.slice(0, hit.start)} ${raw.slice(hit.end)}`.trim();
   }
 
-  function formatQuestionAnswerReply(text) {
+  function stringifyQuestionAnswerValue(value) {
+    if (Array.isArray(value)) return value.map(v => stringifyQuestionAnswerValue(v)).filter(Boolean).join('、');
+    if (value && typeof value === 'object') {
+      return Object.values(value).map(v => stringifyQuestionAnswerValue(v)).filter(Boolean).join('、');
+    }
+    return String(value ?? '').trim();
+  }
+
+  function extractQuestionAnswerReplyInfo(text) {
     const hit = findQuestionAnswerResultPayload(text);
     const answers = hit?.payload?.answers;
-    if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return '';
-    return Object.entries(answers)
+    if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return null;
+    const replyText = Object.entries(answers)
       .map(([key, value]) => {
-        const v = Array.isArray(value) ? value.join('、') : String(value ?? '');
+        const v = stringifyQuestionAnswerValue(value);
         return v ? `${key}: ${v}` : '';
       })
       .filter(Boolean)
       .join('；');
+    return replyText ? { text: replyText, answers } : null;
+  }
+
+  function formatQuestionAnswerReply(text) {
+    return extractQuestionAnswerReplyInfo(text)?.text || '';
   }
 
   function collectSpanUserMessageTexts(span) {
@@ -4193,15 +4223,19 @@
   }
 
   function formatQuestionAnswerReplyFromTrace(trace) {
+    return extractQuestionAnswerReplyInfoFromTrace(trace)?.text || '';
+  }
+
+  function extractQuestionAnswerReplyInfoFromTrace(trace) {
     const candidates = [trace?.user_prompt, trace?.title].filter(Boolean).map(String);
     (trace?.spans || [])
       .filter(sp => sp && sp.span_type === 'model')
       .forEach(sp => candidates.push(...collectSpanUserMessageTexts(sp)));
     for (const text of candidates) {
-      const reply = formatQuestionAnswerReply(text);
+      const reply = extractQuestionAnswerReplyInfo(text);
       if (reply) return reply;
     }
-    return '';
+    return null;
   }
 
   function isGeneratedRoundTitle(text) {
@@ -4570,6 +4604,47 @@
     return { text, reasoning, tool_calls: tcs };
   }
 
+  function isPreludeModelSpan(spans, spanIndex) {
+    const spansList = Array.isArray(spans) ? spans : [];
+    const span = spansList[spanIndex];
+    if (!span || span.span_type !== 'model') return false;
+    const hasEarlierModel = spansList.slice(0, spanIndex).some(sp => sp && sp.span_type === 'model');
+    if (hasEarlierModel) return false;
+    const nextModel = spansList.slice(spanIndex + 1).find(sp => sp && sp.span_type === 'model');
+    if (!nextModel) return false;
+    const currentOut = extractAssistantOutput(span);
+    const nextOut = extractAssistantOutput(nextModel);
+    const currentText = normalizePromptText(currentOut.text || '');
+    const nextText = normalizePromptText(nextOut.text || '');
+    const currentModel = String((span.custom_tags || {}).model_name || span.span_name || '').trim();
+    const nextModelName = String((nextModel.custom_tags || {}).model_name || nextModel.span_name || '').trim();
+    const currentHasWork = !!(currentOut.reasoning || (currentOut.tool_calls || []).length);
+    const nextLooksMain = !!(nextOut.reasoning
+      || (nextOut.tool_calls || []).length
+      || nextText.length >= Math.max(24, currentText.length + 10));
+    return !currentHasWork
+      && !!currentText
+      && currentText.length <= 16
+      && nextLooksMain
+      && !!currentModel
+      && !!nextModelName
+      && currentModel !== nextModelName;
+  }
+
+  function getDisplayModelSpans(spans) {
+    const list = (Array.isArray(spans) ? spans : []).filter(sp => sp && sp.span_type === 'model');
+    if (!list.length) return [];
+    const original = Array.isArray(spans) ? spans : list;
+    const filtered = list.filter(sp => !isPreludeModelSpan(original, original.indexOf(sp)));
+    return filtered.length ? filtered : list;
+  }
+
+  function pickPrimaryModelSpan(spans) {
+    const display = getDisplayModelSpans(spans);
+    if (display.length) return display[0];
+    return (Array.isArray(spans) ? spans : []).find(sp => sp && sp.span_type === 'model') || null;
+  }
+
   // 剥离 LLM 常见的"包装标签"：<summary>、<answer>、<final>、<response>、<output>
   // 仅当整段文本恰好被同一个标签包裹时才剥离，避免误伤正文中真正的 XML 内容
   function stripWrapperTags(s) {
@@ -4693,6 +4768,16 @@
       </div>`;
   }
 
+  function normalizeClarifyReply(replyInput) {
+    if (replyInput && typeof replyInput === 'object') {
+      return {
+        text: String(replyInput.text || replyInput.replyText || '').trim(),
+        answers: (replyInput.answers && typeof replyInput.answers === 'object' && !Array.isArray(replyInput.answers)) ? replyInput.answers : null,
+      };
+    }
+    return { text: String(replyInput || '').trim(), answers: null };
+  }
+
   function normalizeClarifySelectionText(text) {
     return String(text || '')
       .toLowerCase()
@@ -4700,16 +4785,77 @@
       .replace(/[，,。.;；、|/\\()[\]{}"'“”‘’：:！？!?<>《》【】]/g, '');
   }
 
-  function isClarifyOptionSelected(option, replyText) {
+  function splitClarifyAnswerParts(value) {
+    const raw = stringifyQuestionAnswerValue(value);
+    if (!raw) return [];
+    return raw.split(/[，,、;；|/\n]+/).map(s => s.trim()).filter(Boolean);
+  }
+
+  function getClarifyAnswerForQuestion(q, idx, answers) {
+    if (!answers) return '';
+    const candidates = [
+      q.title,
+      q.name,
+      q.label,
+      q.key,
+      q.id,
+      q.question,
+      q.prompt,
+      String(idx + 1),
+    ].filter(Boolean).map(String);
+    for (const key of candidates) {
+      if (Object.prototype.hasOwnProperty.call(answers, key)) return answers[key];
+    }
+    const entries = Object.entries(answers);
+    const titleNorm = normalizeClarifySelectionText(q.title || '');
+    const questionNorm = normalizeClarifySelectionText(q.question || q.prompt || '');
+    const hit = entries.find(([key]) => {
+      const k = normalizeClarifySelectionText(key);
+      return k && ((titleNorm && (k.includes(titleNorm) || titleNorm.includes(k)))
+        || (questionNorm && (k.includes(questionNorm) || questionNorm.includes(k))));
+    });
+    if (hit) return hit[1];
+    return Object.values(answers)[idx] || '';
+  }
+
+  function isClarifyAnswerOptionMatch(option, answerValue) {
+    const opt = normalizeClarifySelectionText(option);
+    if (!opt) return false;
+    return splitClarifyAnswerParts(answerValue).some(part => {
+      const ans = normalizeClarifySelectionText(part);
+      return ans && (ans === opt || opt.includes(ans) || ans.includes(opt));
+    });
+  }
+
+  function isClarifyOptionLooselySelected(option, replyText) {
     const opt = normalizeClarifySelectionText(option);
     const reply = normalizeClarifySelectionText(replyText);
     if (!opt || !reply) return false;
-    return reply.includes(opt);
+    const optionHead = normalizeClarifySelectionText(String(option || '').split(/[：:]/)[0]);
+    if (optionHead && reply.includes(optionHead)) return true;
+    const hints = [
+      ['单视频打分', ['单视频rubrics标注', '单视频标注', '单视频评分']],
+      ['视频审核', ['视频审核', '问题时间段', '是否有问题']],
+      ['偏好排序', ['偏好排序', '对比排序', '候选视频做对比']],
+      ['需要理由也需要开始结束时间', ['逐维理由逐维开始结束时间', '理由开始结束时间', '开始结束时间']],
+      ['需要理由不需要时间段', ['需要理由不需要时间段', '只需要理由']],
+      ['只打分不需要额外填写', ['只打分', '不需要额外填写']],
+    ];
+    return hints.some(([needle, aliases]) => opt.includes(normalizeClarifySelectionText(needle))
+      && aliases.some(alias => reply.includes(normalizeClarifySelectionText(alias))));
   }
 
-  function renderClarifyOption(option, replyText = '') {
+  function isClarifyOptionSelected(option, replyText, answerValue = '') {
+    if (isClarifyAnswerOptionMatch(option, answerValue)) return true;
+    const opt = normalizeClarifySelectionText(option);
+    const reply = normalizeClarifySelectionText(replyText);
+    if (!opt || !reply) return false;
+    return reply.includes(opt) || isClarifyOptionLooselySelected(option, replyText);
+  }
+
+  function renderClarifyOption(option, replyText = '', answerValue = '') {
     const label = String(option || '');
-    const selected = isClarifyOptionSelected(label, replyText);
+    const selected = isClarifyOptionSelected(label, replyText, answerValue);
     return `<span class="clarify-opt ${selected ? 'selected' : ''}">${escapeHTML(label)}</span>`;
   }
 
@@ -4718,30 +4864,32 @@
     return ['qna', 'qa', 'question_answer', 'free_text', 'text', 'textarea'].includes(key);
   }
 
-  function renderClarifyTextInput(q, replyText = '') {
-    const reply = String(replyText || '').trim();
+  function renderClarifyTextInput(q, replyText = '', answerValue = '') {
+    const reply = stringifyQuestionAnswerValue(answerValue) || String(replyText || '').trim();
     const placeholder = q.placeholder || q.example || '请在这里补充文字答案';
     return `<div class="clarify-text-input ${reply ? 'answered' : ''}">${escapeHTML(reply || placeholder)}</div>`;
   }
 
-  function renderClarifyQuestionControl(q, replyText = '') {
-    if (isClarifyTextQuestion(q.type)) return renderClarifyTextInput(q, replyText);
-    return q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText)).join('')}</div>` : '';
+  function renderClarifyQuestionControl(q, replyText = '', answerValue = '') {
+    if (isClarifyTextQuestion(q.type)) return renderClarifyTextInput(q, replyText, answerValue);
+    return q.options.length ? `<div class="clarify-opts">${q.options.map(o => renderClarifyOption(o, replyText, answerValue)).join('')}</div>` : '';
   }
 
-  function hasSelectedClarifyOptions(questions, replyText = '') {
+  function hasSelectedClarifyOptions(questions, replyText = '', answers = null) {
     return (Array.isArray(questions) ? questions : []).some(q =>
-      (q.options || []).some(o => isClarifyOptionSelected(o, replyText))
+      (q.options || []).some(o => isClarifyOptionSelected(o, replyText, getClarifyAnswerForQuestion(q, questions.indexOf(q), answers)))
     );
   }
 
-  function renderIntentClarifyCard(text, replyText = '') {
+  function renderIntentClarifyCard(text, replyInput = '') {
+    const replyInfo = normalizeClarifyReply(replyInput);
+    const replyText = replyInfo.text;
     const answered = !!String(replyText || '').trim();
     // 优先识别内嵌的结构化 JSON（<question>{ "questions": [...] }</question> 或裸 JSON），
     // 按「每问一排」排版；解析不到再退回原有的「1. 标题：描述」文本解析。
     const questions = extractClarifyQuestions({}, text);
     const leadText = stripClarifyQuestionPayload(text);
-    const hasInlineReply = hasSelectedClarifyOptions(questions, replyText);
+    const hasInlineReply = hasSelectedClarifyOptions(questions, replyText, replyInfo.answers);
     let fieldHTML;
     if (questions.length) {
       fieldHTML = `
@@ -4752,7 +4900,7 @@
               <div>
                 ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
                 ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
-                ${renderClarifyQuestionControl(q, replyText)}
+                ${renderClarifyQuestionControl(q, replyText, getClarifyAnswerForQuestion(q, idx, replyInfo.answers))}
               </div>
             </div>
           `).join('')}
@@ -4861,7 +5009,7 @@
   function extractClarifyQuestions(obj, questionText) {
     const normalize = (arr) => (Array.isArray(arr) ? arr : [])
       .map(q => {
-        if (typeof q === 'string') return { title: '', question: q, options: [] };
+        if (typeof q === 'string') return { title: '', question: q, options: [], key: '' };
         if (!q || typeof q !== 'object') return null;
         let options = q.options || q.choices || [];
         if (!Array.isArray(options)) options = [];
@@ -4869,8 +5017,9 @@
         const title = q.title || q.name || q.label || '';
         const question = q.question || q.prompt || q.desc || q.description || '';
         const type = q.type || q.question_type || q.kind || '';
+        const key = q.key || q.id || q.name || q.label || q.title || '';
         if (!title && !question && !options.length && !type) return null;
-        return { title: String(title), question: String(question), options, type: String(type) };
+        return { title: String(title), question: String(question), options, type: String(type), key: String(key) };
       })
       .filter(Boolean);
 
@@ -4906,12 +5055,14 @@
   }
 
   // 渲染澄清卡片：模型在流式回复中向用户发起的澄清提问。
-  function renderClarifyCard(argsStr, replyText = '') {
+  function renderClarifyCard(argsStr, replyInput = '') {
+    const replyInfo = normalizeClarifyReply(replyInput);
+    const replyText = replyInfo.text;
     const obj = safeJSON(argsStr) || {};
     const question = obj.question || obj.prompt || obj.message || obj.text || '';
     const questions = extractClarifyQuestions(obj, question);
     const leadText = stripClarifyQuestionPayload(question);
-    let hasInlineReply = hasSelectedClarifyOptions(questions, replyText);
+    let hasInlineReply = hasSelectedClarifyOptions(questions, replyText, replyInfo.answers);
 
     let bodyHTML;
     if (questions.length) {
@@ -4924,7 +5075,7 @@
               <div>
                 ${(q.title || q.type) ? `<div class="clarify-field-head">${q.title ? `<div class="clarify-field-title">${escapeHTML(q.title)}</div>` : ''}${q.type ? `<span class="clarify-field-type">类型: ${escapeHTML(formatClarifyQuestionType(q.type))}</span>` : ''}</div>` : ''}
                 ${q.question ? `<div class="clarify-field-desc">${escapeHTML(q.question)}</div>` : `<div class="clarify-field-desc">待用户补充</div>`}
-                ${renderClarifyQuestionControl(q, replyText)}
+                ${renderClarifyQuestionControl(q, replyText, getClarifyAnswerForQuestion(q, idx, replyInfo.answers))}
               </div>
             </div>
           `).join('')}
@@ -4992,15 +5143,16 @@
       .flatMap(segmentTraceByPrompt);
     const baseGroups = traces.map(t => {
       const spans = (t.spans || []);
-      const firstLLM = spans.find(s => s.span_type === 'model');
+      const firstLLM = pickPrimaryModelSpan(spans);
       const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
       const rawUser = pickRawUserText(firstLLM, t);
       const rawPrompt = cleanUserPrompt(t.user_prompt) || cleanUserPrompt(t.title);
       const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
       const displayPrompt = up || rawPrompt || '';
       const injectedContext = extractInjectedContext(rawUser);
-      const clarifyAnswerReply = formatQuestionAnswerReply(rawUser)
-        || formatQuestionAnswerReplyFromTrace(t);
+      const clarifyAnswerInfo = extractQuestionAnswerReplyInfo(rawUser)
+        || extractQuestionAnswerReplyInfoFromTrace(t);
+      const clarifyAnswerReply = clarifyAnswerInfo?.text || '';
       return {
         userPrompt: displayPrompt,
         injectedContext,
@@ -5008,6 +5160,7 @@
         synthetic: syntheticInfo,
         syntheticRaw: syntheticInfo ? stripInjectedContext(rawUser) : '',
         clarifyAnswerReply,
+        clarifyAnswerInfo,
       };
     });
     const isGroupClarify = (grp) => grp.traces.some(t => (t.spans || []).some(sp => {
@@ -5025,6 +5178,7 @@
         prev.traces.push(...grp.traces);
         prev.internalPrompts = [...(prev.internalPrompts || []), ...(grp.synthetic ? [{ info: grp.synthetic, raw: grp.syntheticRaw }] : [])];
         if (!prev.clarifyAnswerReply && grp.clarifyAnswerReply) prev.clarifyAnswerReply = grp.clarifyAnswerReply;
+        if (!prev.clarifyAnswerInfo && grp.clarifyAnswerInfo) prev.clarifyAnswerInfo = grp.clarifyAnswerInfo;
         return;
       }
       normalizedBaseGroups.push({
@@ -5041,7 +5195,7 @@
         ...grp,
         traces: [...grp.traces],
         internalPrompts: [...(grp.internalPrompts || [])],
-        clarifyReply: grp.clarifyAnswerReply || inferClarifyReplyFromGroup(grp),
+        clarifyReply: grp.clarifyAnswerInfo || grp.clarifyAnswerReply || inferClarifyReplyFromGroup(grp),
         mergedClarifyReply: false,
       };
       const nextReply = i + 1 < normalizedBaseGroups.length ? String(normalizedBaseGroups[i + 1].userPrompt || '').trim() : '';
@@ -5049,7 +5203,7 @@
         const next = normalizedBaseGroups[i + 1];
         merged.traces.push(...next.traces);
         merged.internalPrompts.push(...(next.internalPrompts || []));
-        merged.clarifyReply = nextReply;
+        merged.clarifyReply = next.clarifyAnswerInfo || next.clarifyAnswerReply || nextReply;
         merged.mergedClarifyReply = true;
         i++;
       }
@@ -6828,7 +6982,7 @@
     if (cnt) cnt.textContent = `· ${realRoundCount} 轮`;
 
     // 全局执行步数（Step）：以所有 trace 下 model span 总数为准，与概览/KPI 口径一致
-    const totalSteps = traces.reduce((sum, t) => sum + (t.spans || []).filter(s => s.span_type === 'model').length, 0);
+    const totalSteps = traces.reduce((sum, t) => sum + getDisplayModelSpans(t.spans || []).length, 0);
     let globalStepIdx = 0;
 
     const html = [];
@@ -6839,7 +6993,7 @@
 
     groups.forEach((grp, groupIndex) => {
       // 每个可视会话组都放一个稳定锚点；甘特图点击 round 根节点时定位这里。
-      html.push(`<div class="chat-round-anchor" data-chat-round-idx="${groupIndex}" aria-hidden="true"></div>`);
+      html.push(`<div class="chat-round-anchor" data-chat-round-idx="${groupIndex}" data-chat-round-no="${grp.displayRoundIndex || ''}" aria-hidden="true"></div>`);
       // user 气泡（如果该组有 prompt）
       if (grp.synthetic) {
         // 框架内部 prompt：不渲染蓝色用户气泡，改为左对齐的灰色折叠块（与系统注入引用块同款）
@@ -6869,7 +7023,7 @@
       const modelsUsed = new Set();
       let totalLLMms = 0;
       const artifacts = [];
-      const nextUserReply = String(grp.clarifyReply || '').trim();
+      const nextUserReply = normalizeClarifyReply(grp.clarifyReply);
 
       grp.traces.forEach((t, ti) => {
         const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
@@ -6877,8 +7031,9 @@
         let toolCursor = 0;
         let isFirstSpanInTrace = true;
 
+        const displayModelSpans = new Set(getDisplayModelSpans(spans).map(sp => sp.span_id));
         spans.forEach(sp => {
-          if (sp.span_type !== 'model') return;
+          if (sp.span_type !== 'model' || !displayModelSpans.has(sp.span_id)) return;
           // 每次 LLMCall = 一步（执行步数 Step 的全局编号）
           globalStepIdx++;
           const sepStyle = (ti === 0 && isFirstSpanInTrace) ? ' style="margin-top:4px"' : '';
@@ -6952,7 +7107,7 @@
                 <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
                 <span class="tool-line-label">${cls.label}: <span class="tool-line-name">${escapeHTML(tc.name)}</span></span>
                 ${execDur ? `<span class="tool-line-dur">${execDur}</span>` : ''}
-                ${ok ? '' : '<span class="tool-line-status fail">失败</span>'}
+                ${ok ? '' : '<span class="tool-line-status fail">❌ 失败</span>'}
               </div>
             `);
           });
@@ -6979,7 +7134,7 @@
                 <span class="tool-line-icon ${cls.kind}">${cls.icon}</span>
                 <span class="tool-line-label">${cls.label}: <span class="tool-line-name">${escapeHTML(exec.span_name)}</span></span>
                 ${exec.duration_ms > 0 ? `<span class="tool-line-dur">${fmtSec(exec.duration_ms)}</span>` : ''}
-                ${ok ? '' : '<span class="tool-line-status fail">失败</span>'}
+                ${ok ? '' : '<span class="tool-line-status fail">❌ 失败</span>'}
               </div>
             `);
           }
@@ -6990,13 +7145,13 @@
       if (parts.length) {
         const modelLabel = [...modelsUsed].join(' / ') || 'LLM';
         // 该组实际执行的步数 = 该组下 model span 数量（不是 trace 数量，trace 只是物理切分）
-        const grpSteps = grp.traces.reduce((sum, t) => sum + (t.spans || []).filter(s => s.span_type === 'model').length, 0);
+        const grpSteps = grp.traces.reduce((sum, t) => sum + getDisplayModelSpans(t.spans || []).length, 0);
         const turnsLabel = grpSteps > 1 ? ` · ${grpSteps} 步` : '';
         html.push(`
           <div class="msg-agent max-w-[92%] text-[12.5px] leading-relaxed py-1">
             <div class="flex items-center gap-1.5 text-[10.5px] text-[--text-tertiary] mb-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-[--apple-blue]"></span>
-              <span title="模型 · LLM 累计耗时${grpSteps > 1 ? ` · 执行 ${grpSteps} 步（每步 = 一次「思考 → 调用工具 → 观察」循环）` : ''}">${escapeHTML(modelLabel)} · ${fmtSec(totalLLMms)}${turnsLabel}</span>
+              <span class="agent-turn-model" title="当前回复模型：${escapeHTML(modelLabel)}">${escapeHTML(modelLabel)}</span>
+              <span title="模型 · LLM 累计耗时${grpSteps > 1 ? ` · 执行 ${grpSteps} 步（每步 = 一次「思考 → 调用工具 → 观察」循环）` : ''}">${fmtSec(totalLLMms)}${turnsLabel}</span>
             </div>
             ${parts.join('')}
           </div>
