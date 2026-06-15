@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +30,7 @@ type aggregateJob struct {
 // Aggregator 按"自然日"维度异步聚合 session 指标，结果写入 DB。
 //
 // 触发方式：列表接口收到请求时，用当前请求的 Cookie 异步触发补库，
-// 但后端会强制把补库范围截断为最近 1 天，避免随查询窗口线性膨胀。
+// 但后端只会尝试最近少量未完成日期，避免随查询窗口线性膨胀。
 //
 // 执行模型：进程内只保留一个 worker 串行消费，单天内部 detail 拉取并发严格受限。
 type Aggregator struct {
@@ -51,10 +52,17 @@ type Aggregator struct {
 	// startedAt 记录进程启动时刻，用于启动保护期：实例刚启动（如 TCE 升级/重启
 	// 流量切换窗口）时不立即触发自动聚合，避免与健康检查、流量切换叠加引发内存尖峰。
 	startedAt time.Time
+
+	optionalColumnsOnce sync.Once
+	bundleJSONColumnOK  bool
 }
 
 // startupGrace 启动保护期：进程启动后该时间窗内不接受访问触发的自动聚合。
 const startupGrace = 2 * time.Minute
+
+// accessTriggeredMaxDays 限制单次访问触发最多补多少个最近未完成日期。
+// 保持小窗口可显著提升列表命中率，同时不把补库范围放大到整个查询窗口，避免 OOM 风险。
+const accessTriggeredMaxDays = 3
 
 // staleRunningTimeout 判定 running 状态为"陈旧"（残留自被杀实例）的阈值。
 const staleRunningTimeout = 15 * time.Minute
@@ -345,7 +353,7 @@ func (a *Aggregator) Get(sessionID string) (cachedMetrics, bool) {
 	return aggregateRowToCachedMetrics(row), true
 }
 
-// EnsureDays 异步保证 dates 列表对应的最近一天完成补库；已完成或正在跑的日期跳过。
+// EnsureDays 异步保证 dates 列表中最近少量未完成日期进入补库队列；已完成或正在跑的日期跳过。
 // cookie 仅用于本次触发的上游调用，仅在内存中传递，不持久化。
 func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	if a == nil || a.db == nil || cookie == "" {
@@ -359,22 +367,32 @@ func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	if time.Since(a.startedAt) < startupGrace {
 		return
 	}
-	date, ok := mostRecentDay(dates)
-	if !ok {
+	candidates := normalizedDaysDesc(dates)
+	if len(candidates) == 0 {
 		return
 	}
-	if a.isDateCompleted(date) {
-		return
+	queued := make([]string, 0, accessTriggeredMaxDays)
+	for _, date := range candidates {
+		if len(queued) >= accessTriggeredMaxDays {
+			break
+		}
+		if a.isDateCompleted(date) {
+			continue
+		}
+		if !a.acquireDateFlight(date) {
+			continue
+		}
+		select {
+		case a.jobs <- aggregateJob{cookie: cookie, date: date}:
+			queued = append(queued, date)
+		default:
+			log.Printf("aggregator: queue full, skip date=%s", date)
+			a.releaseDateFlight(date)
+			break
+		}
 	}
-	if !a.acquireDateFlight(date) {
-		return
-	}
-
-	select {
-	case a.jobs <- aggregateJob{cookie: cookie, date: date}:
-	default:
-		log.Printf("aggregator: queue full, skip date=%s", date)
-		a.releaseDateFlight(date)
+	if len(queued) > 0 {
+		log.Printf("aggregator: ensure queued dates=%v requested=%v", queued, candidates)
 	}
 }
 
@@ -657,6 +675,47 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 	if buf, err := json.Marshal(bundle); err == nil {
 		bundleJSON = string(buf)
 	}
+	updateColumns := []string{
+		"aggregate_date",
+		"artifact_id",
+		"user_id",
+		"user_name",
+		"started_at_ms",
+		"started_at",
+		"duration_ms",
+		"input_tokens",
+		"output_tokens",
+		"total_tokens",
+		"avg_tokens_per_turn",
+		"turns",
+		"trace_count",
+		"tool_calls",
+		"unique_tools",
+		"tool_failures",
+		"tool_fail_rate_bp",
+		"tool_retries",
+		"max_serial_run",
+		"has_root_fail",
+		"has_loop",
+		"has_final_answer",
+		"no_op_streak",
+		"score",
+		"response_score",
+		"stability_score",
+		"thinking_score",
+		"resource_score",
+		"orchestration_score",
+		"abnormal_level",
+		"chip",
+		"rules_json",
+		"features_json",
+		"title",
+		"trace_id",
+		"source_create_at",
+		"source_update_at",
+		"aggregated_at",
+		"updated_at",
+	}
 	row := model.APISessionAggregate{
 		SessionID:          src.SessionID,
 		ArtifactID:         src.ArtifactID,
@@ -694,55 +753,20 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		AbnormalLevel:      m.AbnormalLevel,
 		RulesJSON:          rulesJSON,
 		FeaturesJSON:       featuresJSON,
-		BundleJSON:         bundleJSON,
 		SourceCreateAt:     src.SourceCreatedAt,
 		SourceUpdateAt:     src.SourceUpdatedAt,
 		AggregatedAt:       time.Now(),
 	}
-	return a.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "session_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"aggregate_date",
-			"artifact_id",
-			"user_id",
-			"user_name",
-			"started_at_ms",
-			"started_at",
-			"duration_ms",
-			"input_tokens",
-			"output_tokens",
-			"total_tokens",
-			"avg_tokens_per_turn",
-			"turns",
-			"trace_count",
-			"tool_calls",
-			"unique_tools",
-			"tool_failures",
-			"tool_fail_rate_bp",
-			"tool_retries",
-			"max_serial_run",
-			"has_root_fail",
-			"has_loop",
-			"has_final_answer",
-			"no_op_streak",
-			"score",
-			"response_score",
-			"stability_score",
-			"thinking_score",
-			"resource_score",
-			"orchestration_score",
-			"abnormal_level",
-			"chip",
-			"rules_json",
-			"features_json",
-			"bundle_json",
-			"title",
-			"trace_id",
-			"source_create_at",
-			"source_update_at",
-			"aggregated_at",
-			"updated_at",
-		}),
+	tx := a.db
+	if a.hasBundleJSONColumn() {
+		row.BundleJSON = bundleJSON
+		updateColumns = append(updateColumns, "bundle_json")
+	} else {
+		tx = tx.Omit("bundle_json")
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "session_id"}},
+		DoUpdates: clause.AssignmentColumns(updateColumns),
 	}).Create(&row).Error
 }
 
@@ -899,6 +923,49 @@ func mostRecentDay(dates []string) (string, bool) {
 		return "", false
 	}
 	return latest, true
+}
+
+func normalizedDaysDesc(dates []string) []string {
+	if len(dates) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(dates))
+	uniq := make([]string, 0, len(dates))
+	for _, d := range dates {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		uniq = append(uniq, d)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(uniq)))
+	return uniq
+}
+
+func (a *Aggregator) hasBundleJSONColumn() bool {
+	if a == nil || a.db == nil {
+		return false
+	}
+	a.optionalColumnsOnce.Do(func() {
+		exists := false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("aggregator: detect optional column bundle_json panic: %v", r)
+				}
+			}()
+			exists = a.db.Migrator().HasColumn(&model.APISessionAggregate{}, "bundle_json")
+		}()
+		a.bundleJSONColumnOK = exists
+		if !exists {
+			log.Printf("aggregator: optional column bundle_json missing, detail bundle cache write disabled")
+		}
+	})
+	return a.bundleJSONColumnOK
 }
 
 // LastNDays 返回最近 n 天（含今天）的日期列表，格式 "YYYY-MM-DD"。

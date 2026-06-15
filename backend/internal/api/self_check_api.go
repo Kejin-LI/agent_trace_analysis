@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 )
 
 type selfCheckResponse struct {
@@ -47,7 +49,7 @@ func (h *Handler) selfCheck(c *gin.Context) {
 			resp.DBPingOK = true
 		}
 		_ = safeProbe(func() error {
-			resp.BundleJSONColumnExists = h.db.Migrator().HasColumn("api_session_aggregates", "bundle_json")
+			resp.BundleJSONColumnExists = h.db.Migrator().HasColumn(&model.APISessionAggregate{}, "bundle_json")
 			return nil
 		})
 	}
