@@ -192,6 +192,7 @@
     const outputTokens = Number(raw.output_tokens || 0) || traces.reduce((sum, t) => sum + Number(t.output_tokens || 0), 0);
     const startedAtMs = Number(raw.started_at_ms || 0) || (traces[0] ? Number(traces[0].started_at_ms || 0) : 0);
     const helper = window.AgentTraceEfficiency;
+    const llmJudgeResult = raw.llm_judge_result || raw.llmJudgeResult || raw.llm_judge || raw.gpt55_judge_result || null;
 
     const session = {
       id: raw.id || raw.session_id,
@@ -214,6 +215,20 @@
       radar: raw.radar || { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 },
       traces,
       terminated_by: raw.terminated_by || '',
+      rule_score: raw.rule_score ?? raw.ruleScore ?? null,
+      llm_score: raw.llm_score ?? raw.llmScore ?? raw.llm_judge_score ?? raw.llmJudgeScore ?? null,
+      llm_judge_score: raw.llm_judge_score ?? raw.llmJudgeScore ?? raw.llm_score ?? raw.llmScore ?? null,
+      llm_judge_model: raw.llm_judge_model || raw.llmJudgeModel || '',
+      llm_eval_version: raw.llm_eval_version || raw.llmEvalVersion || 0,
+      llm_evaluated_at: raw.llm_evaluated_at || raw.llmEvaluatedAt || '',
+      llm_sentiment_score: raw.llm_sentiment_score ?? raw.llmSentimentScore ?? null,
+      llm_resolved_score: raw.llm_resolved_score ?? raw.llmResolvedScore ?? null,
+      llm_intent_match_score: raw.llm_intent_match_score ?? raw.llmIntentMatchScore ?? null,
+      llm_repeat_loop_score: raw.llm_repeat_loop_score ?? raw.llmRepeatLoopScore ?? null,
+      llm_actionability_score: raw.llm_actionability_score ?? raw.llmActionabilityScore ?? null,
+      llm_hallucination_risk_score: raw.llm_hallucination_risk_score ?? raw.llmHallucinationRiskScore ?? null,
+      llm_judge_result: typeof llmJudgeResult === 'string' ? (safeJSON(llmJudgeResult) || null) : llmJudgeResult,
+      combined_score: raw.combined_score ?? raw.combinedScore ?? null,
     };
 
     if (helper && session.radar) {

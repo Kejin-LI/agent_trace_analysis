@@ -53,6 +53,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		return
 	} else if ok {
 		bundles = filterBundlesByQueryRange(bundles, tr)
+		bundles = h.applyQualityEvaluations(bundles)
 		total = int64(len(bundles))
 		if h.aggregator != nil {
 			days := daysFromQueryRange(tr)
@@ -104,6 +105,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		bundles = append(bundles, b)
 	}
 	bundles = filterBundlesByQueryRange(bundles, tr)
+	bundles = h.applyQualityEvaluations(bundles)
 
 	// 异步触发缺失日期的聚合，但后端会强制收敛为最近 1 天，避免随查询窗口放大。
 	if h.aggregator != nil {
@@ -141,7 +143,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	}
 	if hasCached && hasDetailTraces(cachedBundle) {
 		// DB 已有完整 bundle 时直接返回，避免详情页再走一次最近 7 天的上游扫描。
-		c.JSON(http.StatusOK, cachedBundle)
+		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 		return
 	}
 
@@ -150,7 +152,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	// 第二段再请求完整 bundle 拉对话流（traces）。
 	if isTruthy(c.Query("meta_only")) {
 		if hasCached {
-			c.JSON(http.StatusOK, cachedBundle)
+			c.JSON(http.StatusOK, h.applyQualityEvaluationLight(cachedBundle))
 			return
 		}
 		c.JSON(http.StatusNoContent, nil)
@@ -180,7 +182,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	})
 	if err != nil {
 		if hasCached {
-			c.JSON(http.StatusOK, cachedBundle)
+			c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 			return
 		}
 		fail(c, fmt.Errorf("upstream list: %w", err))
@@ -197,7 +199,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	}
 	if hit == nil {
 		if hasCached {
-			c.JSON(http.StatusOK, cachedBundle)
+			c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 			return
 		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found in upstream window"})
@@ -205,7 +207,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	}
 	if len(hit.FileList) == 0 || hit.FileList[0].URL == "" {
 		if hasCached {
-			c.JSON(http.StatusOK, cachedBundle)
+			c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 			return
 		}
 		c.JSON(http.StatusUnsupportedMediaType, gin.H{
@@ -218,7 +220,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	pr, err := h.fetcher.FetchAndParse(hit.FileList[0].URL)
 	if err != nil {
 		if hasCached {
-			c.JSON(http.StatusOK, cachedBundle)
+			c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 			return
 		}
 		fail(c, fmt.Errorf("fetch jsonl: %w", err))
@@ -242,7 +244,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 			}
 		}(src, bundle)
 	}
-	c.JSON(http.StatusOK, bundle)
+	c.JSON(http.StatusOK, h.applyQualityEvaluation(bundle))
 }
 
 func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, sid, aid string, limit, offset int) ([]apiSessionBundle, int64, bool, error) {
