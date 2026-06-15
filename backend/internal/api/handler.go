@@ -18,6 +18,7 @@ import (
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/tracelog"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/ark"
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/llmjudge"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
@@ -32,6 +33,7 @@ type Handler struct {
 	fetcher             *tracelog.Fetcher
 	upstream            *modellog.Client
 	ark                 *ark.Client
+	llmJudge            *llmjudge.Client
 	aggregator          *Aggregator
 	dbOpenError         string
 	aggregatorInitError string
@@ -39,7 +41,7 @@ type Handler struct {
 
 // New 构造依赖 DB 的 Handler（fornax / tos 模式）。
 func New(db *gorm.DB) *Handler {
-	h := &Handler{db: db, fetcher: tracelog.NewFetcher(), ark: ark.NewClient()}
+	h := &Handler{db: db, fetcher: tracelog.NewFetcher(), ark: ark.NewClient(), llmJudge: llmjudge.NewClient()}
 	// TOS 模式下后台批量预热：保证列表页首次加载就有 chip / rules / 雷达数据。
 	// 启动跑一次，之后周期性重跑，覆盖启动后新导入但尚未聚合指标的 session，
 	// 避免大盘长期出现「指标待分析」的空骨架（异常数被低估）。
@@ -62,6 +64,7 @@ func NewAPI(gdb *gorm.DB, dbOpenErr error) (*Handler, error) {
 		fetcher:  fetcher,
 		upstream: cli,
 		ark:      ark.NewClient(),
+		llmJudge: llmjudge.NewClient(),
 	}
 	if dbOpenErr != nil {
 		h.dbOpenError = dbOpenErr.Error()
@@ -185,6 +188,10 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
 		g.POST("/ai-diagnose", h.diagnose)
+		g.POST("/llm-judge", h.llmJudgeEvaluate)
+		g.GET("/quality-evaluations/:session_id", h.getQualityEvaluation)
+		g.POST("/quality-evaluations", h.upsertQualityEvaluation)
+		g.POST("/manual-review", h.createManualReview)
 		if dataSourceMode() == "api" {
 			continue
 		}
@@ -260,29 +267,43 @@ type apiTrace struct {
 }
 
 type apiSessionBundle struct {
-	ID           string               `json:"id"`
-	SessionID    string               `json:"session_id"`
-	ArtifactID   string               `json:"artifact_id"`
-	User         string               `json:"user"`
-	UserID       string               `json:"user_id"`
-	Title        string               `json:"title"`
-	Trace        string               `json:"trace"`
-	StartedAtMs  int64                `json:"started_at_ms"`
-	StartedAt    string               `json:"started_at,omitempty"`
-	DurationMs   int64                `json:"duration_ms"`
-	InputTokens  int64                `json:"input_tokens"`
-	OutputTokens int64                `json:"output_tokens"`
-	ToolCalls    int                  `json:"tool_calls"`
-	Turns        int                  `json:"turns"`
-	TraceCount   int                  `json:"trace_count"`
-	Score        int                  `json:"score"`
-	Color        string               `json:"color"`
-	Chip         string               `json:"chip"`
-	Features     apiFeatures          `json:"features"`
-	Radar        apiRadar             `json:"radar"`
-	Rules        []apiRule            `json:"rules"`
-	Truncation   *apiTruncationNotice `json:"truncation,omitempty"`
-	Traces       []apiTrace           `json:"traces"`
+	ID                        string               `json:"id"`
+	SessionID                 string               `json:"session_id"`
+	ArtifactID                string               `json:"artifact_id"`
+	User                      string               `json:"user"`
+	UserID                    string               `json:"user_id"`
+	Title                     string               `json:"title"`
+	Trace                     string               `json:"trace"`
+	StartedAtMs               int64                `json:"started_at_ms"`
+	StartedAt                 string               `json:"started_at,omitempty"`
+	DurationMs                int64                `json:"duration_ms"`
+	InputTokens               int64                `json:"input_tokens"`
+	OutputTokens              int64                `json:"output_tokens"`
+	ToolCalls                 int                  `json:"tool_calls"`
+	Turns                     int                  `json:"turns"`
+	TraceCount                int                  `json:"trace_count"`
+	Score                     int                  `json:"score"`
+	Color                     string               `json:"color"`
+	Chip                      string               `json:"chip"`
+	Features                  apiFeatures          `json:"features"`
+	Radar                     apiRadar             `json:"radar"`
+	Rules                     []apiRule            `json:"rules"`
+	Truncation                *apiTruncationNotice `json:"truncation,omitempty"`
+	Traces                    []apiTrace           `json:"traces"`
+	RuleScore                 *int                 `json:"rule_score,omitempty"`
+	LLMScore                  *int                 `json:"llm_score,omitempty"`
+	LLMJudgeScore             *int                 `json:"llm_judge_score,omitempty"`
+	LLMSentimentScore         *int                 `json:"llm_sentiment_score,omitempty"`
+	LLMResolvedScore          *int                 `json:"llm_resolved_score,omitempty"`
+	LLMIntentMatchScore       *int                 `json:"llm_intent_match_score,omitempty"`
+	LLMRepeatLoopScore        *int                 `json:"llm_repeat_loop_score,omitempty"`
+	LLMActionabilityScore     *int                 `json:"llm_actionability_score,omitempty"`
+	LLMHallucinationRiskScore *int                 `json:"llm_hallucination_risk_score,omitempty"`
+	CombinedScore             *int                 `json:"combined_score,omitempty"`
+	LLMJudgeResult            json.RawMessage      `json:"llm_judge_result,omitempty"`
+	LLMJudgeModel             string               `json:"llm_judge_model,omitempty"`
+	LLMEvalVersion            int                  `json:"llm_eval_version,omitempty"`
+	LLMEvaluatedAt            string               `json:"llm_evaluated_at,omitempty"`
 }
 
 type apiTruncationNotice struct {
@@ -335,6 +356,7 @@ func (h *Handler) listSessionBundles(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	bundles = h.applyQualityEvaluations(bundles)
 	c.JSON(http.StatusOK, gin.H{"data": bundles, "limit": limit, "offset": offset})
 }
 
@@ -365,6 +387,7 @@ func (h *Handler) getSessionBundle(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
+	bundles = h.applyQualityEvaluationsFull(bundles)
 	c.JSON(http.StatusOK, bundles[0])
 }
 
@@ -403,6 +426,7 @@ func (h *Handler) listSessionBundlesTOS(c *gin.Context) {
 			prewarmURLs = append(prewarmURLs, r.ObjURL)
 		}
 	}
+	bundles = h.applyQualityEvaluations(bundles)
 	if len(prewarmURLs) > 0 {
 		h.fetcher.Prewarm(prewarmURLs)
 	}
@@ -439,7 +463,7 @@ func (h *Handler) getSessionBundleTOS(c *gin.Context) {
 		return
 	}
 	bundle := buildBundleFromTOS(src, pr)
-	c.JSON(http.StatusOK, bundle)
+	c.JSON(http.StatusOK, h.applyQualityEvaluation(bundle))
 
 	// 异步回写指标缓存到 extra.cached_metrics，列表页雷达将能用上。
 	go h.writeBackMetrics(src, bundle)

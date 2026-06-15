@@ -274,14 +274,14 @@
         </a>
         <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
           <a href="./" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
-          <a href="./sessions" class="px-3 py-1.5 rounded-md hover:bg-black/5">明细</a>
-          <a href="./clusters" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">异常</a>
+          <a href="./sessions.html" class="px-3 py-1.5 rounded-md hover:bg-black/5">明细</a>
+          <a href="./clusters.html" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">异常</a>
         </nav>
       </div>
       <div class="flex items-center gap-3">
         <!-- 全局日期筛选器（共享组件 range-picker.js） -->
         <div id="global-range" class="relative"></div>
-        <a href="./docs" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+        <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[13px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
         <div class="flex items-center gap-1.5 text-[12px] bg-black/5 rounded-lg px-2.5 h-8">
           <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
           agentic-rl-prod
@@ -300,11 +300,9 @@
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">CLUSTERS · <span id="hdr-today">2026-05-25</span></div>
       <h1 class="text-[34px] font-semibold tracking-tight leading-tight">异常聚类分析</h1>
       <p class="text-[13px] text-[--text-secondary] mt-2 flex items-center gap-2">
-        <span>按平均健康度倒序，每张卡代表一类异常。颜色代表该类问题的平均严重程度：</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-green]"></span> 健康</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-orange]"></span> 注意</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-purple]"></span> 亚健康</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-red]"></span> 严重</span>
+        <span>按命中 Session 数由多到少排列，每张卡代表一类异常。颜色代表问题来源：</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-blue]"></span> 规则评估</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-purple]"></span> GPT-5.5</span>
       </p>
     </div>
   </section>
@@ -369,6 +367,7 @@
 </main>
 
 <script src="./efficiency-helper.js"></script>
+<script src="./tag-system.js"></script>
 <script src="./db-api.js"></script>
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
@@ -377,7 +376,7 @@
  * 每张卡 = 一类 failed_label，hits = 命中该 label 的 session 数
  */
 
-const COLOR = { red:'#FF453A', orange:'#FF9F0A', green:'#30D158', purple:'#BF5AF2', cyan:'#64D2FF' };
+const COLOR = { red:'#FF453A', orange:'#FF9F0A', green:'#30D158', purple:'#BF5AF2', cyan:'#64D2FF', blue:'#0071E3' };
 const STATE = { range: localStorage.getItem('agenttrace.range') || '7d' };
 
 /* 健康度档位 → 颜色（与 sessions.html 完全一致） */
@@ -388,6 +387,11 @@ function scoreBand(score) {
   return 'red';
 }
 
+function sourceLabel(source) {
+  if (source === 'llm') return 'GPT-5.5';
+  if (source === 'system') return '系统';
+  return '规则评估';
+}
 /* 异常解析 · 与 sessions.html / index.html 完全一致（基于 efficiency-helper.js 统一口径）
  * 返回该 session 命中的异常标签列表（去重后的 failed_label 数组）。 */
 function buildAnomalies(s) {
@@ -416,7 +420,11 @@ function buildAnomalies(s) {
     }
     return r;
   });
-  return rules.filter(r => r && r.passed === false);
+  return window.AgentTraceTags
+    ? window.AgentTraceTags.mergeTags(
+        window.AgentTraceTags.collectRuleTagsFromRules(rules).concat(window.AgentTraceTags.collectLLMTagsFromSession(s))
+      ).filter(t => t.label !== '健康')
+    : rules.filter(r => r && r.passed === false).map(r => ({ label: r.failed_label || r.name, detail: r.detail || '', color: scoreBand(window.AgentTraceEfficiency.adjustedScore(s)) }));
 }
 
 /* 聚合：按 failed_label → { label, sessions[], avgScore } */
@@ -425,23 +433,26 @@ function buildClusters(sessions) {
   sessions.forEach(s => {
     const failed = buildAnomalies(s);
     failed.forEach(r => {
-      const label = r.failed_label || r.name;
-      if (!map.has(label)) map.set(label, { label, sessions: [] });
+      const label = r.label || r.failed_label || r.name;
+      if (!map.has(label)) map.set(label, {
+        label,
+        sessions: [],
+        source: r.source || 'rule',
+        color: r.color || (r.source === 'llm' ? 'purple' : 'blue'),
+      });
       map.get(label).sessions.push(s);
     });
   });
   return [...map.values()].map(c => {
     const avgScore = c.sessions.reduce((a, s) => a + (s.score ?? 0), 0) / c.sessions.length;
     
-    // Determine dimension category (simplified logic based on label)
-    let dimension = '其他';
-    if (c.label.includes('步数') || c.label.includes('轮数') || c.label.includes('死循环')) dimension = '编排维度';
-    else if (c.label.includes('时间') || c.label.includes('耗时')) dimension = '响应维度';
-    else if (c.label.includes('失败') || c.label.includes('异常')) dimension = '稳定维度';
-    else if (c.label.includes('上下文') || c.label.includes('Token')) dimension = '资源维度';
+    const dimension = window.AgentTraceTags ? window.AgentTraceTags.dimensionOf(c.label) : '其他';
     
-    return { ...c, avgScore, severity: scoreBand(avgScore), dimension };
-  }).sort((a, b) => a.avgScore - b.avgScore); // Sort by average score ascending (most severe first)
+    return { ...c, avgScore, severity: scoreBand(avgScore), dimension, sourceText: sourceLabel(c.source) };
+  }).sort((a, b) => {
+    const hitDiff = b.sessions.length - a.sessions.length;
+    return hitDiff || a.avgScore - b.avgScore;
+  });
 }
 
 /* 时间桶 · 以数据中最新 session 开始时间为锚点 */
@@ -492,7 +503,8 @@ function genSeries(cluster, buckets) {
 
 /* ============== 渲染单张卡片 ============== */
 function renderCard(cluster, buckets) {
-  const sevColor = COLOR[cluster.severity];
+  const accent = cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue');
+  const accentColor = COLOR[accent] || COLOR.blue;
   const series = genSeries(cluster, buckets);
   const total = cluster.sessions.length;
   const rangeLabel = ({'24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天'})[STATE.range];
@@ -502,10 +514,13 @@ function renderCard(cluster, buckets) {
   return `
     <div class="glass rounded-2xl p-5 lift" data-cluster="${escapeAttr(cluster.label)}">
       <div class="flex items-start justify-between mb-3">
-        <div class="chip bg-[--apple-${cluster.severity}]/10 text-[--apple-${cluster.severity}]">
-          <span class="badge-dot bg-[--apple-${cluster.severity}]"></span>${escapeHtml(cluster.label)}
+        <div class="chip bg-[--apple-${accent}]/10 text-[--apple-${accent}]">
+          <span class="badge-dot bg-[--apple-${accent}]"></span>${escapeHtml(cluster.label)}
         </div>
-        <div class="text-[10px] text-[--text-secondary] px-1.5 py-0.5 rounded border border-black/10">${cluster.dimension}</div>
+        <div class="flex items-center gap-1.5">
+          <div class="text-[10px] px-1.5 py-0.5 rounded border" style="color:var(--apple-${accent});border-color:color-mix(in srgb, var(--apple-${accent}) 22%, transparent);background:color-mix(in srgb, var(--apple-${accent}) 7%, transparent)">${cluster.sourceText}</div>
+          <div class="text-[10px] text-[--text-secondary] px-1.5 py-0.5 rounded border border-black/10">${cluster.dimension}</div>
+        </div>
       </div>
       <div class="flex items-baseline gap-2 mb-1">
         <div class="text-[28px] font-semibold num-mono leading-none">${total}</div>
@@ -515,7 +530,7 @@ function renderCard(cluster, buckets) {
         平均健康度 <span class="num-mono font-semibold text-[--apple-${cluster.severity}]">${Math.round(cluster.avgScore)}</span>
         ${inWindow !== total ? `· 窗口内 <span class="num-mono">${inWindow}</span>` : ''}
       </div>
-      <div class="spark-wrap mb-3" style="color:${sevColor};">
+      <div class="spark-wrap mb-3" style="color:${accentColor};">
         <svg class="spark w-full h-10" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>
         <div class="spark-tip"></div>
       </div>
@@ -659,7 +674,7 @@ function render() {
   const ovwAvg = document.getElementById('ovw-avg-score');
   ovwAvg.textContent = Math.round(avgScore);
   const avgBand = scoreBand(avgScore);
-  ovwAvg.style.color = avgBand === 'green' ? 'var(--text-primary)' : `var(--apple-${avgBand})`;
+  ovwAvg.style.color = `var(--apple-${avgBand})`;
 
   // 卡片
   if (!clusters.length) {
@@ -676,7 +691,7 @@ function render() {
   grid.querySelectorAll('[data-cluster]').forEach((card, i) => {
     const cluster = clusters[i];
     const series = genSeries(cluster, buckets);
-    drawSpark(card, series, buckets, COLOR[cluster.severity]);
+    drawSpark(card, series, buckets, COLOR[cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue')] || COLOR.blue);
   });
 }
 

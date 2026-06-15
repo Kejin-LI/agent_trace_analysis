@@ -105,6 +105,54 @@
     padding: 18px 20px; border-radius: 18px;
     box-shadow: 0 10px 24px rgba(0,0,0,0.04);
   }
+  #manual-review-mask {
+    position: fixed; inset: 0; z-index: 95;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(20,20,30,0.26);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  #manual-review-mask.show { display: flex; }
+  .manual-review-modal {
+    width: min(520px, 92vw);
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(30px) saturate(190%);
+    -webkit-backdrop-filter: blur(30px) saturate(190%);
+    border: 1px solid rgba(255,255,255,0.62);
+    border-radius: 20px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.20);
+    overflow: hidden;
+  }
+  .manual-review-reason {
+    position: relative;
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 12px; border-radius: 12px;
+    background: rgba(0,0,0,0.028);
+    border: 1px solid rgba(0,0,0,0.05);
+    font-size: 12.5px; color: var(--text-secondary); cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .manual-review-reason:hover {
+    background: rgba(0,113,227,0.06);
+    border-color: rgba(0,113,227,0.22);
+  }
+  .manual-review-reason input { position: absolute; opacity: 0; pointer-events: none; }
+  .manual-review-reason .mr-check {
+    flex-shrink: 0; width: 17px; height: 17px; border-radius: 6px;
+    border: 1.5px solid rgba(0,0,0,0.18); background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .16s ease, border-color .16s ease;
+  }
+  .manual-review-reason .mr-check svg { width: 11px; height: 11px; opacity: 0; transform: scale(.6); transition: opacity .16s ease, transform .16s ease; color:#fff; }
+  .manual-review-reason input:checked ~ .mr-check {
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-purple));
+    border-color: transparent;
+  }
+  .manual-review-reason input:checked ~ .mr-check svg { opacity: 1; transform: scale(1); }
+  .manual-review-reason:has(input:checked) {
+    background: rgba(0,113,227,0.09);
+    border-color: rgba(0,113,227,0.38);
+    color: var(--text-primary); font-weight: 600;
+  }
   .diag-report-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
   .diag-report-kicker {
     font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
@@ -943,6 +991,16 @@
     content: "ⓘ"; font-size: 10px; color: var(--text-tertiary);
     opacity: 0.55; transition: opacity .2s ease; margin-left: 1px; font-style: normal;
   }
+  .judge-help::after { display: none; }
+  .judge-help {
+    width: 14px; height: 14px; border-radius: 999px;
+    align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+    color: var(--apple-blue);
+    background: rgba(0,113,227,0.08);
+    border: 1px solid rgba(0,113,227,0.18);
+  }
+  .judge-help:hover { background: rgba(0,113,227,0.14); }
   .help:hover::after { opacity: 1; color: var(--apple-blue); }
   .help[data-tip]:hover::before { opacity: 1; }
   .tip {
@@ -957,7 +1015,7 @@
     box-shadow: 0 12px 40px rgba(0,0,0,0.25);
     font-size: 11.5px; font-weight: 400; line-height: 1.55;
     letter-spacing: 0; text-align: left;
-    opacity: 0; pointer-events: none; visibility: hidden;
+    opacity: 0; pointer-events: auto; visibility: hidden;
     transition: opacity .15s ease;
     z-index: 9999; white-space: normal;
   }
@@ -1367,7 +1425,7 @@
 <header class="glass-strong border-b border-black/5 flex-shrink-0">
   <div class="px-6 h-14 flex items-center justify-between gap-4">
     <div class="flex items-center gap-4 min-w-0">
-      <a href="./sessions" class="flex items-center gap-1.5 text-[13px] text-[--text-secondary] hover:text-[--text-primary] flex-shrink-0"
+      <a href="./sessions.html" class="flex items-center gap-1.5 text-[13px] text-[--text-secondary] hover:text-[--text-primary] flex-shrink-0"
          onclick="if (document.referrer && document.referrer !== location.href) { event.preventDefault(); history.back(); }">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
         返回
@@ -1379,7 +1437,7 @@
       </div>
     </div>
     <div class="flex items-center gap-2">
-      <a href="./docs" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[12px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
+      <a href="./docs.html" class="px-3 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center text-[12px] text-[--text-secondary] hover:text-[--text-primary]">📖 说明</a>
       <button id="ai-btn" class="px-3.5 h-8 rounded-lg bg-gradient-to-r from-[--apple-blue] to-[--apple-purple] text-white text-[12px] font-medium flex items-center gap-1.5 shadow-sm hover:shadow-md transition-shadow">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
         AI 一键诊断
@@ -1501,7 +1559,7 @@
           </div>
         </div>
 
-        <!-- L3. 健康度大卡（合并了状态结论 + 评分 + 5 维 + 建议下一步） -->
+        <!-- L3. 健康度大卡（合并了状态结论、评分、质量评估与行动建议） -->
         <div class="glass rounded-xl p-5" id="health-card">
           <!-- 顶部：状态图标 + 标题 + 大分数 -->
           <div class="flex items-start gap-4">
@@ -1518,6 +1576,7 @@
               <div class="text-[12.5px] text-[--text-secondary] leading-relaxed" id="status-desc">
                 5 个维度均处于正常区间。
               </div>
+              <div class="text-[11px] text-[--text-tertiary] mt-1" id="health-source">综合来源：规则评估</div>
             </div>
             <!-- 右：大分数 -->
             <div class="text-right flex-shrink-0">
@@ -1529,46 +1588,29 @@
                 <span class="text-[10.5px] text-[--text-tertiary]" id="health-grade">健康</span>
                 <span class="text-[10.5px] text-[--text-tertiary] help cursor-help" style="position:relative" aria-label="健康度说明">
                   <span class="tip" style="width:320px">
-                    <span class="tip-title">健康度评分如何计算</span>
-                    <div style="margin:6px 0 4px">先判断维度是否适用，再对适用维度打分并<b>取平均</b>得到总分：</div>
-                    <div class="tip-row"><span>效率</span><span>耗时体感 + 结构效率</span></div>
-                    <div class="tip-row"><span>稳定</span><span>真实工具调用最终成功率（无工具时 N/A）</span></div>
-                    <div class="tip-row"><span>思考</span><span>轨迹健康度（答复/截断/空转/决策落地）</span></div>
-                    <div class="tip-row"><span>资源</span><span>单轮 Token（≤76k 满分）</span></div>
-                    <div class="tip-row"><span>编排</span><span>真实工具调度模式（无工具时 N/A）</span></div>
+                    <span class="tip-title">综合健康度如何计算</span>
+                    <div style="margin:6px 0 4px">优先使用可信度更高的评分源；缺失时自动降级：</div>
+                    <div class="tip-row"><span>有 GPT</span><span>规则 50% + GPT-5.5 50%</span></div>
+                    <div class="tip-row"><span>仅规则</span><span>规则评估 100%</span></div>
+                    <div class="tip-row"><span>规则</span><span>耗时、工具、Token、编排等客观执行信号</span></div>
+                    <div class="tip-row"><span>GPT-5.5</span><span>解决度、意图匹配、情绪、重复空转、幻觉风险</span></div>
                     <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
                       <span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span>
                     </div>
-                    <div style="margin-top:6px;color:rgba(255,255,255,0.7);font-size:10.5px">无真实工具调用时，稳定/编排不参与分母；调用失败时硬封顶 50。</div>
+                    <div style="margin-top:6px;color:rgba(255,255,255,0.7);font-size:10.5px">人工送审只作为复核入口，结果不回传平台，因此不参与综合健康度。</div>
                   </span>
                 </span>
               </div>
             </div>
           </div>
 
-          <!-- 5 维迷你条 -->
-          <div class="grid grid-cols-5 gap-2 mt-4 pt-4 border-t border-black/5" id="health-bars"></div>
-
-          <!-- 建议下一步 -->
-          <div class="mt-4 pt-4 border-t border-black/5" id="health-suggest" style="display:none">
-            <div class="text-[12px] font-medium text-[--text-secondary] mb-2">建议下一步</div>
-            <div class="grid grid-cols-2 gap-4">
-              <div id="health-suggest-col-dim">
-                <div class="text-[11px] text-[--text-tertiary] mb-1.5 flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[--apple-purple]"></span>维度诊断</div>
-                <ul class="text-[12px] text-[--text-secondary] space-y-2 leading-relaxed" id="health-suggest-list-dim"></ul>
-              </div>
-              <div id="health-suggest-col-kpi">
-                <div class="text-[11px] text-[--text-tertiary] mb-1.5 flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[--apple-cyan]"></span>指标超限</div>
-                <ul class="text-[12px] text-[--text-secondary] space-y-2 leading-relaxed" id="health-suggest-list-kpi"></ul>
-              </div>
-            </div>
-            <div id="health-suggest-list" style="display:none"></div>
-          </div>
+          <!-- 质量评估 + 行动建议 -->
+          <div class="mt-4 pt-4 border-t border-black/5" id="health-bars"></div>
         </div>
       </div>
     </div>
 
-    <!-- ===== Tab Pane: 执行分析（精简版：只保留真数据 + 三轨评估） ===== -->
+    <!-- ===== Tab Pane: 执行分析（精简版：只保留真数据 + 执行链路） ===== -->
     <div class="tab-pane flex-1 overflow-y-auto scroll-y" data-pane="path">
       <!-- L1. 一句话摘要（瓶颈节点从真实 spans 自动算出） -->
       <div class="mx-5 mt-4 mb-3 glass rounded-xl p-4">
@@ -1578,32 +1620,7 @@
         </div>
       </div>
 
-      <!-- L2. 质量评估（三轨：规则自动 / LLM-as-Judge 人工触发 / 人工校准送审） -->
-      <div class="mx-5 mb-3 glass rounded-xl p-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="text-[12px] font-medium">质量评估</div>
-          <span class="text-[10.5px] text-[--text-tertiary]">规则自动 · LLM 按需触发 · 人工抽检</span>
-        </div>
-        <div class="grid grid-cols-3 gap-3 text-[12px]">
-          <div class="text-center py-3 rounded-lg bg-black/[0.04]" id="rule-eval-card">
-            <div class="text-[10.5px] text-[--text-tertiary]">规则评估</div>
-            <div class="text-[20px] font-semibold num-mono mt-1" id="rule-eval-summary">--/5</div>
-            <div class="space-y-1 mt-1.5 text-[11px] px-3 text-left hidden" id="rule-eval-list"></div>
-          </div>
-          <div class="text-center py-3 rounded-lg bg-black/[0.04]">
-            <div class="text-[10.5px] text-[--text-tertiary]">LLM-as-Judge</div>
-            <div class="text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1">未评估</div>
-            <button class="text-[10.5px] text-[--apple-blue] hover:underline mt-0.5" onclick="showToast('「立即评估」仅为原型展示，尚未实现交互')">立即评估</button>
-          </div>
-          <div class="text-center py-3 rounded-lg bg-black/[0.04]">
-            <div class="text-[10.5px] text-[--text-tertiary]">人工校准</div>
-            <div class="text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1">未评</div>
-            <button class="text-[10.5px] text-[--apple-blue] hover:underline mt-0.5" onclick="showToast('「点击送审」仅为原型展示，尚未实现交互')">点击送审</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- L3. DAG 甘特图详情（真实数据驱动） -->
+      <!-- L2. DAG 甘特图详情（真实数据驱动） -->
       <div class="mx-5 mb-3 glass rounded-xl overflow-hidden" id="gantt-card">
         <div class="px-4 h-10 flex items-center justify-between border-b border-black/5 gap-4">
           <!-- 左侧：标题 + 副标题 -->
@@ -1937,14 +1954,23 @@
       tip.style.left = left + 'px';
       tip.style.top = top + 'px';
     };
-    host.addEventListener('mouseenter', () => {
-      document.body.appendChild(tip);
+    let hideTimer = null;
+    const show = () => {
+      clearTimeout(hideTimer);
+      if (tip.parentNode !== document.body) document.body.appendChild(tip);
       tip.classList.add('is-visible');
       place();
+    };
+    const scheduleHide = () => {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => tip.classList.remove('is-visible'), 140);
+    };
+    host.addEventListener('mouseenter', () => {
+      show();
     });
-    host.addEventListener('mouseleave', () => {
-      tip.classList.remove('is-visible');
-    });
+    host.addEventListener('mouseleave', scheduleHide);
+    tip.addEventListener('mouseenter', show);
+    tip.addEventListener('mouseleave', scheduleHide);
     window.addEventListener('scroll', () => {
       if (tip.classList.contains('is-visible')) place();
     }, true);
@@ -2724,6 +2750,7 @@
 </script>
 
 <script src="./efficiency-helper.js"></script>
+<script src="./tag-system.js"></script>
 <script src="./db-api.js"></script>
 <script>
   // 根据列表页传入的 ?id= 切换详情页头部展示
@@ -2872,6 +2899,65 @@
     // 仅用于展示：去掉 URL 透传进来的 .json 后缀（数据查找/请求仍用原始 id）。
     const idDisplay = String(id).replace(/\.json$/i, '');
 
+    function actionSeverityMeta(severity) {
+      if (severity === 'bad' || severity === 'high') return { label: '优先', c: '--apple-red' };
+      if (severity === 'warn' || severity === 'medium') return { label: '关注', c: '--apple-orange' };
+      return { label: '建议', c: '--apple-purple' };
+    }
+
+    function renderAdviceCard(item) {
+      const meta = actionSeverityMeta(item.severity);
+      const actions = (item.actions || []).slice(0, 2);
+      return `<div class="rounded-xl p-2.5 bg-white/55 border border-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(${meta.c}) 12%, transparent);color:var(${meta.c})">${meta.label}</span>
+          <span class="text-[12px] font-medium text-[--text-primary] truncate">${escapeHTML(item.title || '')}</span>
+        </div>
+        <div class="text-[11px] text-[--text-secondary] leading-relaxed">${escapeHTML(item.reason || '')}</div>
+        ${actions.length ? `<div class="mt-1.5 space-y-1">${actions.map(a => `<div class="flex gap-1.5 text-[11px] text-[--text-secondary] leading-relaxed"><span class="text-[--text-tertiary]">→</span><span>${escapeHTML(a)}</span></div>`).join('')}</div>` : ''}
+      </div>`;
+    }
+
+    function emptyAdvice(text, tone = 'muted') {
+      const color = tone === 'good' ? '--apple-green' : '--text-tertiary';
+      return `<div class="rounded-xl p-3 bg-white/45 border border-white/60 text-[11.5px] leading-relaxed" style="color:var(${color})">${escapeHTML(text)}</div>`;
+    }
+
+    function buildLLMActionIssues(result) {
+      if (!result) return [];
+      const items = [];
+      const scoreOf = (...keys) => keys.map(k => Number(result[k])).find(v => Number.isFinite(v));
+      const push = (score, title, reason, actions, severity) => {
+        if (!Number.isFinite(score) || score >= 70) return;
+        items.push({ severity: severity || (score < 50 ? 'bad' : 'warn'), title, reason, actions });
+      };
+      push(scoreOf('resolved_score'), `问题解决 ${result.resolved_score ?? '--'} 分 · ${result.resolved || '待判断'}`, result.reason || '用户核心问题可能没有被完整闭环。', ['补充最终结论和验收口径', '回看用户原始诉求，确认是否真正解决']);
+      push(scoreOf('intent_match_score'), `意图匹配 ${result.intent_match_score ?? '--'} 分 · ${result.intent_match || '待判断'}`, '回答可能偏离用户真实目标。', ['对照用户最后一次明确诉求重新总结目标', '删除无关解释，优先补齐用户要的结果']);
+      push(scoreOf('sentiment_score'), `用户情绪 ${result.sentiment_score ?? '--'} 分 · ${result.sentiment || '待判断'}`, result.reason || '用户存在负向反馈或挫败感信号。', ['优先解释阻塞原因和下一步', '减少自我辩解，直接给出可验证修复']);
+      push(scoreOf('repeat_loop_score'), `重复空转 ${result.repeat_loop_score ?? '--'} 分 · ${result.repeat_loop || '待判断'}`, '会话可能存在重复解释或无效循环。', ['合并重复步骤，明确停止条件', '定位反复出现的问题点并一次性处理']);
+      push(scoreOf('actionability_score'), `可执行性 ${result.actionability_score ?? '--'} 分 · ${result.actionability || '待判断'}`, '建议不够具体，用户可能无法直接执行。', ['补充文件、命令、入口或验证步骤', '把建议改成可逐项执行的 checklist']);
+      push(scoreOf('hallucination_risk_score'), `幻觉风险 ${result.hallucination_risk_score ?? '--'} 分 · ${result.hallucination_risk || '待判断'}`, '存在缺少证据的结论或完成声明风险。', ['为关键结论补充证据来源', '不确定内容标注假设并请求确认']);
+      if (!items.length && result.reason) {
+        items.push({ severity: 'low', title: `GPT 结论 · ${result.overall || '已评估'}`, reason: result.reason, actions: ['保留当前处理路径，必要时抽查证据'] });
+      }
+      return items.slice(0, 3);
+    }
+
+    window.renderActionRecommendations = function renderActionRecommendations() {
+      const ruleEl = document.getElementById('rule-advice-list');
+      const llmEl = document.getElementById('llm-advice-list');
+      if (!ruleEl || !llmEl) return;
+      const ruleIssues = (window.__ruleActionIssues || []).slice(0, 3);
+      const llmResult = window.__llmJudgeResult || null;
+      const llmIssues = buildLLMActionIssues(llmResult);
+      ruleEl.innerHTML = ruleIssues.length
+        ? ruleIssues.map(renderAdviceCard).join('')
+        : emptyAdvice('规则评估未发现高优先级执行问题。', 'good');
+      llmEl.innerHTML = llmResult
+        ? (llmIssues.length ? llmIssues.map(renderAdviceCard).join('') : emptyAdvice('GPT-5.5 未发现明显语义体验风险。', 'good'))
+        : emptyAdvice('完成 GPT-5.5 评测后，将展示解决度、意图匹配、情绪和幻觉风险建议。');
+    };
+
     function renderSession(real, stage) {
     let s;
     if (real) {
@@ -3014,6 +3100,7 @@
         recalculatedScoreEl.style.color = 'var(' + colorVar + ')';
         recalculatedScoreEl.textContent = score;
       }
+      window.__ruleHealthScore = score;
 
       const summaryByChip = {
         '健康': '5 个维度均处于正常区间，本次会话整体表现良好。',
@@ -3101,23 +3188,11 @@
       const titleEl = document.getElementById('status-title');
       if (titleEl) titleEl.textContent = summaryByBand.title;
 
-      const chipContainer = document.getElementById('status-chip-container');
-      if (chipContainer) {
-        // 先保留 title 元素，清空后面的 chips
-        const titleNode = chipContainer.querySelector('#status-title');
-        chipContainer.innerHTML = '';
-        if (titleNode) chipContainer.appendChild(titleNode);
-
-        if (failedRules.length > 0) {
-          failedRules.forEach(r => {
-            const label = r.failed_label || r.name;
-            const chipHtml = `<span class="chip" style="background:color-mix(in srgb, ${statusTheme.iconColor} 12%, transparent);color:${statusTheme.iconColor}">${escapeHTML(label)}</span>`;
-            chipContainer.insertAdjacentHTML('beforeend', chipHtml);
-          });
-        } else {
-          chipContainer.insertAdjacentHTML('beforeend', `<span class="chip" style="background:color-mix(in srgb, ${statusTheme.iconColor} 12%, transparent);color:${statusTheme.iconColor}">健康</span>`);
-        }
-      }
+      window.__statusRuleTags = window.AgentTraceTags
+        ? window.AgentTraceTags.collectRuleTagsFromRules(failedRules)
+        : failedRules.map(r => ({ label: r.failed_label || r.name, color: scoreColor, detail: r.detail || '' }));
+      if (typeof window.renderStatusFusionChips === 'function') window.renderStatusFusionChips();
+      renderPersistedLLMJudge(s._real);
 
       const descEl = document.getElementById('status-desc');
       if (descEl) {
@@ -3129,7 +3204,7 @@
         }
       }
 
-      // 5 维迷你条（带独立 hover 说明，PM 友好）
+      // 规则评估 5 个维度口径（用于规则卡片和行动建议，不再单独展示维度条）
       const dimList = [
         { key: 'response',      label: '效率', q: '耗时是否花得值',        formula: '效率 = 0.4 × 体感分 + 0.6 × 规则效率分；体感分按工具调用数分桶，规则效率分按重复调用/重复编辑/规划缺失等结构信号扣分' },
         { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '无真实工具调用时 N/A；否则 成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
@@ -3163,30 +3238,64 @@
       };
       const barsEl = document.getElementById('health-bars');
       if (barsEl) {
-        barsEl.innerHTML = dimList.map(d => {
-          const v = r[d.key];
-          const rt = ratingOf(v);
-          const barWidth = v == null ? 0 : Math.max(0, Math.min(100, v));
-          const valueText = v == null ? '—' : v;
-          return `<div class="text-center dim-bar cursor-help" style="position:relative">
-            <div class="text-[11px] text-[--text-secondary] mb-1.5">${d.label}</div>
-            <div class="h-1 rounded-full bg-black/5 overflow-hidden">
-              <div class="h-full rounded-full" style="width:${barWidth}%;background:var(${rt.c})"></div>
+        barsEl.innerHTML = `
+          <div>
+            <div class="flex items-center justify-end mb-3">
+              <button class="text-[10.5px] text-[--apple-blue] hover:underline" id="manual-review-btn" onclick="openManualReviewModal()">提交人工送审</button>
             </div>
-            <div class="text-[13px] font-semibold num-mono mt-1.5" style="color:var(${rt.c})">${valueText}</div>
-            <span class="tip" style="width:260px">
-              <span class="tip-title">${d.label} · ${d.q}</span>
-              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:var(${rt.c})">${v == null ? 'N/A' : `${v} 分`}（${rt.text}）</b></div>
-              <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${dimReasonOf(d.key, v)}</div>
-              <div class="tip-formula" style="margin-top:8px">${d.formula}</div>
-            </span>
-          </div>`;
-        }).join('');
-        // 给新生成的迷你条绑定 tooltip 行为
-        barsEl.querySelectorAll('.dim-bar').forEach(bindTooltip);
+            <div class="grid grid-cols-2 gap-3 text-[12px]">
+              <div class="text-center py-3 rounded-lg bg-black/[0.04]" id="rule-eval-card">
+                <div class="text-[10.5px] text-[--text-tertiary]">规则评估</div>
+                <div class="text-[20px] font-semibold num-mono mt-1" id="rule-eval-summary">--</div>
+                <div class="space-y-1 mt-1.5 text-[11px] px-3 text-left hidden" id="rule-eval-list"></div>
+              </div>
+              <div class="text-center py-3 rounded-lg bg-black/[0.04]" id="llm-judge-card">
+                <div class="text-[10.5px] text-[--text-tertiary] inline-flex items-center justify-center gap-1.5">
+                  <span>GPT-5.5 评测</span>
+                  <span class="judge-help help" aria-label="查看评测协议">?
+                    <span class="tip" style="width:min(420px, calc(100vw - 24px)); max-height:260px; overflow-y:auto; overscroll-behavior:contain">
+                      <span class="tip-title">LLM-as-Judge 评测协议</span>
+                      <pre class="mt-2 rounded-lg bg-white/10 border border-white/10 p-2 text-[10px] leading-relaxed whitespace-pre-wrap text-white/85" id="llm-judge-prompt"></pre>
+                    </span>
+                  </span>
+                </div>
+                <div class="text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1" id="llm-judge-summary">未评估</div>
+                <div class="space-y-1 mt-1.5 text-[11px] px-3 text-left hidden" id="llm-judge-list"></div>
+                <button class="text-[10.5px] text-[--apple-blue] hover:underline mt-1" id="llm-judge-run-btn" onclick="runLLMJudge()">立即评估</button>
+              </div>
+            </div>
+            <div class="mt-4 pt-4 border-t border-black/5" id="action-advice">
+              <div class="flex items-center justify-between mb-2.5">
+                <div>
+                  <div class="text-[12px] font-semibold text-[--text-primary]">行动建议</div>
+                  <div class="text-[10.5px] text-[--text-tertiary] mt-0.5">聚合规则信号与 GPT-5.5 语义评估，优先展示高影响事项</div>
+                </div>
+                <span class="text-[10px] text-[--text-tertiary]">Top 建议</span>
+              </div>
+              <div class="grid grid-cols-2 gap-3" id="action-advice-grid">
+                <div class="rounded-xl bg-black/[0.025] border border-black/[0.04] p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="text-[11px] font-medium text-[--text-secondary]">规则建议</div>
+                    <span class="text-[10px] text-[--text-tertiary]">客观执行信号</span>
+                  </div>
+                  <div class="space-y-2" id="rule-advice-list"></div>
+                </div>
+                <div class="rounded-xl bg-black/[0.025] border border-black/[0.04] p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="text-[11px] font-medium text-[--text-secondary]">GPT-5.5 建议</div>
+                    <span class="text-[10px] text-[--text-tertiary]">语义体验信号</span>
+                  </div>
+                  <div class="space-y-2" id="llm-advice-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        barsEl.querySelectorAll('.help').forEach(bindTooltip);
+        if (typeof window.renderInitialJudgePrompt === 'function') window.renderInitialJudgePrompt();
       }
 
-      // 收集所有问题（5 维 < 85 + 5 个 KPI 非 good），统一渲染到「建议下一步」
+      // 收集所有问题（规则维度 < 85 + KPI 非 good），统一渲染到「行动建议」
       const issues = [];
       // 维度 → 建议（闭包以便引用 durSec / turnsN / avgK / f）
       const dimActionsOf = {
@@ -3400,70 +3509,12 @@
         ]);
       }
 
-      // ===== 统一渲染「建议下一步」=====
-      const sugBox = document.getElementById('health-suggest');
-      const sugListDim = document.getElementById('health-suggest-list-dim');
-      const sugListKpi = document.getElementById('health-suggest-list-kpi');
-      const colDim = document.getElementById('health-suggest-col-dim');
-      const colKpi = document.getElementById('health-suggest-col-kpi');
-      const sugListFull = document.getElementById('health-suggest-list');
+      // 质量评估下方的行动建议：规则信号先写入，GPT-5.5 完成后会刷新语义建议列。
+      issues.sort((a, b) => (a.severity === 'bad' ? 0 : 1) - (b.severity === 'bad' ? 0 : 1));
+      window.__ruleActionIssues = issues;
+      if (typeof window.renderActionRecommendations === 'function') window.renderActionRecommendations();
 
-      if (sugBox && sugListDim && sugListKpi) {
-        if (issues.length === 0) {
-          sugBox.style.display = '';
-          colDim.style.display = 'none';
-          colKpi.style.display = 'none';
-          sugListFull.style.display = '';
-          sugListFull.innerHTML = `<div class="text-[12px] text-[--apple-green] flex items-center gap-1.5 p-2.5 rounded-lg bg-[--apple-green]/10">
-            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-            5 维 + 5 项关键数据均处于健康区间，无需特别关注。
-          </div>`;
-        } else {
-          // 排序：bad 在前，warn 在后
-          issues.sort((a, b) => (a.severity === 'bad' ? 0 : 1) - (b.severity === 'bad' ? 0 : 1));
-          sugBox.style.display = '';
-          sugListFull.style.display = 'none';
-
-          const renderItem = (it) => {
-            const cVar = it.severity === 'bad' ? '--apple-red' : '--apple-orange';
-            const sevTxt = it.severity === 'bad' ? '严重' : '警告';
-            return `<li class="rounded-lg p-2.5" style="background:color-mix(in srgb, var(${cVar}) 5%, transparent);border-left:2px solid var(${cVar})">
-              <div class="flex items-center gap-1.5 mb-1">
-                <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(${cVar}) 14%, transparent);color:var(${cVar})">${sevTxt}</span>
-                <span class="text-[12px] font-medium text-[--text-primary]">${it.title}</span>
-              </div>
-              <div class="text-[11.5px] text-[--text-secondary] mb-1.5 leading-relaxed">${it.reason}</div>
-              <ul class="text-[11.5px] text-[--text-secondary] space-y-0.5 leading-relaxed">
-                ${it.actions.map(a => `<li class="flex gap-1.5"><span class="text-[--text-tertiary]">→</span><span>${a}</span></li>`).join('')}
-              </ul>
-            </li>`;
-          };
-
-          const dims = issues.filter(i => i.tag === '维度');
-          const kpis = issues.filter(i => i.tag === '指标');
-
-          if (dims.length > 0) {
-            colDim.style.display = '';
-            sugListDim.innerHTML = dims.map(renderItem).join('');
-          } else {
-            colDim.style.display = 'none';
-          }
-
-          if (kpis.length > 0) {
-            colKpi.style.display = '';
-            sugListKpi.innerHTML = kpis.map(renderItem).join('');
-          } else {
-            colKpi.style.display = 'none';
-          }
-
-          const gridBox = colDim.parentElement;
-          if (dims.length === 0 || kpis.length === 0) {
-            gridBox.className = "grid grid-cols-1 gap-4";
-          } else {
-            gridBox.className = "grid grid-cols-2 gap-4";
-          }
-        }
-      }
+      updateCombinedHealth();
 
       // 状态指示 → 写入顶部基础信息条
       // 三态判定：
@@ -3557,30 +3608,57 @@
       // 原始日志 · 基于真实 spans 渲染（OTel 风格）
       renderRawLog(s);
 
-      // 质量评估 · 规则评估列表
-      const rules = (s._real && s._real.rules) || s.rules || [];
+      // 质量评估 · 规则评估列表：与概览健康条共用 5 个维度口径
       const ruleListEl = document.getElementById('rule-eval-list');
       const ruleSumEl = document.getElementById('rule-eval-summary');
-      if (ruleListEl && rules.length) {
+      if (ruleListEl && dimList.length) {
         ruleListEl.classList.remove('hidden');
-        const passed = rules.filter(r => r.passed).length;
-        const total = rules.length;
+        const ruleDimRows = dimList.map(d => {
+          const v = r[d.key];
+          const rt = ratingOf(v);
+          return {
+            name: d.label,
+            question: d.q,
+            formula: d.formula,
+            score: v,
+            passed: v == null ? true : v >= 70,
+            rating: rt.text,
+            colorVar: rt.c,
+            reason: dimReasonOf(d.key, v),
+            detail: v == null ? '不适用' : `${v} 分（${rt.text}） · ${dimReasonOf(d.key, v)}`,
+          };
+        });
+        const applicableRows = ruleDimRows.filter(row => row.score != null);
+        const passed = applicableRows.filter(row => row.passed).length;
+        const total = applicableRows.length || ruleDimRows.length;
+        const ruleScore = Number.isFinite(Number(score)) ? Math.max(0, Math.min(100, Math.round(Number(score)))) : null;
+        window.__ruleEvalScore = ruleScore;
         if (ruleSumEl) {
-          ruleSumEl.textContent = `${passed}/${total}`;
-          ruleSumEl.style.color = passed === total ? 'var(--apple-green)' : 'var(--apple-red)';
+          ruleSumEl.textContent = ruleScore == null ? '--' : String(ruleScore);
+          ruleSumEl.title = total ? `规则评估：${passed}/${total} 个维度达标` : '';
+          ruleSumEl.style.color = ruleScore == null
+            ? 'var(--text-tertiary)'
+            : ruleScore >= 85 ? 'var(--apple-green)'
+            : ruleScore >= 70 ? 'var(--apple-orange)'
+            : ruleScore >= 50 ? 'var(--apple-purple)'
+            : 'var(--apple-red)';
         }
-        ruleListEl.innerHTML = rules.map(r => `
-          <div class="flex items-start gap-1.5">
-            <span style="color:${r.passed ? 'var(--apple-green)' : 'var(--apple-red)'};font-weight:600;flex-shrink:0;line-height:1.3">${r.passed ? '✓' : '✗'}</span>
-            <div class="flex-1 min-w-0 relative group">
-              <div class="text-[--text-primary]" style="line-height:1.3">${r.name}</div>
-              <div class="text-[10px] text-[--text-tertiary] truncate">${r.detail}</div>
-              <div class="absolute left-1/2 -translate-x-1/2 top-full mt-2 hidden group-hover:block z-[999] w-max max-w-[240px] p-2 bg-[rgba(28,28,30,0.92)] backdrop-blur-md text-white text-[11px] rounded-lg border border-white/10 shadow-xl pointer-events-none whitespace-normal text-left">
-                ${r.detail}
-              </div>
+        ruleListEl.innerHTML = ruleDimRows.map(row => `
+          <div class="flex items-start gap-1.5 rule-dim-row cursor-help" style="position:relative">
+            <span style="color:${row.score == null ? 'var(--apple-orange)' : row.passed ? 'var(--apple-green)' : 'var(--apple-red)'};font-weight:600;flex-shrink:0;line-height:1.3">${row.score == null ? '?' : row.passed ? '✓' : '✗'}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-[--text-primary]" style="line-height:1.3">${escapeHTML(row.name)}</div>
+              <div class="text-[10px] text-[--text-tertiary] truncate">${escapeHTML(row.detail)}</div>
             </div>
+            <span class="tip" style="width:260px">
+              <span class="tip-title">${escapeHTML(row.name)} · ${escapeHTML(row.question)}</span>
+              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:var(${row.colorVar})">${row.score == null ? 'N/A' : `${row.score} 分`}（${escapeHTML(row.rating)}）</b></div>
+              <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${escapeHTML(row.reason)}</div>
+              <div class="tip-formula" style="margin-top:8px">${escapeHTML(row.formula)}</div>
+            </span>
           </div>
         `).join('');
+        ruleListEl.querySelectorAll('.rule-dim-row').forEach(bindTooltip);
       }
 
       // ===== 左侧对话流 / 甘特图：仅在拿到完整 traces 后渲染（meta 骨架阶段跳过）=====
@@ -3641,6 +3719,25 @@
   function escapeHTML(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+
+  window.renderStatusFusionChips = function renderStatusFusionChips() {
+    const chipContainer = document.getElementById('status-chip-container');
+    if (!chipContainer) return;
+    const titleNode = chipContainer.querySelector('#status-title');
+    chipContainer.innerHTML = '';
+    if (titleNode) chipContainer.appendChild(titleNode);
+    const ruleTags = window.__statusRuleTags || [];
+    const llmTags = window.AgentTraceTags ? window.AgentTraceTags.collectLLMTags(window.__llmJudgeResult) : [];
+    const tags = window.AgentTraceTags ? window.AgentTraceTags.mergeTags(ruleTags.concat(llmTags), 3) : ruleTags.slice(0, 3);
+    const finalTags = tags.length ? tags : [{ label: '健康', color: 'green', source: 'system', detail: '' }];
+    finalTags.forEach(t => {
+      const color = t.color || 'orange';
+      const sourceText = t.source === 'llm' ? 'GPT-5.5' : t.source === 'rule' ? '规则' : '综合';
+      const title = [sourceText, t.detail].filter(Boolean).join(' · ');
+      chipContainer.insertAdjacentHTML('beforeend',
+        `<span class="chip" title="${escapeHTML(title)}" style="background:color-mix(in srgb, var(--apple-${color}) 12%, transparent);color:var(--apple-${color})">${escapeHTML(t.label)}</span>`);
+    });
+  };
 
   function renderInlineMarkdown(text) {
     const parts = String(text ?? '').split(/(`[^`]*`)/g);
@@ -4966,6 +5063,847 @@
     return { traces, groups };
   }
 
+  const LLM_JUDGE_SYSTEM_PROMPT = `你是 AgentTrace 的 LLM-as-Judge 质检员。你的任务不是评价文风，而是判断一次 Agent 会话的用户体验和问题解决质量。
+
+评估原则：
+1. 只依据输入的会话内容、工具调用摘要和系统记录，不臆测外部事实。
+2. 优先识别规则难以判断的语义问题：用户情绪、是否解决、是否答非所问、是否重复空转、是否疑似幻觉。
+3. 不要把 token、耗时、错误码等客观日志重新评分；这些由规则评估负责。
+4. 如果证据不足，必须输出 "无法判断"，不要强行下结论。
+5. 严格返回 JSON，不要输出 Markdown。
+
+输出 JSON Schema：
+{
+  "overall": "良好 | 需关注 | 严重问题 | 无法判断",
+  "score": 0-100,
+  "score_basis": "说明最终分数如何由各项分数加权得到，必须包含关键扣分/加分依据",
+  "sentiment": "正向 | 中性 | 负向 | 强负向 | 无法判断",
+  "sentiment_score": 0-100,
+  "resolved": "已解决 | 部分解决 | 未解决 | 无法判断",
+  "resolved_score": 0-100,
+  "intent_match": "完全匹配 | 部分偏离 | 明显答非所问 | 无法判断",
+  "intent_match_score": 0-100,
+  "repeat_loop": "无重复 | 轻微重复 | 明显重复 | 循环卡住",
+  "repeat_loop_score": 0-100,
+  "actionability": "可直接执行 | 需要补充信息 | 空泛不可执行 | 无法判断",
+  "actionability_score": 0-100,
+  "hallucination_risk": "低 | 中 | 高 | 无法判断",
+  "hallucination_risk_score": 0-100,
+  "dimension_scores": {
+    "sentiment": 0-100,
+    "resolved": 0-100,
+    "intent_match": 0-100,
+    "repeat_loop": 0-100,
+    "actionability": 0-100,
+    "hallucination_risk": 0-100
+  },
+  "tags": ["最多 5 个短标签"],
+  "evidence": [
+    {"round": 1, "issue": "证据摘要", "severity": "low | medium | high"}
+  ],
+  "reason": "一句话说明最关键判断"
+}`;
+  window.renderInitialJudgePrompt = function renderInitialJudgePrompt() {
+    const initialJudgePromptEl = document.getElementById('llm-judge-prompt');
+    if (!initialJudgePromptEl) return;
+    initialJudgePromptEl.textContent = [
+      '[System Prompt]',
+      LLM_JUDGE_SYSTEM_PROMPT,
+      '',
+      '[Judge Input]',
+      '点击「立即评估」后展示本次会话输入。',
+      '',
+      '[Expected Output Schema]',
+      '点击「立即评估」后展示结构化输出示例。',
+    ].join('\n');
+  };
+  window.renderInitialJudgePrompt();
+
+  function normalizeJudgeText(text, limit = 1200) {
+    const s = String(text || '').replace(/\s+/g, ' ').trim();
+    return s.length > limit ? `${s.slice(0, limit)}...` : s;
+  }
+
+  function textSimilarity(a, b) {
+    const x = new Set(String(a || '').replace(/\s+/g, '').split('').filter(Boolean));
+    const y = new Set(String(b || '').replace(/\s+/g, '').split('').filter(Boolean));
+    if (!x.size || !y.size) return 0;
+    let hit = 0;
+    x.forEach(ch => { if (y.has(ch)) hit++; });
+    return hit / Math.max(x.size, y.size);
+  }
+
+  function buildLLMJudgeInput(real) {
+    const convo = buildConversationGroups(real);
+    const rounds = (convo.groups || []).map((grp, idx) => {
+      const assistantParts = [];
+      let toolCalls = 0;
+      let modelCalls = 0;
+      (grp.traces || []).forEach(t => {
+        (t.spans || []).forEach(sp => {
+          if (sp.span_type === 'model') {
+            modelCalls++;
+            const out = extractAssistantOutput(sp);
+            if (out.text) assistantParts.push(out.text);
+            toolCalls += out.tool_calls.length;
+          } else if (sp.span_type === 'tool') {
+            toolCalls++;
+          }
+        });
+      });
+      return {
+        round: idx + 1,
+        user: normalizeJudgeText(grp.userPrompt || grp.clarifyReply || ''),
+        assistant: normalizeJudgeText(assistantParts.join('\n\n')),
+        model_calls: modelCalls,
+        tool_calls: toolCalls,
+      };
+    }).filter(r => r.user || r.assistant);
+    return {
+      session_id: real?.session_id || real?.id || '',
+      title: real?.title || '',
+      rounds,
+      metrics: {
+        duration_ms: Number(real?.duration_ms || 0),
+        turns: Number(real?.turns || 0),
+        trace_count: Number(real?.trace_count || 0),
+      },
+    };
+  }
+
+  function evaluateLLMJudgeFallback(input) {
+    const rounds = input.rounds || [];
+    const joinedUser = rounds.map(r => r.user).join(' ');
+    const joinedAssistant = rounds.map(r => r.assistant).join(' ');
+    const negativeHits = (joinedUser.match(/不行|没解决|没有解决|还是|又|重复|答非所问|不是|错误|报错|失败|崩|卡住|听不懂|没用|无效/g) || []).length;
+    const positiveHits = (joinedUser.match(/谢谢|好了|可以了|解决了|有用|不错|正确|满意/g) || []).length;
+    const emptyAnswerRounds = rounds.filter(r => r.user && !r.assistant).length;
+    const vagueAnswerRounds = rounds.filter(r => /无法|抱歉|不能|不确定|建议你|可以尝试/.test(r.assistant || '') && !/```|\n\d+[.、]|步骤|命令|文件|路径/.test(r.assistant || '')).length;
+    let repeatedQuestions = 0;
+    let repeatedAnswers = 0;
+    for (let i = 1; i < rounds.length; i++) {
+      if (textSimilarity(rounds[i - 1].user, rounds[i].user) > 0.72) repeatedQuestions++;
+      if (textSimilarity(rounds[i - 1].assistant, rounds[i].assistant) > 0.78) repeatedAnswers++;
+    }
+    const hasActionableSignal = /```|\n\d+[.、]|步骤|命令|执行|修改|文件|路径|点击|配置|检查|修复/.test(joinedAssistant)
+      || rounds.some(r => r.tool_calls > 0);
+    const hasCompletionClaim = /已完成|已经完成|修复了|创建了|生成了|我已|已将/.test(joinedAssistant);
+    const hasExecutionEvidence = rounds.some(r => r.tool_calls > 0);
+
+    const sentiment = negativeHits >= 3 ? '强负向' : negativeHits ? '负向' : positiveHits ? '正向' : '中性';
+    const resolved = negativeHits >= 2 || emptyAnswerRounds
+      ? '未解决'
+      : negativeHits
+        ? '部分解决'
+        : (hasCompletionClaim && hasExecutionEvidence ? '已解决' : hasActionableSignal ? '部分解决' : '无法判断');
+    const repeatLoop = repeatedQuestions + repeatedAnswers >= 3 ? '循环卡住' : repeatedQuestions || repeatedAnswers ? '轻微重复' : '无重复';
+    const actionability = hasActionableSignal ? '可直接执行' : '空泛不可执行';
+    const hallucinationRisk = hasCompletionClaim && !hasExecutionEvidence ? '中' : '低';
+    const intentMatch = emptyAnswerRounds
+      ? '明显答非所问'
+      : (vagueAnswerRounds || negativeHits ? '部分偏离' : hasActionableSignal ? '完全匹配' : '无法判断');
+    const dimensionScores = {
+      sentiment: scoreJudgeDimension('sentiment', sentiment),
+      resolved: scoreJudgeDimension('resolved', resolved),
+      intent_match: scoreJudgeDimension('intent_match', intentMatch),
+      repeat_loop: scoreJudgeDimension('repeat_loop', repeatLoop),
+      actionability: scoreJudgeDimension('actionability', actionability),
+      hallucination_risk: scoreJudgeDimension('hallucination_risk', hallucinationRisk),
+    };
+    const score = calcLLMJudgeOverallScore(dimensionScores);
+    const scoreBasis = buildLLMJudgeScoreBasis(dimensionScores);
+
+    const tags = [];
+    if (sentiment === '负向' || sentiment === '强负向') tags.push('用户负向');
+    if (resolved === '未解决' || resolved === '部分解决') tags.push(resolved);
+    if (repeatLoop !== '无重复') tags.push('重复空转');
+    if (intentMatch !== '无法判断') tags.push(intentMatch);
+    if (hallucinationRisk !== '低') tags.push('疑似幻觉');
+    if (!tags.length) tags.push('未见明显语义风险');
+
+    const evidence = [];
+    if (negativeHits) evidence.push({ round: Math.max(1, rounds.length), issue: '用户表达了未解决、报错或无效等负向信号', severity: negativeHits >= 3 ? 'high' : 'medium' });
+    if (repeatedQuestions || repeatedAnswers) evidence.push({ round: Math.max(1, rounds.length), issue: '相邻轮次存在语义相近的问题或回答', severity: repeatedQuestions + repeatedAnswers >= 3 ? 'high' : 'medium' });
+    if (!hasActionableSignal && rounds.length) evidence.push({ round: rounds.length, issue: '助手回复缺少明确步骤、命令、文件或工具执行证据', severity: 'medium' });
+    if (hasCompletionClaim && !hasExecutionEvidence) evidence.push({ round: rounds.length, issue: '助手声称已完成，但当前会话缺少工具执行证据支撑', severity: 'medium' });
+
+    return {
+      overall: score >= 80 ? '良好' : score >= 60 ? '需关注' : '严重问题',
+      score,
+      score_basis: scoreBasis,
+      sentiment,
+      sentiment_score: dimensionScores.sentiment,
+      resolved,
+      resolved_score: dimensionScores.resolved,
+      intent_match: intentMatch,
+      intent_match_score: dimensionScores.intent_match,
+      repeat_loop: repeatLoop,
+      repeat_loop_score: dimensionScores.repeat_loop,
+      actionability,
+      actionability_score: dimensionScores.actionability,
+      hallucination_risk: hallucinationRisk,
+      hallucination_risk_score: dimensionScores.hallucination_risk,
+      dimension_scores: dimensionScores,
+      tags: tags.slice(0, 5),
+      evidence: evidence.slice(0, 4),
+      reason: evidence[0]?.issue || '未发现明显的负向情绪、重复空转或答非所问信号。',
+      system_prompt: LLM_JUDGE_SYSTEM_PROMPT,
+      input,
+    };
+  }
+
+  function parseJudgeJSONCandidate(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value !== 'string') return null;
+    const text = value.trim();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+      try { return JSON.parse(match[0]); } catch { return null; }
+    }
+  }
+
+  function unwrapJudgeResult(raw) {
+    let result = parseJudgeJSONCandidate(raw) || raw || {};
+    for (let i = 0; i < 4; i++) {
+      const next = result?.data || result?.result || result?.judge_result || result?.evaluation || result?.output || result?.content || result?.message;
+      const parsed = parseJudgeJSONCandidate(next);
+      if (!parsed || parsed === result) break;
+      result = parsed;
+    }
+    return result && typeof result === 'object' ? result : {};
+  }
+
+  function firstJudgeValue(result, keys) {
+    for (const key of keys) {
+      if (result[key] !== undefined && result[key] !== null && result[key] !== '') return result[key];
+    }
+    return undefined;
+  }
+
+  const LLM_JUDGE_SCORE_WEIGHTS = {
+    sentiment: 0.15,
+    resolved: 0.30,
+    intent_match: 0.20,
+    repeat_loop: 0.15,
+    actionability: 0.10,
+    hallucination_risk: 0.10,
+  };
+
+  function scoreJudgeDimension(kind, value) {
+    const scoreMap = {
+      sentiment: { '正向': 95, '中性': 72, '负向': 45, '强负向': 20, '无法判断': 50 },
+      resolved: { '已解决': 95, '部分解决': 70, '未解决': 25, '无法判断': 50 },
+      intent_match: { '完全匹配': 95, '部分偏离': 60, '明显答非所问': 20, '无法判断': 50 },
+      repeat_loop: { '无重复': 95, '轻微重复': 70, '明显重复': 40, '循环卡住': 15, '无法判断': 50 },
+      actionability: { '可直接执行': 95, '需要补充信息': 65, '空泛不可执行': 25, '无法判断': 50 },
+      hallucination_risk: { '低': 95, '中': 55, '高': 20, '无法判断': 50 },
+    };
+    return scoreMap[kind]?.[value] ?? 50;
+  }
+
+  function getJudgeDimensionScore(result, key, value) {
+    const dimension = result.dimension_scores || result.scores || result['分项分数'] || {};
+    const raw = result[`${key}_score`] ?? dimension[key] ?? dimension[key.replace('_', '')] ?? dimension[key === 'intent_match' ? 'intent' : key];
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : scoreJudgeDimension(key, value);
+  }
+
+  function calcLLMJudgeOverallScore(scores) {
+    const weighted = Object.entries(LLM_JUDGE_SCORE_WEIGHTS)
+      .reduce((sum, [key, weight]) => sum + (Number(scores[key] ?? 50) * weight), 0);
+    return Math.max(0, Math.min(100, Math.round(weighted)));
+  }
+
+  function buildLLMJudgeScoreBasis(scores) {
+    return [
+      `问题解决 ${scores.resolved}/100 ×30%`,
+      `意图匹配 ${scores.intent_match}/100 ×20%`,
+      `用户情绪 ${scores.sentiment}/100 ×15%`,
+      `重复空转 ${scores.repeat_loop}/100 ×15%`,
+      `可执行性 ${scores.actionability}/100 ×10%`,
+      `幻觉风险 ${scores.hallucination_risk}/100 ×10%`,
+    ].join('；');
+  }
+
+  function updateCombinedHealth() {
+    const finiteScore = (v) => Number.isFinite(Number(v)) ? Math.max(0, Math.min(100, Math.round(Number(v)))) : null;
+    const ruleScore = finiteScore(window.__ruleHealthScore ?? window.__ruleEvalScore);
+    const llmScore = finiteScore(window.__llmJudgeResult?.score);
+    const recipe = llmScore !== null
+      ? [
+          ['规则', ruleScore, 0.5],
+          ['GPT-5.5', llmScore, 0.5],
+        ]
+      : [
+          ['规则', ruleScore, 1],
+        ];
+    const available = recipe.filter(([, score]) => score !== null);
+    if (!available.length) return;
+    const weightSum = available.reduce((sum, [, , weight]) => sum + weight, 0);
+    const combined = Math.round(available.reduce((sum, [, score, weight]) => sum + score * weight, 0) / weightSum);
+    const color = combined >= 85 ? 'var(--apple-green)' : combined >= 70 ? 'var(--apple-orange)' : combined >= 50 ? 'var(--apple-purple)' : 'var(--apple-red)';
+    const grade = combined >= 85 ? '健康' : combined >= 70 ? '注意' : combined >= 50 ? '亚健康' : '严重';
+    const source = available.map(([name, score, weight]) => `${name} ${score} × ${Math.round(weight / weightSum * 100)}%`).join(' + ');
+
+    const scoreEl = document.getElementById('health-score');
+    if (scoreEl) {
+      scoreEl.textContent = combined;
+      scoreEl.style.color = color;
+      scoreEl.title = source;
+    }
+    const gradeEl = document.getElementById('health-grade');
+    if (gradeEl) {
+      gradeEl.textContent = grade;
+      gradeEl.style.color = color;
+    }
+    const sourceEl = document.getElementById('health-source');
+    if (sourceEl) sourceEl.textContent = `综合来源：${source}`;
+    const titleEl = document.getElementById('status-title');
+    if (titleEl) titleEl.textContent = combined >= 85 ? '本次会话综合健康' : combined >= 70 ? '本次会话整体可接受' : combined >= 50 ? '本次会话需关注' : '本次会话存在严重风险';
+    const descEl = document.getElementById('status-desc');
+    if (descEl) descEl.textContent = llmScore !== null
+        ? '综合健康度已纳入 GPT-5.5 语义评测和规则评估。'
+        : '当前暂无 GPT-5.5 评分，综合健康度暂按规则评估计算。';
+    const iconWrap = document.getElementById('status-icon-wrap');
+    if (iconWrap) iconWrap.style.background = `color-mix(in srgb, ${color} 12%, transparent)`;
+    const iconEl = document.getElementById('status-icon');
+    if (iconEl) iconEl.style.color = color;
+  }
+
+  function cloneJudgeData(value) {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return value;
+    }
+  }
+
+  function hasJudgeSignal(result) {
+    return ['score', 'total_score', 'overall_score', 'quality_score', 'dimension_scores', 'scores', '分项分数', '总分', '得分', 'overall', '综合结论', 'sentiment', '用户情绪', 'resolved', '解决度', 'intent_match', '意图匹配', 'repeat_loop', '重复空转', 'hallucination_risk', '幻觉风险']
+      .some(key => result && result[key] !== undefined && result[key] !== null && result[key] !== '');
+  }
+
+  function normalizeLLMJudgeResult(raw) {
+    const result = unwrapJudgeResult(raw);
+    if (!hasJudgeSignal(result) && raw?.input) {
+      const fallback = evaluateLLMJudgeFallback(raw.input);
+      fallback.system_prompt = raw.system_prompt || LLM_JUDGE_SYSTEM_PROMPT;
+      fallback.input = raw.input;
+      fallback.raw_parse_warning = 'GPT-5.5 返回缺少评测字段，已使用本地语义兜底结果展示。';
+      return fallback;
+    }
+    const sentiment = firstJudgeValue(result, ['sentiment', 'user_sentiment', 'emotion', 'emotion_status', 'user_emotion', '用户情绪', '情绪']) || '无法判断';
+    const resolved = firstJudgeValue(result, ['resolved', 'problem_resolved', 'resolution', 'resolution_status', 'task_resolved', '解决度', '问题解决']) || '无法判断';
+    const intentMatch = firstJudgeValue(result, ['intent_match', 'intentMatch', 'intent_alignment', 'intent_status', '意图匹配', '意图匹配度']) || '无法判断';
+    const repeatLoop = firstJudgeValue(result, ['repeat_loop', 'repeatLoop', 'repetition', 'loop_status', '重复空转', '重复程度']) || '无法判断';
+    const actionability = firstJudgeValue(result, ['actionability', 'actionable', 'execution_readiness', '可执行性']) || '无法判断';
+    const hallucinationRisk = firstJudgeValue(result, ['hallucination_risk', 'hallucinationRisk', 'hallucination', 'fabrication_risk', '幻觉风险']) || '无法判断';
+    const dimensionScores = {
+      sentiment: getJudgeDimensionScore(result, 'sentiment', sentiment),
+      resolved: getJudgeDimensionScore(result, 'resolved', resolved),
+      intent_match: getJudgeDimensionScore(result, 'intent_match', intentMatch),
+      repeat_loop: getJudgeDimensionScore(result, 'repeat_loop', repeatLoop),
+      actionability: getJudgeDimensionScore(result, 'actionability', actionability),
+      hallucination_risk: getJudgeDimensionScore(result, 'hallucination_risk', hallucinationRisk),
+    };
+    const scoreRaw = result.score ?? result.total_score ?? result.overall_score ?? result.quality_score ?? result['总分'] ?? result['得分'];
+    const score = Number(scoreRaw);
+    const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : calcLLMJudgeOverallScore(dimensionScores);
+    const overall = result.overall || result.summary || result['综合结论'] || result['整体结论'] || (
+      normalizedScore === null ? '无法判断' :
+      normalizedScore >= 80 ? '良好' :
+      normalizedScore >= 60 ? '需关注' : '严重问题'
+    );
+    return {
+      ...result,
+      overall,
+      score: normalizedScore,
+      score_basis: result.score_basis || result['分数依据'] || buildLLMJudgeScoreBasis(dimensionScores),
+      sentiment,
+      sentiment_score: dimensionScores.sentiment,
+      resolved,
+      resolved_score: dimensionScores.resolved,
+      intent_match: intentMatch,
+      intent_match_score: dimensionScores.intent_match,
+      repeat_loop: repeatLoop,
+      repeat_loop_score: dimensionScores.repeat_loop,
+      actionability,
+      actionability_score: dimensionScores.actionability,
+      hallucination_risk: hallucinationRisk,
+      hallucination_risk_score: dimensionScores.hallucination_risk,
+      dimension_scores: dimensionScores,
+      reason: result.reason || result.summary_reason || result.explanation || result.conclusion || result['原因'] || result['理由'] || 'GPT-5.5 未返回明确原因。',
+      tags: Array.isArray(result.tags) ? result.tags : (Array.isArray(result['标签']) ? result['标签'] : []),
+      evidence: Array.isArray(result.evidence) ? result.evidence : (Array.isArray(result['证据']) ? result['证据'] : []),
+    };
+  }
+
+  function llmJudgeRowState(row) {
+    if (String(row.value || '').includes('无法判断') || row.value === '--' || row.value === null || row.value === undefined) {
+      return {
+        icon: '?',
+        color: 'var(--apple-orange)',
+        label: '无法判断',
+        style: 'font-weight:700;flex-shrink:0;line-height:1.3',
+      };
+    }
+    return row.passed
+      ? { icon: '✓', color: 'var(--apple-green)', label: '通过', style: 'font-weight:600;flex-shrink:0;line-height:1.3' }
+      : { icon: '✗', color: 'var(--apple-red)', label: '需关注', style: 'font-weight:600;flex-shrink:0;line-height:1.3' };
+  }
+
+  function renderLLMJudgeResult(result) {
+    result = normalizeLLMJudgeResult(result);
+    window.__llmJudgeResult = result;
+    window.__llmJudgeInput = result.input || null;
+    const summaryEl = document.getElementById('llm-judge-summary');
+    const listEl = document.getElementById('llm-judge-list');
+    const promptEl = document.getElementById('llm-judge-prompt');
+    const btn = document.getElementById('llm-judge-run-btn');
+    if (!summaryEl) return;
+    const color = result.overall === '良好' ? 'var(--apple-green)' : result.overall === '需关注' ? 'var(--apple-orange)' : result.overall === '无法判断' ? 'var(--text-tertiary)' : 'var(--apple-red)';
+    summaryEl.textContent = result.score === null ? '--' : `${result.score}`;
+    summaryEl.style.color = color;
+    summaryEl.title = result.score_basis || '';
+    if (listEl) {
+      listEl.classList.remove('hidden');
+      const isNegativeSentiment = ['负向', '强负向'].includes(result.sentiment);
+      const withScore = (label, score, reason) => `${Number.isFinite(Number(score)) ? score : '--'}/100（${label || '无法判断'}） · ${reason}`;
+      const judgeReason = result.reason || 'GPT-5.5 未返回明确原因';
+      const rows = [
+        { name: '用户情绪', question: '用户是否有负向或挫败信号', label: result.sentiment, score: result.sentiment_score, value: withScore(result.sentiment, result.sentiment_score, judgeReason), passed: !isNegativeSentiment, reason: judgeReason, formula: '权重 15% · 正向/中性更健康，负向/强负向扣分' },
+        { name: '问题解决', question: '核心问题是否真正闭环', label: result.resolved, score: result.resolved_score, value: withScore(result.resolved, result.resolved_score, judgeReason), passed: !['未解决'].includes(result.resolved), reason: judgeReason, formula: '权重 30% · 已解决得分最高，部分解决中等，未解决明显扣分' },
+        { name: '意图匹配', question: '回答是否围绕真实诉求', label: result.intent_match, score: result.intent_match_score, value: withScore(result.intent_match, result.intent_match_score, '检查回答是否紧扣用户原始目标和最新追问'), passed: !['明显答非所问'].includes(result.intent_match), reason: '检查回答是否紧扣用户原始目标和最新追问', formula: '权重 20% · 完全匹配最高，偏离或答非所问扣分' },
+        { name: '重复空转', question: '是否反复无效循环', label: result.repeat_loop, score: result.repeat_loop_score, value: withScore(result.repeat_loop, result.repeat_loop_score, '检查是否出现重复解释、反复确认或无效循环'), passed: !['明显重复', '循环卡住'].includes(result.repeat_loop), reason: '检查是否出现重复解释、反复确认或无效循环', formula: '权重 15% · 无重复最高，明显重复或循环卡住扣分' },
+        { name: '可执行性', question: '建议是否具体可执行', label: result.actionability, score: result.actionability_score, value: withScore(result.actionability, result.actionability_score, '检查是否给出可直接执行的步骤、文件、命令或验证方式'), passed: !['空泛不可执行'].includes(result.actionability), reason: '检查是否给出可直接执行的步骤、文件、命令或验证方式', formula: '权重 10% · 可直接执行最高，空泛不可执行扣分' },
+        { name: '幻觉风险', question: '是否存在编造或无证据结论', label: result.hallucination_risk, score: result.hallucination_risk_score, value: withScore(result.hallucination_risk, result.hallucination_risk_score, '检查关键结论是否有会话证据支撑，是否存在无依据完成声明'), passed: !['中', '高'].includes(result.hallucination_risk), reason: '检查关键结论是否有会话证据支撑，是否存在无依据完成声明', formula: '权重 10% · 低风险最高，中/高风险扣分' },
+      ];
+      listEl.innerHTML = rows.map(r => {
+        const state = llmJudgeRowState(r);
+        const scoreText = Number.isFinite(Number(r.score)) ? `${r.score} 分` : 'N/A';
+        return `
+          <div class="flex items-start gap-1.5 llm-judge-row cursor-help" style="position:relative">
+            <span title="${state.label}" style="color:${state.color};${state.style}">${state.icon}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-[--text-primary]" style="line-height:1.3">${escapeHTML(r.name)}</div>
+              <div class="text-[10px] text-[--text-tertiary] truncate">${escapeHTML(r.value)}</div>
+            </div>
+            <span class="tip" style="width:260px">
+              <span class="tip-title">${escapeHTML(r.name)} · ${escapeHTML(r.question)}</span>
+              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:${state.color}">${escapeHTML(scoreText)}（${escapeHTML(r.label)}）</b></div>
+              <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${escapeHTML(r.reason)}</div>
+              <div class="tip-formula" style="margin-top:8px">${escapeHTML(r.formula)}</div>
+            </span>
+          </div>
+        `;
+      }).join('');
+      listEl.querySelectorAll('.llm-judge-row').forEach(bindTooltip);
+    }
+    if (promptEl) {
+      promptEl.textContent = [
+        '[System Prompt]',
+        result.system_prompt,
+        '',
+        '[Judge Input]',
+        JSON.stringify(result.input, null, 2),
+        '',
+        '[GPT-5.5 原始返回]',
+        JSON.stringify(window.__llmJudgeRaw ?? '（本地兜底评估，无真实返回）', null, 2),
+        '',
+        '[当前展示结果]',
+        JSON.stringify({
+          overall: result.overall,
+          score: result.score,
+          score_basis: result.score_basis,
+          sentiment: result.sentiment,
+          sentiment_score: result.sentiment_score,
+          resolved: result.resolved,
+          resolved_score: result.resolved_score,
+          intent_match: result.intent_match,
+          intent_match_score: result.intent_match_score,
+          repeat_loop: result.repeat_loop,
+          repeat_loop_score: result.repeat_loop_score,
+          actionability: result.actionability,
+          actionability_score: result.actionability_score,
+          hallucination_risk: result.hallucination_risk,
+          hallucination_risk_score: result.hallucination_risk_score,
+          dimension_scores: result.dimension_scores,
+          tags: result.tags,
+          evidence: result.evidence,
+          reason: result.reason,
+        }, null, 2),
+      ].join('\n');
+    }
+    if (btn) btn.textContent = '重新评估';
+    if (typeof window.renderStatusFusionChips === 'function') window.renderStatusFusionChips();
+    if (typeof window.renderActionRecommendations === 'function') window.renderActionRecommendations();
+    updateCombinedHealth();
+  }
+
+  async function requestGPT55Judge(input) {
+    const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const url = buildUrl ? buildUrl('/api/llm-judge') : '/api/llm-judge';
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_prompt: LLM_JUDGE_SYSTEM_PROMPT,
+        input,
+      }),
+    });
+    const payload = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+    return payload.data || payload;
+  }
+
+  function finiteJudgeScore(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
+  }
+
+  function healthGradeOf(score) {
+    const n = finiteJudgeScore(score);
+    if (n === null) return '';
+    if (n >= 85) return '健康';
+    if (n >= 70) return '注意';
+    if (n >= 50) return '亚健康';
+    return '严重';
+  }
+
+  function startedAtISO(real) {
+    const ms = Number(real?.started_at_ms || 0);
+    if (Number.isFinite(ms) && ms > 0) return new Date(ms).toISOString();
+    const raw = real?.started_at || real?.traces?.[0]?.started_at || '';
+    const t = raw ? Date.parse(raw) : NaN;
+    return Number.isFinite(t) ? new Date(t).toISOString() : null;
+  }
+
+  function buildQualityEvaluationPayload(result) {
+    const real = (window.SESSION && window.SESSION._real) || {};
+    const ruleScore = finiteJudgeScore(window.__ruleHealthScore ?? window.__ruleEvalScore);
+    const llmScore = finiteJudgeScore(result?.score);
+    const combinedScore = llmScore !== null && ruleScore !== null
+      ? Math.round(ruleScore * 0.5 + llmScore * 0.5)
+      : ruleScore;
+    const combinedBasis = llmScore !== null
+      ? `规则 ${ruleScore ?? '--'} × 50% + GPT-5.5 ${llmScore} × 50%`
+      : `规则 ${ruleScore ?? '--'} × 100%；GPT-5.5 未评估`;
+    const ruleTags = window.__statusRuleTags || [];
+    const llmTags = window.AgentTraceTags ? window.AgentTraceTags.collectLLMTags(result) : [];
+    const compactLLMResult = {
+      overall: result?.overall || '',
+      score: llmScore,
+      score_basis: result?.score_basis || '',
+      sentiment: result?.sentiment || '',
+      sentiment_score: finiteJudgeScore(result?.sentiment_score),
+      resolved: result?.resolved || '',
+      resolved_score: finiteJudgeScore(result?.resolved_score),
+      intent_match: result?.intent_match || '',
+      intent_match_score: finiteJudgeScore(result?.intent_match_score),
+      repeat_loop: result?.repeat_loop || '',
+      repeat_loop_score: finiteJudgeScore(result?.repeat_loop_score),
+      actionability: result?.actionability || '',
+      actionability_score: finiteJudgeScore(result?.actionability_score),
+      hallucination_risk: result?.hallucination_risk || '',
+      hallucination_risk_score: finiteJudgeScore(result?.hallucination_risk_score),
+      dimension_scores: result?.dimension_scores || {},
+      tags: result?.tags || [],
+      evidence: result?.evidence || [],
+      reason: result?.reason || '',
+      model_label: result?.model_label || result?.model || 'GPT-5.5',
+    };
+    return {
+      session_id: real.session_id || real.id || window.SESSION?.id || id,
+      trace_id: real.trace || real.traces?.[0]?.trace_id || '',
+      artifact_id: real.artifact_id || '',
+      session_title: real.title || window.SESSION?.title || '',
+      session_user: real.user || window.SESSION?.user || '',
+      session_user_id: real.user_id || '',
+      session_started_at: startedAtISO(real),
+      session_duration_ms: Number(real.duration_ms || 0),
+      session_turns: Number(real.turns || 0),
+      session_trace_count: Number(real.trace_count || real.traces?.length || 0),
+      rule_score: ruleScore,
+      rule_grade: healthGradeOf(ruleScore),
+      rule_tags: ruleTags,
+      rule_summary: document.getElementById('status-title')?.textContent || '',
+      rule_suggestions: [],
+      rule_eval_result: {
+        score: ruleScore,
+        radar: real.radar || null,
+        rules: real.rules || [],
+      },
+      llm_score: llmScore,
+      llm_grade: result?.overall || '',
+      llm_model: result?.model_label || result?.model || 'GPT-5.5',
+      llm_triggered_by: real.user || real.user_id || '',
+      llm_sentiment: result?.sentiment || '',
+      llm_sentiment_score: finiteJudgeScore(result?.sentiment_score),
+      llm_resolved: result?.resolved || '',
+      llm_resolved_score: finiteJudgeScore(result?.resolved_score),
+      llm_intent_match: result?.intent_match || '',
+      llm_intent_match_score: finiteJudgeScore(result?.intent_match_score),
+      llm_repeat_loop: result?.repeat_loop || '',
+      llm_repeat_loop_score: finiteJudgeScore(result?.repeat_loop_score),
+      llm_actionability: result?.actionability || '',
+      llm_actionability_score: finiteJudgeScore(result?.actionability_score),
+      llm_hallucination_risk: result?.hallucination_risk || '',
+      llm_hallucination_risk_score: finiteJudgeScore(result?.hallucination_risk_score),
+      llm_tags: result?.tags || [],
+      llm_summary: result?.reason || result?.overall || '',
+      llm_score_basis: result?.score_basis || '',
+      llm_suggestions: buildLLMActionIssues(result).flatMap(item => item.actions || []).slice(0, 6),
+      llm_evidence: result?.evidence || [],
+      llm_eval_result: compactLLMResult,
+      llm_raw_result: window.__llmJudgeRaw || {},
+      combined_score: combinedScore,
+      combined_grade: healthGradeOf(combinedScore),
+      combined_tags: [...ruleTags, ...llmTags],
+      combined_summary: combinedScore === null ? '' : `综合健康度 ${combinedScore} 分`,
+      combined_suggestions: [],
+      combined_score_basis: combinedBasis,
+    };
+  }
+
+  async function saveQualityEvaluation(result) {
+    const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const url = buildUrl ? buildUrl('/api/quality-evaluations') : '/api/quality-evaluations';
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildQualityEvaluationPayload(result)),
+    });
+    const payload = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+    if (payload?.llm_eval_version && window.SESSION?._real) {
+      window.SESSION._real.llm_eval_version = payload.llm_eval_version;
+      window.SESSION._real.llm_evaluated_at = payload.llm_evaluated_at || '';
+    }
+    return payload;
+  }
+
+  function renderPersistedLLMJudge(real) {
+    if (!real || window.__llmJudgeResult || !real.llm_judge_result) return;
+    const result = {
+      ...(real.llm_judge_result || {}),
+      model_label: real.llm_judge_model || real.llm_judge_result.model_label || 'GPT-5.5',
+    };
+    window.__llmJudgeRaw = result;
+    renderLLMJudgeResult(result);
+  }
+
+  window.runLLMJudge = async function() {
+    const real = (window.SESSION && window.SESSION._real) || null;
+    const summaryEl = document.getElementById('llm-judge-summary');
+    if (!real || !(real.traces || []).length) {
+      showToast('暂无完整会话数据，无法评估');
+      return;
+    }
+    if (summaryEl) {
+      summaryEl.textContent = '评估中';
+      summaryEl.style.color = 'var(--apple-orange)';
+    }
+    const input = buildLLMJudgeInput(real);
+    try {
+      const rawResult = await requestGPT55Judge(input);
+      window.__llmJudgeRaw = cloneJudgeData(rawResult);
+      const result = { ...(rawResult || {}) };
+      result.system_prompt = LLM_JUDGE_SYSTEM_PROMPT;
+      result.input = input;
+      renderLLMJudgeResult(result);
+      try {
+        await saveQualityEvaluation(window.__llmJudgeResult || result);
+      } catch (saveErr) {
+        console.warn('保存 LLM 评估结果失败', saveErr);
+      }
+    } catch (err) {
+      window.__llmJudgeRaw = { _error: String(err && err.message || err) };
+      const result = evaluateLLMJudgeFallback(input);
+      renderLLMJudgeResult(result);
+      try {
+        await saveQualityEvaluation(window.__llmJudgeResult || result);
+      } catch (saveErr) {
+        console.warn('保存 LLM 评估结果失败', saveErr);
+      }
+    }
+  };
+
+  const MANUAL_REVIEW_REASON_LABELS = {
+    llm_judge_wrong: 'GPT-5.5 判断不准',
+    rule_eval_wrong: '规则评估不准',
+    need_resolution_check: '需要人工确认是否解决',
+    high_risk: '疑似高风险样本',
+    other: '其他',
+  };
+
+  function getManualReviewRuleSnapshot(real) {
+    const rules = (real && real.rules) || [];
+    return {
+      passed: rules.filter(r => r && r.passed).length,
+      total: rules.length,
+      result: rules,
+    };
+  }
+
+  function getSessionStartedAt(real) {
+    const trace = (real?.traces || [])[0] || {};
+    const raw = real?.started_at || real?.source_create_at || trace.started_at;
+    const ms = real?.started_at_ms || trace.started_at_ms;
+    const date = raw ? new Date(raw) : (ms ? new Date(ms) : null);
+    return date && !Number.isNaN(date.getTime()) ? date.toISOString() : null;
+  }
+
+  function buildManualReviewPayload() {
+    const real = (window.SESSION && window.SESSION._real) || {};
+    const rule = getManualReviewRuleSnapshot(real);
+    const llm = window.__llmJudgeResult || null;
+    const firstTrace = (real.traces || [])[0] || {};
+    const checkedReasons = Array.from(document.querySelectorAll('input[name="manual-review-reason"]:checked')).map(el => el.value);
+    const reasonCodes = checkedReasons.length ? checkedReasons : [];
+    const reasonCode = reasonCodes.join(',');
+    const note = document.getElementById('manual-review-note')?.value || '';
+    const reasonLabels = reasonCodes.map(c => MANUAL_REVIEW_REASON_LABELS[c] || c).join('、');
+    const title = real.title || window.SESSION?.title || document.title.replace(' · Session 详情', '');
+    const sessionUser = real.user_name || real.user || real.username || '';
+    const sessionUserID = real.user_id || '';
+    return {
+      session_id: real.session_id || real.id || window.SESSION?.id || '',
+      trace_id: real.trace_id || firstTrace.trace_id || '',
+      artifact_id: real.artifact_id || '',
+      session_title: title || '',
+      session_user: sessionUser,
+      session_user_id: sessionUserID,
+      session_started_at: getSessionStartedAt(real),
+      session_duration_ms: Number(real.duration_ms || 0),
+      session_turns: Number(real.turns || 0),
+      session_trace_count: Number(real.trace_count || (real.traces || []).length || 0),
+      reason_code: reasonCode,
+      reason_codes: reasonCodes,
+      reason_text: reasonLabels || reasonCode,
+      submit_note: note.trim(),
+      submitter: sessionUser || sessionUserID,
+      rule_passed: rule.total ? rule.passed : -1,
+      rule_total: rule.total ? rule.total : -1,
+      llm_judge_score: llm && llm.score !== null ? llm.score : -1,
+      llm_judge_model: 'gpt-5.5',
+      llm_judge_result: llm,
+      rule_eval_result: rule.result,
+      evidence_snapshot: {
+        title,
+        llm_tags: llm?.tags || [],
+        llm_evidence: llm?.evidence || [],
+        llm_reason: llm?.reason || '',
+        metrics: {
+          duration_ms: Number(real.duration_ms || 0),
+          turns: Number(real.turns || 0),
+          trace_count: Number(real.trace_count || (real.traces || []).length || 0),
+        },
+      },
+    };
+  }
+
+  function renderManualReviewSummary() {
+    const box = document.getElementById('manual-review-summary-box');
+    if (!box) return;
+    const real = (window.SESSION && window.SESSION._real) || {};
+    const rule = getManualReviewRuleSnapshot(real);
+    const llm = window.__llmJudgeResult || null;
+    const risks = (llm?.tags || []).slice(0, 4).join('、') || '暂无 GPT-5.5 评测标签';
+    box.innerHTML = [
+      `<div class="font-medium text-[--text-primary] mb-1">${escapeHTML(real.title || window.SESSION?.title || '当前 Session')}</div>`,
+      `<div>规则评估：${rule.total ? `${rule.passed}/${rule.total}` : '未生成'}</div>`,
+      `<div>GPT-5.5 评测：${llm && llm.score !== null ? llm.score : '未评估'}</div>`,
+      `<div>主要风险：${escapeHTML(risks)}</div>`,
+    ].join('');
+  }
+
+  window.openManualReviewModal = function() {
+    renderManualReviewSummary();
+    const mask = document.getElementById('manual-review-mask');
+    const err = document.getElementById('manual-review-error');
+    if (err) {
+      err.classList.add('hidden');
+      err.textContent = '';
+    }
+    if (mask) mask.classList.add('show');
+  };
+
+  window.closeManualReviewModal = function() {
+    const mask = document.getElementById('manual-review-mask');
+    if (mask) mask.classList.remove('show');
+  };
+
+  function setManualReviewCard(status, reviewID, reasonCode) {
+    window.__manualReviewStatus = status;
+    const btn = document.getElementById('manual-review-btn');
+    if (btn) {
+      const reasonText = String(reasonCode || '').split(',').filter(Boolean).map(c => MANUAL_REVIEW_REASON_LABELS[c] || c).join('、');
+      btn.textContent = reviewID ? '已送审' : '重新送审';
+      btn.title = reviewID ? `工单：${reviewID}${reasonText ? ` · ${reasonText}` : ''}` : '';
+      btn.onclick = () => openManualReviewModal();
+    }
+  }
+
+  window.submitManualReview = async function() {
+    const btn = document.getElementById('manual-review-submit-btn');
+    const err = document.getElementById('manual-review-error');
+    const payload = buildManualReviewPayload();
+    if (!payload.session_id) {
+      if (err) {
+        err.textContent = '当前 Session ID 为空，无法送审。';
+        err.classList.remove('hidden');
+      }
+      return;
+    }
+    if (!payload.reason_codes || !payload.reason_codes.length) {
+      if (err) {
+        err.textContent = '请至少选择一个送审原因。';
+        err.classList.remove('hidden');
+      }
+      return;
+    }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '送审中...';
+    }
+    try {
+      const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+      const url = buildUrl ? buildUrl('/api/manual-review') : '/api/manual-review';
+      const resp = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      setManualReviewCard(data.status || 'pending', data.review_id, payload.reason_code);
+      closeManualReviewModal();
+    } catch (e) {
+      if (err) {
+        err.textContent = `送审失败：${e.message || e}`;
+        err.classList.remove('hidden');
+      }
+      const reviewBtn = document.getElementById('manual-review-btn');
+      if (reviewBtn) {
+        reviewBtn.textContent = '送审失败，重试';
+        reviewBtn.title = e.message || String(e);
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '提交送审';
+      }
+    }
+  };
+
   // 从工具调用 args 中尝试抽取产物路径/文件（仅写入类工具）
   function extractArtifact(toolName, argsStr) {
     const lower = (toolName || '').toLowerCase();
@@ -6117,7 +7055,7 @@
       </div>
       <div>
         <div class="diag-head-title">AI 一键诊断</div>
-        <div class="diag-head-sub">基于完整对话流的语义级复盘 · 豆包 2.0</div>
+        <div class="diag-head-sub">基于完整对话流的语义级复盘 · 豆包 2.0 pro</div>
       </div>
       <div class="diag-head-actions">
         <button class="diag-ghost-btn" id="diag-download" disabled hidden>
@@ -6187,6 +7125,51 @@
           </button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 人工送审 Modal ===== -->
+<div id="manual-review-mask">
+  <div class="manual-review-modal">
+    <div class="diag-head">
+      <div class="diag-head-icon" style="background:linear-gradient(135deg,var(--apple-blue),var(--apple-purple));">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+      </div>
+      <div>
+        <div class="diag-head-title">提交人工送审</div>
+        <div class="diag-head-sub">提交当前 Session 的规则评估、GPT-5.5 评测和关键证据</div>
+      </div>
+      <div class="diag-head-actions">
+        <button class="diag-close" type="button" onclick="closeManualReviewModal()" title="关闭">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="p-5 space-y-4">
+      <div class="rounded-xl bg-black/[0.035] border border-black/5 p-3 text-[11.5px] text-[--text-secondary]" id="manual-review-summary-box">等待生成评估摘要</div>
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[12px] font-semibold text-[--text-primary]">送审原因</div>
+          <div class="text-[10.5px] text-[--text-tertiary]">可多选</div>
+        </div>
+        <div class="grid grid-cols-2 gap-2" id="manual-review-reasons">
+          <label class="manual-review-reason"><input type="checkbox" name="manual-review-reason" value="llm_judge_wrong"><span class="mr-check"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span><span>GPT-5.5 判断不准</span></label>
+          <label class="manual-review-reason"><input type="checkbox" name="manual-review-reason" value="rule_eval_wrong"><span class="mr-check"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span><span>规则评估不准</span></label>
+          <label class="manual-review-reason"><input type="checkbox" name="manual-review-reason" value="need_resolution_check"><span class="mr-check"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span><span>需要人工确认是否解决</span></label>
+          <label class="manual-review-reason"><input type="checkbox" name="manual-review-reason" value="high_risk"><span class="mr-check"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span><span>疑似高风险样本</span></label>
+          <label class="manual-review-reason"><input type="checkbox" name="manual-review-reason" value="other"><span class="mr-check"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span><span>其他</span></label>
+        </div>
+      </div>
+      <div>
+        <div class="text-[12px] font-semibold text-[--text-primary] mb-2">备注</div>
+        <textarea id="manual-review-note" class="w-full min-h-[82px] rounded-xl border border-black/10 bg-white/70 px-3 py-2 text-[12px] outline-none focus:border-[--apple-blue]" placeholder="补充说明人工需要重点复核的地方，可选"></textarea>
+      </div>
+      <div class="text-[11px] text-[--apple-red] hidden" id="manual-review-error"></div>
+    </div>
+    <div class="diag-foot" style="padding:12px 16px;display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+      <button class="diag-ghost-btn" type="button" onclick="closeManualReviewModal()">取消</button>
+      <button class="diag-btn" type="button" id="manual-review-submit-btn" onclick="submitManualReview()">提交送审</button>
     </div>
   </div>
 </div>

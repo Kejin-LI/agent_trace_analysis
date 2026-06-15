@@ -270,7 +270,7 @@ func (a *Aggregator) nightlyCron() {
 		lastRunDate = today
 		yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
 		for _, date := range []string{yesterday, today} {
-			if a.isDateCompleted(date) {
+			if a.shouldSkipNightlyDate(date, now) {
 				continue
 			}
 			if !a.acquireDateFlight(date) {
@@ -285,6 +285,48 @@ func (a *Aggregator) nightlyCron() {
 			}
 		}
 	}
+}
+
+// shouldSkipNightlyDate 仅服务于凌晨 cron 的"跳过条件"判断：
+// - 今天：沿用"当天已完成就跳过"语义，避免 03:00 同日重复排队；
+// - 昨天：只有在进入今天之后仍被重新聚合过，才允许跳过。
+// 这样可以避免"昨天晚上提前空跑一次就被标记 completed"，从而阻断次日凌晨回补。
+func (a *Aggregator) shouldSkipNightlyDate(date string, now time.Time) bool {
+	if a == nil || a.db == nil {
+		return false
+	}
+	var row model.APIDailyAggregateStatus
+	if err := a.db.Where("aggregate_date = ?", parseAggregateDate(date)).First(&row).Error; err != nil {
+		return false
+	}
+	return isNightlyFreshCompletion(row, parseAggregateDate(date), now)
+}
+
+func isNightlyFreshCompletion(row model.APIDailyAggregateStatus, targetDate, now time.Time) bool {
+	if row.Status != "completed" {
+		return false
+	}
+	completedAt, ok := aggregateStatusCompletedAt(row)
+	if !ok {
+		return false
+	}
+	nowDay := startOfLocalDay(now)
+	targetDay := startOfLocalDay(targetDate)
+	yesterday := nowDay.AddDate(0, 0, -1)
+	if targetDay.Equal(yesterday) {
+		return !completedAt.Before(nowDay)
+	}
+	return startOfLocalDay(completedAt).Equal(targetDay)
+}
+
+func aggregateStatusCompletedAt(row model.APIDailyAggregateStatus) (time.Time, bool) {
+	for _, candidate := range []*time.Time{row.LastAggregatedAt, row.FinishedAt} {
+		if candidate == nil || candidate.IsZero() {
+			continue
+		}
+		return candidate.In(time.Local), true
+	}
+	return time.Time{}, false
 }
 
 // Get 查 session 的聚合指标，命中返回。
