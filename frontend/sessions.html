@@ -467,8 +467,8 @@
                   <div style="margin:6px 0 4px">优先使用可信度更高的评分源；缺失时自动降级：</div>
                   <div class="tip-row"><span>有 GPT</span><span>规则 50% + GPT-5.5 50%</span></div>
                   <div class="tip-row"><span>仅规则</span><span>规则评估 100%</span></div>
-                  <div class="tip-row"><span>规则</span><span>耗时、工具、Token、编排等客观执行信号</span></div>
-                  <div class="tip-row"><span>GPT-5.5</span><span>解决度、意图匹配、情绪、重复空转、幻觉风险</span></div>
+                  <div class="tip-row"><span>规则</span><span>执行规整、工具稳定、资源开销、调度编排、重复空转等客观信号</span></div>
+                  <div class="tip-row"><span>GPT-5.5</span><span>问题解决、意图匹配、效率体感、用户情绪、可执行性、幻觉风险</span></div>
                   <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
                     <span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span>
                   </div>
@@ -605,14 +605,33 @@
           <div class="score-tip-row"><span>综合分</span><span class="num-mono">${q.combinedScore ?? '--'}</span></div>
           <div class="score-tip-row"><span>规则评估</span><span class="num-mono">${q.ruleScore ?? '--'}${q.llmScore === null ? ' × 100%' : ' × 50%'}</span></div>
           <div class="score-tip-row"><span>GPT-5.5</span><span class="num-mono">${llmText}</span></div>
-          <div class="score-tip-formula">${sourceText}；规则看耗时、工具、Token、编排等客观执行信号，GPT-5.5 看解决度、意图匹配、情绪、重复空转、幻觉风险。</div>
+          <div class="score-tip-formula">${sourceText}；规则看执行规整、工具稳定、资源开销、调度编排、重复空转等客观信号，GPT-5.5 看问题解决、意图匹配、效率体感、用户情绪、可执行性、幻觉风险。</div>
           <div class="score-tip-levels"><span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span></div>
           <div style="margin-top:6px;color:rgba(255,255,255,0.66);font-size:10.5px">人工送审只作为复核入口，不参与综合健康度。</div>
         </div>`;
     }
 
+    function hasPersistedQualityScore(s) {
+      return [s?.combined_score, s?.quality_score, s?.health_score, s?.rule_score, s?.llm_score, s?.llm_judge_score]
+        .some(v => v !== null && v !== undefined && v !== '');
+    }
+
+    function hasParsedRuleMetrics(s) {
+      if ((s?.turns || 0) > 0 || (s?.input_tokens || 0) > 0 || (s?.output_tokens || 0) > 0) return true;
+      if (Array.isArray(s?.rules) && s.rules.length > 0) return true;
+      if (typeof s?.score === 'number' && !Number.isNaN(s.score) && s.score > 0) return true;
+      const radar = s?.radar || {};
+      return ['response', 'stability', 'thinking', 'resource', 'orchestration']
+        .some(key => typeof radar[key] === 'number' && !Number.isNaN(radar[key]) && radar[key] > 0);
+    }
+
+    function isPendingScoreSession(s) {
+      return !(hasPersistedQualityScore(s) || hasParsedRuleMetrics(s));
+    }
+
     function sessionQualityScore(s) {
-      const ruleScore = window.AgentTraceEfficiency.adjustedScore(s);
+      if (isPendingScoreSession(s)) return null;
+      const ruleScore = hasParsedRuleMetrics(s) ? window.AgentTraceEfficiency.adjustedScore(s) : null;
       return window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore).combinedScore
         : ruleScore;
@@ -675,11 +694,9 @@
     // ----- 渲染单行 -----
     function renderRow(s) {
       // 指标未聚合判定：列表项来自上游 light bundle 时无任何已解析指标。
-      // 注意 trace_count 不能作为判据——light bundle 默认带 trace_count=1，
-      // 真正的"已聚合"信号是耗时/步数/tokens/规则中至少有一个非空。
-      const isPending = !((s.duration_ms > 0) || (s.turns > 0)
-        || (s.input_tokens > 0) || (s.output_tokens > 0)
-        || (Array.isArray(s.rules) && s.rules.length > 0));
+      // 注意 duration_ms 不能作为判据——上游 light bundle 已带时长，但仍没有雷达/规则/质量分，
+      // 如果把它当成已聚合，会把缺失分数误渲染成 0。
+      const isPending = isPendingScoreSession(s);
 
       const ruleScore = window.AgentTraceEfficiency.adjustedScore(s);
       const quality = window.AgentTraceTags?.getSessionQualityScores
@@ -751,11 +768,13 @@
 
       let arr = state.all.filter(s => {
         const ano = buildAnomalies(s);
+        const score = sessionQualityScore(s);
         // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
         // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
-        const isHealthy = sessionQualityScore(s) >= 85;
+        const isHealthy = score !== null && score >= 85;
+        const isPendingScore = score === null;
         // 状态分段
-        if (f.status === 'anomaly' && isHealthy) return false;
+        if (f.status === 'anomaly' && (isHealthy || isPendingScore)) return false;
         if (f.status === 'healthy' && !isHealthy) return false;
         // 异常类型
         if (f.anomalyType !== 'all') {
@@ -764,8 +783,7 @@
         }
         // 健康度档位
         if (f.score !== 'all') {
-          const sc = sessionQualityScore(s);
-          if (scoreBand(sc) !== f.score) return false;
+          if (score === null || scoreBand(score) !== f.score) return false;
         }
         // 关键字模糊搜索：session_id（含完整 id 精确命中）/ 标题 / 用户
         if (kw) {
@@ -904,7 +922,9 @@
       // 时间窗口已由后端查询统一过滤；这里只做健康/异常分段统计，避免前端二次误筛 started_at_ms=0 的数据。
       state.all.forEach(s => {
         total++;
-        if (sessionQualityScore(s) >= 85) healthy++; else anomaly++;
+        const score = sessionQualityScore(s);
+        if (score === null) return;
+        if (score >= 85) healthy++; else anomaly++;
       });
       statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();
       statusSeg.querySelector('[data-count="anomaly"]').textContent = anomaly.toLocaleString();

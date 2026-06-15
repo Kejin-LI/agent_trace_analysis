@@ -30,8 +30,10 @@ CREATE TABLE IF NOT EXISTS `stg_session_quality_evaluations` (
   `llm_resolved_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '问题解决分数，0-100',
   `llm_intent_match` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '意图匹配判断',
   `llm_intent_match_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '意图匹配分数，0-100',
-  `llm_repeat_loop` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '重复空转判断',
-  `llm_repeat_loop_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '重复空转分数，0-100',
+  `llm_efficiency_feel` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '效率体感判断（结合任务难度看耗时/步数）',
+  `llm_efficiency_feel_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '效率体感分数，0-100',
+  `llm_repeat_loop` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '重复空转判断（兼容历史字段）',
+  `llm_repeat_loop_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '重复空转分数，0-100（兼容历史字段）',
   `llm_actionability` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '可执行性判断',
   `llm_actionability_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '可执行性分数，0-100',
   `llm_hallucination_risk` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '幻觉风险判断',
@@ -61,3 +63,8 @@ CREATE TABLE IF NOT EXISTS `stg_session_quality_evaluations` (
   KEY `idx_llm_eval_status` (`llm_eval_status`),
   KEY `idx_llm_evaluated_at` (`llm_evaluated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Session 质量评估结果表';
+
+-- 增量迁移：为已存在的表补充 GPT「效率体感」维度字段（重复空转字段保留兼容）
+ALTER TABLE `stg_session_quality_evaluations`
+  ADD COLUMN `llm_efficiency_feel` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '效率体感判断（结合任务难度看耗时/步数）' AFTER `llm_intent_match_score`,
+  ADD COLUMN `llm_efficiency_feel_score` TINYINT UNSIGNED DEFAULT NULL COMMENT '效率体感分数，0-100' AFTER `llm_efficiency_feel`;

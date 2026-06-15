@@ -197,6 +197,8 @@ type StgSessionQualityEvaluation struct {
 	LLMResolvedScore          *int       `gorm:"column:llm_resolved_score"`
 	LLMIntentMatch            string     `gorm:"column:llm_intent_match"`
 	LLMIntentMatchScore       *int       `gorm:"column:llm_intent_match_score"`
+	LLMEfficiencyFeel         string     `gorm:"column:llm_efficiency_feel"`
+	LLMEfficiencyFeelScore    *int       `gorm:"column:llm_efficiency_feel_score"`
 	LLMRepeatLoop             string     `gorm:"column:llm_repeat_loop"`
 	LLMRepeatLoopScore        *int       `gorm:"column:llm_repeat_loop_score"`
 	LLMActionability          string     `gorm:"column:llm_actionability"`

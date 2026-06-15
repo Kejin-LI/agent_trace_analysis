@@ -224,7 +224,7 @@
       llm_sentiment_score: raw.llm_sentiment_score ?? raw.llmSentimentScore ?? null,
       llm_resolved_score: raw.llm_resolved_score ?? raw.llmResolvedScore ?? null,
       llm_intent_match_score: raw.llm_intent_match_score ?? raw.llmIntentMatchScore ?? null,
-      llm_repeat_loop_score: raw.llm_repeat_loop_score ?? raw.llmRepeatLoopScore ?? null,
+      llm_efficiency_feel_score: raw.llm_efficiency_feel_score ?? raw.llmEfficiencyFeelScore ?? null,
       llm_actionability_score: raw.llm_actionability_score ?? raw.llmActionabilityScore ?? null,
       llm_hallucination_risk_score: raw.llm_hallucination_risk_score ?? raw.llmHallucinationRiskScore ?? null,
       llm_judge_result: typeof llmJudgeResult === 'string' ? (safeJSON(llmJudgeResult) || null) : llmJudgeResult,
