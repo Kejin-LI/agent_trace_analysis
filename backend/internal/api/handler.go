@@ -296,6 +296,7 @@ type apiSessionBundle struct {
 	LLMSentimentScore         *int                 `json:"llm_sentiment_score,omitempty"`
 	LLMResolvedScore          *int                 `json:"llm_resolved_score,omitempty"`
 	LLMIntentMatchScore       *int                 `json:"llm_intent_match_score,omitempty"`
+	LLMEfficiencyFeelScore    *int                 `json:"llm_efficiency_feel_score,omitempty"`
 	LLMRepeatLoopScore        *int                 `json:"llm_repeat_loop_score,omitempty"`
 	LLMActionabilityScore     *int                 `json:"llm_actionability_score,omitempty"`
 	LLMHallucinationRiskScore *int                 `json:"llm_hallucination_risk_score,omitempty"`

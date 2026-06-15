@@ -294,6 +294,46 @@
   }
   @keyframes diagspin { to { transform: rotate(360deg); } }
   .diag-quickchips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .evidence-round {
+    flex-shrink: 0; margin-top: 1px; padding: 1px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 500; line-height: 1.5;
+    color: var(--apple-blue); background: rgba(0,113,227,0.09);
+    transition: background .15s ease;
+  }
+  .evidence-round:hover { background: rgba(0,113,227,0.16); }
+  .evidence-round-chip {
+    color: #5856D6; background: rgba(88,86,214,0.10);
+  }
+  .evidence-round-chip:hover { background: rgba(88,86,214,0.17); }
+  .evidence-step-chip {
+    color: var(--apple-blue); background: rgba(0,113,227,0.09);
+  }
+  .evidence-step-chip:hover { background: rgba(0,113,227,0.16); }
+  /* 评估卡内的统一轻表格（规则 / GPT 同款，左右对称，用 grid 对齐列） */
+  .eval-table { display: grid; row-gap: 0; }
+  .eval-row {
+    display: grid; grid-template-columns: 4.4em 3.4em 1fr; column-gap: 8px;
+    align-items: start; padding: 6px 0; line-height: 1.45; font-size: 11px;
+    border-bottom: 1px solid rgba(0,0,0,0.04); position: relative;
+  }
+  .eval-row.eval-head {
+    padding: 0 0 5px; border-bottom: 1px solid rgba(0,0,0,0.06);
+    color: var(--text-tertiary); font-size: 10px; letter-spacing: 0.01em;
+  }
+  .eval-row:last-child { border-bottom: none; }
+  .eval-dim { color: var(--text-primary); font-weight: 500; }
+  .eval-head .eval-dim { color: var(--text-tertiary); font-weight: 500; }
+  .eval-band { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .eval-ev { color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
+  .eval-ev-clamp {
+    width: 100%; max-height: 51px; overflow: hidden;
+    display: -webkit-box; line-clamp: 3; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  }
+  .eval-ev-clamp:hover { color: var(--text-primary); }
+  .eval-card {
+    height: 100%; display: flex; flex-direction: column;
+  }
+  .eval-card-list { flex: 1; }
   .diag-chip {
     padding: 0 10px; height: 28px; border-radius: 999px;
     background: rgba(0,0,0,0.045); color: var(--text-secondary);
@@ -1049,6 +1089,30 @@
     color: rgba(255,255,255,0.7); font-size: 10.5px;
   }
   .tip .tip-row span:last-child { color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; }
+  .judge-protocol {
+    margin-top: 4px;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: rgba(255,255,255,0.86);
+  }
+  .judge-protocol-note { color: rgba(255,255,255,0.88); }
+  .judge-protocol-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-top: 8px;
+  }
+  .judge-protocol-key {
+    flex-shrink: 0;
+    min-width: 58px;
+    color: rgba(255,255,255,0.96);
+    font-weight: 700;
+  }
+  .judge-protocol-body { color: rgba(255,255,255,0.86); }
+  .judge-protocol-sub {
+    color: rgba(255,255,255,0.68);
+    margin-top: 1px;
+  }
   .tip-warn { color: #FF9F0A !important; }
   .tip-good { color: #30D158 !important; }
   .tip-bad { color: #FF453A !important; }
@@ -1606,11 +1670,11 @@
                 <span class="text-[10.5px] text-[--text-tertiary] help cursor-help" style="position:relative" aria-label="健康度说明">
                   <span class="tip" style="width:320px">
                     <span class="tip-title">综合健康度如何计算</span>
-                    <div style="margin:6px 0 4px">优先使用可信度更高的评分源；缺失时自动降级：</div>
-                    <div class="tip-row"><span>有 GPT</span><span>规则 50% + GPT-5.5 50%</span></div>
+                    <div class="tip-formula" style="margin:6px 0 8px">综合健康度不是简单平均，而是按数据完备度自动选源：有 GPT 时规则与 GPT 各占 50 分；缺 GPT 时只看规则 100 分。</div>
+                    <div class="tip-row"><span>有 GPT</span><span>规则 50 分 + GPT-5.5 50 分</span></div>
                     <div class="tip-row"><span>仅规则</span><span>规则评估 100%</span></div>
-                    <div class="tip-row"><span>规则</span><span>耗时、工具、Token、编排等客观执行信号</span></div>
-                    <div class="tip-row"><span>GPT-5.5</span><span>解决度、意图匹配、情绪、重复空转、幻觉风险</span></div>
+                    <div style="margin-top:8px;color:rgba(255,255,255,0.88);font-size:10.5px;line-height:1.55">规则侧看 5 个客观维度：执行规整、工具稳定、资源开销、调度编排、重复空转。</div>
+                    <div style="margin-top:4px;color:rgba(255,255,255,0.88);font-size:10.5px;line-height:1.55">GPT-5.5 看 6 个语义维度：问题解决（最多 30 分）、意图匹配（18 分）、效率体感（15 分）、用户情绪（15 分）、可执行性（12 分）、幻觉风险（10 分）。</div>
                     <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12)">
                       <span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span>
                     </div>
@@ -1907,6 +1971,137 @@
     setTimeout(() => target.classList.remove('chat-locate-flash'), 1400);
   }
 
+  // locateChatRound 按「展示轮次号」定位左侧对话流；用于 GPT 论据里的轮次跳转。
+  // 优先精确匹配展示轮次号，匹配不到则降级到第 N 个轮次锚点（按出现顺序）。
+  function locateChatRound(roundNo) {
+    const stream = document.getElementById('chat-stream');
+    if (!stream) return;
+    const no = Number(roundNo);
+    let target = Number.isFinite(no) && no > 0
+      ? stream.querySelector(`.chat-round-anchor[data-chat-round-no="${no}"]`)
+      : null;
+    if (!target && Number.isFinite(no) && no > 0) {
+      const anchors = stream.querySelectorAll('.chat-round-anchor');
+      target = anchors[no - 1] || null;
+    }
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const flashEl = target.nextElementSibling || target;
+    flashEl.classList.remove('chat-locate-flash');
+    void flashEl.offsetWidth;
+    flashEl.classList.add('chat-locate-flash');
+    setTimeout(() => flashEl.classList.remove('chat-locate-flash'), 1400);
+  }
+  window.locateChatRound = locateChatRound;
+
+  function locateChatStep(spanId) {
+    if (!spanId) return;
+    locateSpanInChat(spanId, {});
+  }
+  window.locateChatStep = locateChatStep;
+
+  function renderEvalEvidenceCell(innerHTML, fullText) {
+    return innerHTML || '';
+  }
+
+  function evidenceLocsOf(item) {
+    return (Array.isArray(item?.locs) && item.locs.length ? item.locs : [item])
+      .filter(loc => loc && (loc.round || loc.step || loc.spanId || loc.span_id));
+  }
+
+  function renderEvidenceLocationChips(item) {
+    const locs = evidenceLocsOf(item);
+    const firstRound = locs.map(loc => Number(loc.round)).find(n => Number.isFinite(n) && n > 0);
+    const roundChip = Number.isFinite(firstRound) && firstRound > 0
+      ? `<button type="button" class="evidence-round evidence-round-chip" onclick="locateChatRound(${firstRound})">第 ${firstRound} 轮</button>`
+      : '';
+    const seenSteps = new Set();
+    const stepChips = locs.map(loc => {
+      const step = Number(loc.step);
+      const spanId = loc.spanId || loc.span_id || '';
+      if (!spanId || !Number.isFinite(step) || step <= 0 || seenSteps.has(step)) return '';
+      seenSteps.add(step);
+      const spanArg = encodeURIComponent(String(spanId));
+      return `<button type="button" class="evidence-round evidence-step-chip" onclick="locateChatStep(decodeURIComponent('${spanArg}'))">第 ${step} 步</button>`;
+    }).filter(Boolean);
+    return [roundChip, ...stepChips].filter(Boolean).join(' ');
+  }
+
+  function evidencePlainPrefix(item) {
+    const locs = evidenceLocsOf(item);
+    const firstRound = locs.map(loc => Number(loc.round)).find(n => Number.isFinite(n) && n > 0);
+    const seenSteps = new Set();
+    const steps = locs.map(loc => Number(loc.step))
+      .filter(step => Number.isFinite(step) && step > 0 && !seenSteps.has(step) && seenSteps.add(step))
+      .map(step => `第 ${step} 步`);
+    return [`第 ${firstRound || ''} 轮`.trim(), ...steps].filter(Boolean).join(' ');
+  }
+
+  function getTraceStepLocators(real) {
+    const spanMap = new Map();
+    const stepMap = new Map();
+    const groups = buildConversationGroups(real || {}).groups || [];
+    let step = 0;
+    groups.forEach((grp) => {
+      (grp.traces || []).forEach(t => {
+        const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+        const displayModelIds = new Set(getDisplayModelSpans(spans).map(sp => sp.span_id));
+        let lastStep = null;
+        spans.forEach(sp => {
+          if (sp.span_type === 'model' && displayModelIds.has(sp.span_id)) {
+            step += 1;
+            lastStep = { round: grp.displayRoundIndex || Number(sp.round_index) || NaN, step, spanId: sp.span_id };
+            spanMap.set(sp.span_id, lastStep);
+            stepMap.set(step, lastStep);
+            return;
+          }
+          if (sp.span_type === 'tool') {
+            const loc = {
+              round: grp.displayRoundIndex || Number(sp.round_index) || NaN,
+              step: lastStep ? lastStep.step : NaN,
+              spanId: sp.span_id,
+            };
+            spanMap.set(sp.span_id, loc);
+          }
+        });
+      });
+    });
+    const locate = (sp) => sp && sp.span_id ? (spanMap.get(sp.span_id) || {
+      round: Number(sp.round_index) || NaN,
+      step: NaN,
+      spanId: sp.span_id,
+    }) : { round: NaN, step: NaN, spanId: '' };
+    return { groups, spanMap, stepMap, locate };
+  }
+
+  function evalEvidenceFullAttr(fullText) {
+    const text = String(fullText || '').trim();
+    return text ? ` data-full-evidence="${escapeHTML(text)}"` : '';
+  }
+
+  function bindEvalEvidenceTooltips(root) {
+    (root || document).querySelectorAll('.eval-ev-clamp').forEach(el => {
+      const text = el.dataset.fullEvidence || '';
+      el.querySelectorAll(':scope > .tip').forEach(tip => tip.remove());
+      if (!text) return;
+      if (text.length < 38 && !text.includes('\n')) return;
+      const cs = getComputedStyle(el);
+      const lineHeight = parseFloat(cs.lineHeight) || 17;
+      const probe = el.cloneNode(true);
+      probe.querySelectorAll(':scope > .tip').forEach(tip => tip.remove());
+      probe.style.cssText = `${cs.cssText || ''};position:absolute;visibility:hidden;pointer-events:none;left:-9999px;top:-9999px;width:${el.getBoundingClientRect().width}px;max-height:none;display:block;-webkit-line-clamp:unset;line-clamp:unset;-webkit-box-orient:initial;overflow:visible;`;
+      document.body.appendChild(probe);
+      const overflow = probe.scrollHeight > lineHeight * 3 + 1;
+      probe.remove();
+      if (!overflow) return;
+      const tip = document.createElement('span');
+      tip.className = 'tip';
+      tip.style.cssText = 'width:min(420px, calc(100vw - 24px)); max-height:220px; overflow-y:auto; overscroll-behavior:contain';
+      tip.innerHTML = `<span class="tip-title">完整命中论据</span><div style="color:rgba(255,255,255,0.82);font-size:11px;line-height:1.55;white-space:pre-wrap">${escapeHTML(text)}</div>`;
+      el.appendChild(tip);
+      bindTooltip(el);
+    });
+  }
 
   /* ===== Resizable Chat Pane (左右拖拽分隔条) ===== */
   (function() {
@@ -2766,7 +2961,7 @@
   })();
 </script>
 
-<script src="./efficiency-helper.js"></script>
+<script src="./efficiency-helper.js?v=3"></script>
 <script src="./tag-system.js"></script>
 <script src="./db-api.js"></script>
 <script>
@@ -2951,7 +3146,7 @@
       push(scoreOf('resolved_score'), `问题解决 ${result.resolved_score ?? '--'} 分 · ${result.resolved || '待判断'}`, result.reason || '用户核心问题可能没有被完整闭环。', ['补充最终结论和验收口径', '回看用户原始诉求，确认是否真正解决']);
       push(scoreOf('intent_match_score'), `意图匹配 ${result.intent_match_score ?? '--'} 分 · ${result.intent_match || '待判断'}`, '回答可能偏离用户真实目标。', ['对照用户最后一次明确诉求重新总结目标', '删除无关解释，优先补齐用户要的结果']);
       push(scoreOf('sentiment_score'), `用户情绪 ${result.sentiment_score ?? '--'} 分 · ${result.sentiment || '待判断'}`, result.reason || '用户存在负向反馈或挫败感信号。', ['优先解释阻塞原因和下一步', '减少自我辩解，直接给出可验证修复']);
-      push(scoreOf('repeat_loop_score'), `重复空转 ${result.repeat_loop_score ?? '--'} 分 · ${result.repeat_loop || '待判断'}`, '会话可能存在重复解释或无效循环。', ['合并重复步骤，明确停止条件', '定位反复出现的问题点并一次性处理']);
+      push(scoreOf('efficiency_feel_score'), `效率体感 ${result.efficiency_feel_score ?? '--'} 分 · ${result.efficiency_feel || '待判断'}`, '相对任务难度，整体耗时或步数偏多，过程体感拖沓。', ['精简非必要往返，直奔关键路径', '对比任务难度评估步数是否合理']);
       push(scoreOf('actionability_score'), `可执行性 ${result.actionability_score ?? '--'} 分 · ${result.actionability || '待判断'}`, '建议不够具体，用户可能无法直接执行。', ['补充文件、命令、入口或验证步骤', '把建议改成可逐项执行的 checklist']);
       push(scoreOf('hallucination_risk_score'), `幻觉风险 ${result.hallucination_risk_score ?? '--'} 分 · ${result.hallucination_risk || '待判断'}`, '存在缺少证据的结论或完成声明风险。', ['为关键结论补充证据来源', '不确定内容标注假设并请求确认']);
       if (!items.length && result.reason) {
@@ -2959,6 +3154,7 @@
       }
       return items.slice(0, 3);
     }
+    window.buildLLMActionIssues = buildLLMActionIssues;
 
     window.renderActionRecommendations = function renderActionRecommendations() {
       const ruleEl = document.getElementById('rule-advice-list');
@@ -2972,7 +3168,7 @@
         : emptyAdvice('规则评估未发现高优先级执行问题。', 'good');
       llmEl.innerHTML = llmResult
         ? (llmIssues.length ? llmIssues.map(renderAdviceCard).join('') : emptyAdvice('GPT-5.5 未发现明显语义体验风险。', 'good'))
-        : emptyAdvice('完成 GPT-5.5 评测后，将展示解决度、意图匹配、情绪和幻觉风险建议。');
+        : emptyAdvice('完成 GPT-5.5 评测后，将展示问题解决、意图匹配、效率体感、用户情绪、可执行性和幻觉风险建议。');
     };
 
     function renderSession(real, stage) {
@@ -3093,7 +3289,7 @@
         currentChip = turnsN < 3 ? '思考过简' : '慢思考无效';
       }
 
-      // 前端按新口径重算：原 response 维度改为效率（体感分 + 规则效率分），并同步影响综合健康度。
+      // 前端按新口径重算 5 个客观维度（执行规整/工具稳定/重复空转/资源开销/调度编排），并同步影响综合健康度。
       const thinkingMetric = window.AgentTraceEfficiency.computeThinkingMetric(s._real);
       const efficiencyMetric = window.AgentTraceEfficiency.computeEfficiencyMetric(s._real);
       const stabilityMetric = window.AgentTraceEfficiency.computeStabilityMetric(s._real);
@@ -3223,35 +3419,154 @@
 
       // 规则评估 5 个维度口径（用于规则卡片和行动建议，不再单独展示维度条）
       const dimList = [
-        { key: 'response',      label: '效率', q: '耗时是否花得值',        formula: '效率 = 0.4 × 体感分 + 0.6 × 规则效率分；体感分按工具调用数分桶，规则效率分按重复调用/重复编辑/规划缺失等结构信号扣分' },
-        { key: 'stability',     label: '稳定', q: '工具最终能不能调成功',  formula: '无真实工具调用时 N/A；否则 成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
-        { key: 'thinking',      label: '思考', q: '轨迹是否健康走完', formula: '100 − 无答复35 − 截断25 − 空转(每步10, 上限30) − 工具意图未落地25' },
-        { key: 'resource',      label: '资源', q: '单轮 Token 用得多不多',   formula: '单轮平均 ≤ 76k 满分；超出后线性扣分，128k 时扣到 60' },
-        { key: 'orchestration', label: '编排', q: 'Agent 调度工具是否高效',  formula: '无真实工具调用时 N/A；否则 100 − 串行重试惩罚（同名工具连续 ≥3/5/7 次扣 10/20/30） + 调度多样性奖励（unique/total ≥0.6/0.4 +20/+10）' },
+        { key: 'response',      label: '执行规整', q: '执行模式是否规整完成',  formula: '从 100 起扣：未产出最终答复 −35、触达 max_steps 截断 −25、工具意图未落地 −25、思考冗余 −10、缺少规划 −10、规划偏离 −10、测试残留 −5（不再评估耗时体感，难度判断交由 GPT）' },
+        { key: 'stability',     label: '工具稳定', q: '工具最终能不能调成功',  formula: '无真实工具调用时 N/A；否则 成功率 × 100 − 5 × 失败次数（只看后果，不看模式）' },
+        { key: 'thinking',      label: '重复空转', q: '是否反复空转或循环', formula: '100 − 空转(每步10, 上限30) − 串行重试(同名工具连续 ≥3/5/7 次扣 10/20/30) − 重复编辑(同文件 ≥3 次 −20)' },
+        { key: 'resource',      label: '资源开销', q: '单轮 Token 用得多不多',   formula: '单轮平均 ≤ 76k 满分；超出后线性扣分，128k 时扣到 60' },
+        { key: 'orchestration', label: '调度编排', q: 'Agent 调度工具是否高效',  formula: '无真实工具调用时 N/A；否则按调度多样性 unique/total 打分：≥0.6→100 / ≥0.4→85 / ≥0.25→70 / 否则 50（串行重试归「重复空转」维度）' },
       ];
       const ratingOf = (v) => v == null ? { text: '不适用', c: '--text-tertiary' }
-                            : v >= 85 ? { text: '优秀', c: '--apple-green' }
-                            : v >= 70 ? { text: '良好', c: '--apple-orange' }
-                            : v >= 50 ? { text: '一般', c: '--apple-purple' }
-                            :          { text: '较差', c: '--apple-red' };
+                            : v >= 85 ? { text: '健康', c: '--apple-green' }
+                            : v >= 70 ? { text: '注意', c: '--apple-orange' }
+                            : v >= 50 ? { text: '亚健康', c: '--apple-purple' }
+                            :          { text: '严重', c: '--apple-red' };
       const dimReasonOf = (key, v) => {
         if (v == null) return '无真实工具调用，本维度不适用，也不会纳入综合分。';
-        if (v >= 85) return '本维度表现良好';
+        if (v >= 85) return '本维度处于健康区间';
         if (key === 'response') {
-          const hitText = efficiencyMetric.hits.length ? `命中 ${efficiencyMetric.hits.map(h => h.label).join('、')}` : '未命中明显结构低效信号';
-          return `耗时 ${durSec}s，体感分 ${efficiencyMetric.experienceScore}，规则效率分 ${efficiencyMetric.ruleEfficiencyScore}；${hitText}`;
+          const hitText = efficiencyMetric.hits.length ? `命中 ${efficiencyMetric.hits.map(h => h.label).join('、')}` : '未命中明显结构信号';
+          return `执行规整分 ${efficiencyMetric.score}；${hitText}`;
         }
         if (key === 'stability')     return `工具失败 ${stabilityMetric.toolFailures} 次（成功率 ${Math.round((1 - stabilityMetric.failRate) * 100)}%）`;
-        if (key === 'thinking')      return !hasFinalAnswer ? '未产出最终答复' : truncatedByMax ? '被 max_steps 截断' : noOpStreak >= 3 ? `连续 ${noOpStreak} 步空转` : thinkingMetric.hasToolIntentWithoutExecution ? '识别出工具调用意图，但没有真实工具执行' : `${turnsN} 步，轨迹健康`;
+        if (key === 'thinking') {
+          const parts = [];
+          if (noOpStreak >= 3) parts.push(`连续 ${noOpStreak} 步空转`);
+          if (thinkingMetric.maxSerialRun >= 3) parts.push(`同名工具连续 ${thinkingMetric.maxSerialRun} 次`);
+          if (thinkingMetric.hasRepetitiveEdit) parts.push('同文件重复编辑 ≥3 次');
+          return parts.length ? parts.join('；') : `${turnsN} 步，无明显重复空转`;
+        }
         if (key === 'resource')      return `单轮均值 ${Math.round(resourceMetric.avgTokens / 1000)}k Token，${resourceMetric.avgTokens > 76000 ? '超出 76k 阈值' : '处于健康区间'}`;
         if (key === 'orchestration') {
           const parts = [];
-          if (f.has_loop) parts.push('存在死循环');
-          if (orchestrationMetric.maxSerialRun >= 3) parts.push(`同名工具连续 ${orchestrationMetric.maxSerialRun} 次`);
-          if (orchestrationMetric.toolCalls && orchestrationMetric.diversity < 0.4) parts.push(`仅 ${orchestrationMetric.uniqueTools}/${orchestrationMetric.toolCalls} 种工具`);
+          if (orchestrationMetric.toolCalls && orchestrationMetric.diversity < 0.4) parts.push(`仅 ${orchestrationMetric.uniqueTools}/${orchestrationMetric.toolCalls} 种工具，调度偏单一`);
           return parts.length ? parts.join('；') : '调度模式有改进空间';
         }
         return '';
+      };
+      // 命中论据：定位 trace 中具体出问题的 turn/span/文件，可跳转；健康或无具体信号返回 round=NaN/空。
+      const baseName = window.AgentTraceEfficiency.baseName;
+      const ruleEvidenceLocators = getTraceStepLocators(s._real || {});
+      const ruleEvidenceHTML = (ev) => {
+        const items = ev?.items || (ev?.text ? [ev] : []);
+        if (!items.length) return '';
+        return items.map(item => {
+          const prefix = renderEvidenceLocationChips(item);
+          return `${prefix ? `${prefix} ` : ''}${escapeHTML(item.text || '')}`;
+        }).join('<br>');
+      };
+      const ruleEvidenceText = (ev) => {
+        const items = ev?.items || (ev?.text ? [ev] : []);
+        if (!items.length) return '';
+        return items.map(item => {
+          const prefix = evidencePlainPrefix(item);
+          return [prefix, item.text || ''].filter(Boolean).join(' ');
+        }).join('\n');
+      };
+      const dimEvidenceOf = (key, v) => {
+        if (v == null || v >= 100) return { items: [] };
+        const real = s._real || {};
+        const modelSpans = window.AgentTraceEfficiency.getModelSpans(real);
+        const toolSpans = window.AgentTraceEfficiency.getToolSpans(real);
+        const roundOnlyLocs = (spans) => {
+          const seenRounds = new Set();
+          return (spans || [])
+            .map(sp => ruleEvidenceLocators.locate(sp))
+            .filter(loc => Number.isFinite(Number(loc.round)) && !seenRounds.has(Number(loc.round)) && seenRounds.add(Number(loc.round)))
+            .map(loc => ({ round: loc.round, step: NaN, spanId: '' }));
+        };
+        if (key === 'response') {
+          if (!efficiencyMetric.hits.length) return { items: [] };
+          const modelTextOf = (sp) => {
+            const out = sp ? extractAssistantOutput(sp) : { text: '', reasoning: '' };
+            return [out.reasoning, out.text].filter(Boolean).join('\n');
+          };
+          const longestModel = modelSpans.reduce((hit, sp) => modelTextOf(sp).length > modelTextOf(hit).length ? sp : hit, null);
+          const firstModel = modelSpans[0] || null;
+          const lastModel = modelSpans[modelSpans.length - 1] || null;
+          const firstThreeModels = modelSpans.slice(0, 3);
+          const toolIntentModels = modelSpans.filter(sp => (extractAssistantOutput(sp).tool_calls || []).length > 0);
+          const tempCreateTool = toolSpans.find(sp =>
+            /mkdir|touch|write|create/i.test(sp.span_name || '') &&
+            /tmp|temp|mock|debug|test/i.test((sp.input || '') + (sp.span_name || ''))
+          );
+          const items = efficiencyMetric.hits.map(h => {
+            if (h.key === 'thinking_redundancy') {
+              const loc = ruleEvidenceLocators.locate(longestModel);
+              return { ...loc, text: `思考冗余：最长模型输出约 ${modelTextOf(longestModel).length} 字，明显高于本轮平均水平` };
+            }
+            if (h.key === 'planning_behavior') {
+              const locs = firstThreeModels.map(sp => ruleEvidenceLocators.locate(sp)).filter(Boolean);
+              return { locs, text: `缺少规划：前 3 个模型步骤未识别到计划/步骤结构，但本次存在 ${efficiencyMetric.toolCalls || 0} 次工具调用` };
+            }
+            if (h.key === 'test_residues') {
+              const loc = ruleEvidenceLocators.locate(tempCreateTool);
+              const f = tempCreateTool ? window.AgentTraceEfficiency.toolPath(tempCreateTool) : '';
+              return { ...loc, text: `测试残留：创建 ${baseName(f) || '临时/测试内容'} 后，末尾未检测到清理动作` };
+            }
+            if (h.key === 'no_final_answer') return { locs: roundOnlyLocs(modelSpans), text: '整轮未产出最终答复：未识别到无工具调用的最终自然语言回复' };
+            if (h.key === 'truncated') return { ...ruleEvidenceLocators.locate(lastModel), text: '触达 max_steps 截断：会话在最大步数限制处结束' };
+            if (h.key === 'tool_intent_no_exec') return { locs: toolIntentModels.map(sp => ruleEvidenceLocators.locate(sp)), text: `工具意图未落地：识别到 ${thinkingMetric.toolIntentCalls || 0} 次工具调用意图，但无真实工具执行记录` };
+            return { ...ruleEvidenceLocators.locate(firstModel), text: h.label };
+          });
+          return { items };
+        }
+        if (key === 'stability') {
+          if (!stabilityMetric.toolFailures) return { items: [] };
+          const failedTools = toolSpans.filter(sp => sp.status_code != null && sp.status_code !== 0);
+          const locs = failedTools.map(sp => ruleEvidenceLocators.locate(sp)).filter(Boolean);
+          const names = [...new Set(failedTools.map(sp => sp.span_name || '工具').filter(Boolean))].slice(0, 3).join('、');
+          return { items: [{ locs, text: `${names || '工具'} 共 ${stabilityMetric.toolFailures} 次调用失败，分布在这些步骤` }] };
+        }
+        if (key === 'thinking') {
+          if (noOpStreak >= 3) {
+            let cur = [], best = [];
+            modelSpans.forEach(sp => {
+              const out = extractAssistantOutput(sp);
+              if (!(out.tool_calls || []).length && !String(out.text || '').trim()) {
+                cur.push(sp);
+                if (cur.length > best.length) best = cur.slice();
+              } else {
+                cur = [];
+              }
+            });
+            const noOpModels = best.slice(0, noOpStreak);
+            return { items: [{ locs: noOpModels.map(sp => ruleEvidenceLocators.locate(sp)), text: `连续 ${noOpStreak} 个模型步骤空转无产出` }] };
+          }
+          if (thinkingMetric.hasRepetitiveEdit) {
+            const f = thinkingMetric.editPath ? baseName(thinkingMetric.editPath) : '同一文件';
+            const locs = (thinkingMetric.editSpanIds || [])
+              .map(id => ruleEvidenceLocators.spanMap.get(id) || { round: thinkingMetric.editRound, step: NaN, spanId: id })
+              .filter(Boolean);
+            return { items: [{ locs, text: `${f} 被 write/edit 重复编辑 ${thinkingMetric.editCount} 次，分布在这些步骤` }] };
+          }
+          if (thinkingMetric.maxSerialRun >= 3) {
+            const loc = ruleEvidenceLocators.spanMap.get(thinkingMetric.serialSpanId) || { round: thinkingMetric.serialRound, step: NaN, spanId: thinkingMetric.serialSpanId || '' };
+            return { items: [{ ...loc, text: `${thinkingMetric.serialTool || '同名工具'} 连续调用 ${thinkingMetric.maxSerialRun} 次` }] };
+          }
+          return { items: [] };
+        }
+        if (key === 'resource') {
+          if (resourceMetric.avgTokens <= 76000) return { items: [] };
+          return { items: [{ locs: roundOnlyLocs(modelSpans), text: `整轮单步平均约 ${Math.round(resourceMetric.avgTokens / 1000)}k Token，超出 76k 阈值` }] };
+        }
+        if (key === 'orchestration') {
+          if (orchestrationMetric.toolCalls && orchestrationMetric.diversity < 0.4) {
+            const locs = roundOnlyLocs(toolSpans);
+            return { items: [{ locs, text: `整轮共 ${orchestrationMetric.toolCalls} 次工具调用，仅覆盖 ${orchestrationMetric.uniqueTools} 种工具，调度偏单一` }] };
+          }
+          return { items: [] };
+        }
+        return { items: [] };
       };
       const barsEl = document.getElementById('health-bars');
       if (barsEl) {
@@ -3260,25 +3575,39 @@
             <div class="flex items-center justify-end mb-3">
               <button class="text-[10.5px] text-[--apple-blue] hover:underline" id="manual-review-btn" onclick="openManualReviewModal()">提交人工送审</button>
             </div>
-            <div class="grid grid-cols-2 gap-3 text-[12px]">
-              <div class="text-center py-3 rounded-lg bg-black/[0.04]" id="rule-eval-card">
-                <div class="text-[10.5px] text-[--text-tertiary]">规则评估</div>
-                <div class="text-[20px] font-semibold num-mono mt-1" id="rule-eval-summary">--</div>
-                <div class="space-y-1 mt-1.5 text-[11px] px-3 text-left hidden" id="rule-eval-list"></div>
-              </div>
-              <div class="text-center py-3 rounded-lg bg-black/[0.04]" id="llm-judge-card">
-                <div class="text-[10.5px] text-[--text-tertiary] inline-flex items-center justify-center gap-1.5">
-                  <span>GPT-5.5 评测</span>
-                  <span class="judge-help help" aria-label="查看评测协议">?
+            <div class="grid grid-cols-2 gap-3 text-[12px] items-stretch">
+              <div class="eval-card py-3 px-3 rounded-lg bg-black/[0.04]" id="rule-eval-card">
+                <div class="text-center text-[10.5px] text-[--text-tertiary] inline-flex items-center justify-center gap-1.5 w-full">
+                  <span>规则评估</span>
+                  <span class="judge-help help" aria-label="查看规则评分标准">?
                     <span class="tip" style="width:min(420px, calc(100vw - 24px)); max-height:260px; overflow-y:auto; overscroll-behavior:contain">
-                      <span class="tip-title">LLM-as-Judge 评测协议</span>
-                      <pre class="mt-2 rounded-lg bg-white/10 border border-white/10 p-2 text-[10px] leading-relaxed whitespace-pre-wrap text-white/85" id="llm-judge-prompt"></pre>
+                      <span class="tip-title">规则评估怎么打分</span>
+                      <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.55;margin:6px 0 8px">
+                        基于 trace 客观信号自动计算，5 个维度各自独立从 100 起扣分；综合分取「适用维度」的算术平均（无真实工具调用的维度记 N/A，不计入）。综合健康度按 规则 50% + GPT 50% 融合。
+                      </div>
+                      <div style="color:rgba(255,255,255,0.85);font-size:11px;line-height:1.6">
+                        ${dimList.map(d => `<div style="margin-bottom:5px"><b style="color:#5AC8FA">${escapeHTML(d.label)}</b>（${escapeHTML(d.q)}）<br><span style="color:rgba(255,255,255,0.6);font-size:10px">${escapeHTML(d.formula)}</span></div>`).join('')}
+                      </div>
+                      <div class="tip-formula" style="margin-top:8px">档位：<b style="color:#30D158">≥85 健康</b> · <b style="color:#FF9F0A">70–84 注意</b> · <b style="color:#BF5AF2">50–69 亚健康</b> · <b style="color:#FF453A">&lt;50 严重</b></div>
                     </span>
                   </span>
                 </div>
-                <div class="text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1" id="llm-judge-summary">未评估</div>
-                <div class="space-y-1 mt-1.5 text-[11px] px-3 text-left hidden" id="llm-judge-list"></div>
-                <button class="text-[10.5px] text-[--apple-blue] hover:underline mt-1" id="llm-judge-run-btn" onclick="runLLMJudge()">立即评估</button>
+                <div class="text-center text-[20px] font-semibold num-mono mt-1" id="rule-eval-summary">--</div>
+                <div class="eval-card-list mt-2.5 hidden" id="rule-eval-list"></div>
+              </div>
+              <div class="eval-card py-3 px-3 rounded-lg bg-black/[0.04]" id="llm-judge-card">
+                <div class="text-center text-[10.5px] text-[--text-tertiary] inline-flex items-center justify-center gap-1.5 w-full">
+                  <span>GPT-5.5 评测</span>
+                  <span class="judge-help help" aria-label="查看评测协议">?
+                    <span class="tip" style="width:min(420px, calc(100vw - 24px)); max-height:260px; overflow-y:auto; overscroll-behavior:contain">
+                      <span class="tip-title">GPT-5.5 怎么打分</span>
+                      <div class="judge-protocol" id="llm-judge-prompt"></div>
+                    </span>
+                  </span>
+                </div>
+                <div class="text-center text-[20px] font-semibold text-[--text-tertiary] num-mono mt-1" id="llm-judge-summary">未评估</div>
+                <div class="eval-card-list mt-2.5 hidden" id="llm-judge-list"></div>
+                <div class="text-center mt-auto"><button class="text-[10.5px] text-[--apple-blue] hover:underline mt-2" id="llm-judge-run-btn" onclick="runLLMJudge()">立即评估</button></div>
               </div>
             </div>
             <div class="mt-4 pt-4 border-t border-black/5" id="action-advice">
@@ -3317,22 +3646,21 @@
       // 维度 → 建议（闭包以便引用 durSec / turnsN / avgK / f）
       const dimActionsOf = {
         response: () => [
-          '打开「执行分析」Tab，先定位耗时最长的 span，再检查是否命中重复调用/重复编辑/规划缺失',
-          efficiencyMetric.hits.length ? `优先处理：${efficiencyMetric.hits.map(h => h.label).join('、')}` : '若无结构低效信号，则按任务复杂度评估耗时是否可接受',
+          '打开「执行分析」Tab，检查是否未产出最终答复、被 max_steps 截断或工具意图未落地',
+          efficiencyMetric.hits.length ? `优先处理：${efficiencyMetric.hits.map(h => h.label).join('、')}` : '执行结构规整，无需特别处理',
         ],
         stability: () => [
           '查看失败工具的 span，确认入参与依赖服务',
           (f.tool_failures || 0) >= 3 ? '联系该工具负责人核实稳定性' : '为高失败率工具增加最大调用次数限制',
         ],
-        thinking: () => !hasFinalAnswer
-          ? ['检查 Agent 是否因异常提前终止', '调整提示词，明确要求产出最终答复']
-          : truncatedByMax
-            ? ['增加 max_steps 限制或优化 Agent 规划效率', '抽查最后几步是否冗余']
-            : noOpStreak >= 3
-              ? ['抽查空转步骤的推理内容', '调整提示词减少无效思考']
-              : thinkingMetric.hasToolIntentWithoutExecution
-                ? ['检查工具选择后的执行链路，确认 tool_call 是否被正确下发', '补充提示词或中间层校验，避免“决定调用但没真正执行”']
-              : ['轨迹健康，无需特别处理'],
+        thinking: () => {
+          const parts = [];
+          if (noOpStreak >= 3) parts.push('抽查空转步骤的推理内容，调整提示词减少无效思考');
+          if (thinkingMetric.maxSerialRun >= 3) parts.push(`定位连续 ${thinkingMetric.maxSerialRun} 次同名工具调用，加入终止条件或更换工具`);
+          if (thinkingMetric.hasRepetitiveEdit) parts.push('检查同一文件被反复编辑的原因，避免来回改写');
+          if (!parts.length) parts.push('轨迹健康，无明显重复空转');
+          return parts.slice(0, 2);
+        },
         resource: () => [
           '检查上下文是否含大段无关历史，可清理或截断',
           '考虑分段处理或切换支持更长上下文的模型',
@@ -3407,7 +3735,7 @@
         const taskType = efficiencyMetric.toolCalls < 3 ? '简单任务' : efficiencyMetric.toolCalls < 10 ? '中等任务' : '复杂任务';
         const lv = durSec <= efficiencyMetric.bucket.full ? 'good' : durSec <= efficiencyMetric.bucket.floor ? 'warn' : 'bad';
         const txt = lv === 'good' ? `${taskType} · 体感正常` : lv === 'warn' ? `${taskType} · 体感偏慢` : `${taskType} · 严重偏慢`;
-        const reason = `本次共耗时 ${durSec} 秒，工具调用 ${efficiencyMetric.toolCalls} 次，按${taskType}阈值评估：满分阈值 ${efficiencyMetric.bucket.full}s，触底阈值 ${efficiencyMetric.bucket.floor}s，体感分 ${efficiencyMetric.experienceScore}`;
+        const reason = `本次共耗时 ${durSec} 秒，工具调用 ${efficiencyMetric.toolCalls} 次，按${taskType}阈值评估：满分阈值 ${efficiencyMetric.bucket.full}s，触底阈值 ${efficiencyMetric.bucket.floor}s（仅作客观耗时参考，难度与耗时是否合理由 GPT 评估判断）`;
         setKpi('duration', 'kpi-duration', 'kpi-duration-sub',
           fmtDur(durSec), txt, lv,
           '总耗时如何判断？',
@@ -3642,6 +3970,7 @@
             rating: rt.text,
             colorVar: rt.c,
             reason: dimReasonOf(d.key, v),
+            evidence: dimEvidenceOf(d.key, v),
             detail: v == null ? '不适用' : `${v} 分（${rt.text}） · ${dimReasonOf(d.key, v)}`,
           };
         });
@@ -3660,22 +3989,30 @@
             : ruleScore >= 50 ? 'var(--apple-purple)'
             : 'var(--apple-red)';
         }
-        ruleListEl.innerHTML = ruleDimRows.map(row => `
-          <div class="flex items-start gap-1.5 rule-dim-row cursor-help" style="position:relative">
-            <span style="color:${row.score == null ? 'var(--apple-orange)' : row.passed ? 'var(--apple-green)' : 'var(--apple-red)'};font-weight:600;flex-shrink:0;line-height:1.3">${row.score == null ? '?' : row.passed ? '✓' : '✗'}</span>
-            <div class="flex-1 min-w-0">
-              <div class="text-[--text-primary]" style="line-height:1.3">${escapeHTML(row.name)}</div>
-              <div class="text-[10px] text-[--text-tertiary] truncate">${escapeHTML(row.detail)}</div>
+        ruleListEl.innerHTML = `
+          <div class="eval-table">
+            <div class="eval-row eval-head">
+              <span class="eval-dim">维度</span><span>分数</span><span>命中论据</span>
             </div>
-            <span class="tip" style="width:260px">
-              <span class="tip-title">${escapeHTML(row.name)} · ${escapeHTML(row.question)}</span>
-              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:var(${row.colorVar})">${row.score == null ? 'N/A' : `${row.score} 分`}（${escapeHTML(row.rating)}）</b></div>
-              <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${escapeHTML(row.reason)}</div>
-              <div class="tip-formula" style="margin-top:8px">${escapeHTML(row.formula)}</div>
-            </span>
-          </div>
-        `).join('');
-        ruleListEl.querySelectorAll('.rule-dim-row').forEach(bindTooltip);
+            ${ruleDimRows.map(row => {
+              const st = row.score == null ? { icon: '?', color: 'var(--apple-orange)' } : llmScoreBandState(row.score);
+              const ev = row.evidence || { text: '', round: NaN };
+              const evHealthy = row.score != null && row.score >= 85
+                ? '<span class="text-[--text-tertiary]">本维度处于健康区间</span>'
+                : '<span class="text-[--text-tertiary]">—</span>';
+              const evHTML = ruleEvidenceHTML(ev);
+              const evText = ruleEvidenceText(ev) || (row.score != null && row.score >= 85 ? '本维度处于健康区间' : '—');
+              const evCell = renderEvalEvidenceCell(evHTML || evHealthy, evText);
+              return `
+              <div class="eval-row rule-dim-row">
+                <span class="eval-dim">${escapeHTML(row.name)}</span>
+                <span class="eval-band" style="color:${st.color}">${row.score == null ? 'N/A' : row.score}</span>
+                <span class="eval-ev eval-ev-clamp"${evalEvidenceFullAttr(evText)}>${evCell}</span>
+              </div>`;
+            }).join('')}
+          </div>`;
+        bindEvalEvidenceTooltips(ruleListEl);
+        // 维度行不再绑定 tooltip（评分标准已统一收敛到卡片头部 ? 说明）
       }
 
       // ===== 左侧对话流 / 甘特图：仅在拿到完整 traces 后渲染（meta 骨架阶段跳过）=====
@@ -5221,55 +5558,94 @@
 
 评估原则：
 1. 只依据输入的会话内容、工具调用摘要和系统记录，不臆测外部事实。
-2. 优先识别规则难以判断的语义问题：用户情绪、是否解决、是否答非所问、是否重复空转、是否疑似幻觉。
-3. 不要把 token、耗时、错误码等客观日志重新评分；这些由规则评估负责。
-4. 如果证据不足，必须输出 "无法判断"，不要强行下结论。
-5. 严格返回 JSON，不要输出 Markdown。
+2. 只做规则难以判断的「语义体验」判断：是否真正解决、是否答非所问、效率体感、用户情绪、建议可执行性、是否疑似编造。
+3. 不要把 token、耗时、错误码、重复调用、空转步数等客观执行信号重新评分；这些由规则评估负责。
+4. 维度边界必须互斥，避免重复惩罚：
+   - resolved（问题解决）：核心问题是否真正闭环，含「完成声明是否有会话证据支撑」。
+   - efficiency_feel（效率体感）：结合任务难度，判断耗时/步数是否合理（难度只能语义判断，规则无法判断）。
+   - sentiment（用户情绪）：只看用户表达的情绪信号词（如"谢谢/崩了/没用"），不要因为"问题没解决"就压低情绪分。
+   - hallucination_risk（幻觉风险）：只判断"凭空编造的事实/API/引用/结论"，「完成声明无证据」归 resolved，不要在此重复扣分。
+5. 如果证据不足，必须输出 "无法判断"，不要强行下结论。
+6. 论据要求（强制）：凡是单维度得分 < 85 的维度，evidence 数组里必须至少有一条对应论据，且必须带 dimension 字段标明所属维度 key（resolved / intent_match / efficiency_feel / sentiment / actionability / hallucination_risk）。论据要指向会话里的具体证据（第几轮、第几步、用户/助手说了什么、缺了什么动作），不要照抄判分标准。若输入 rounds.steps 中存在对应步骤，必须优先返回 step 与 span_id，便于前端跳转；整轮级语义判断才只返回 round。得分 ≥ 85 的健康维度可以不给论据。
+7. 严格返回 JSON，不要输出 Markdown。
 
 输出 JSON Schema：
 {
-  "overall": "良好 | 需关注 | 严重问题 | 无法判断",
+  "overall": "健康 | 注意 | 亚健康 | 严重 | 无法判断",
   "score": 0-100,
   "score_basis": "说明最终分数如何由各项分数加权得到，必须包含关键扣分/加分依据",
-  "sentiment": "正向 | 中性 | 负向 | 强负向 | 无法判断",
-  "sentiment_score": 0-100,
   "resolved": "已解决 | 部分解决 | 未解决 | 无法判断",
   "resolved_score": 0-100,
   "intent_match": "完全匹配 | 部分偏离 | 明显答非所问 | 无法判断",
   "intent_match_score": 0-100,
-  "repeat_loop": "无重复 | 轻微重复 | 明显重复 | 循环卡住",
-  "repeat_loop_score": 0-100,
+  "efficiency_feel": "高效 | 一般 | 偏低效 | 无法判断",
+  "efficiency_feel_score": 0-100,
+  "sentiment": "正向 | 中性 | 负向 | 强负向 | 无法判断",
+  "sentiment_score": 0-100,
   "actionability": "可直接执行 | 需要补充信息 | 空泛不可执行 | 无法判断",
   "actionability_score": 0-100,
   "hallucination_risk": "低 | 中 | 高 | 无法判断",
   "hallucination_risk_score": 0-100,
   "dimension_scores": {
-    "sentiment": 0-100,
     "resolved": 0-100,
     "intent_match": 0-100,
-    "repeat_loop": 0-100,
+    "efficiency_feel": 0-100,
+    "sentiment": 0-100,
     "actionability": 0-100,
     "hallucination_risk": 0-100
   },
   "tags": ["最多 5 个短标签"],
   "evidence": [
-    {"round": 1, "issue": "证据摘要", "severity": "low | medium | high"}
+    {"dimension": "resolved | intent_match | efficiency_feel | sentiment | actionability | hallucination_risk", "round": 1, "step": 3, "span_id": "输入 rounds.steps 中对应的 span_id；整轮级证据可省略", "issue": "指向具体会话证据的论据，而非判分标准", "severity": "low | medium | high"}
   ],
   "reason": "一句话说明最关键判断"
 }`;
+  const LLM_JUDGE_DIMENSION_META = [
+    { key: 'resolved', label: '问题解决', points: 30, brief: '看事情是否真正办成', detail: '核心问题是否真正闭环；声称完成但无证据，仍按未真正解决处理。' },
+    { key: 'intent_match', label: '意图匹配', points: 18, brief: '看回答有没有对准真实诉求', detail: '重点看是否偏离用户原始目标和最新追问。' },
+    { key: 'efficiency_feel', label: '效率体感', points: 15, brief: '看相对任务难度是否拖沓', detail: '只从语义上判断体感效率，规则侧不负责判断任务难度。' },
+    { key: 'sentiment', label: '用户情绪', points: 15, brief: '看用户有没有明显挫败感', detail: '只看情绪词，不因为“问题没解决”而重复压低本维度。' },
+    { key: 'actionability', label: '可执行性', points: 12, brief: '看建议能不能直接照着做', detail: '优先看是否给出步骤、命令、文件位置或验证方式。' },
+    { key: 'hallucination_risk', label: '幻觉风险', points: 10, brief: '看有没有凭空编造', detail: '只查事实/API/引用/结论是否臆造，不重复处理“完成声明无证据”。' },
+  ];
+  function llmScoreBandState(score) {
+    const n = Number(score);
+    if (!Number.isFinite(n)) return { label: '无法判断', color: 'var(--text-tertiary)', icon: '?', style: 'font-weight:700;flex-shrink:0;line-height:1.3' };
+    if (n >= 85) return { label: '健康', color: 'var(--apple-green)', icon: '✓', style: 'font-weight:600;flex-shrink:0;line-height:1.3' };
+    if (n >= 70) return { label: '注意', color: 'var(--apple-orange)', icon: '!', style: 'font-weight:700;flex-shrink:0;line-height:1.3' };
+    if (n >= 50) return { label: '亚健康', color: 'var(--apple-purple)', icon: '!', style: 'font-weight:700;flex-shrink:0;line-height:1.3' };
+    return { label: '严重', color: 'var(--apple-red)', icon: '✗', style: 'font-weight:600;flex-shrink:0;line-height:1.3' };
+  }
+  function renderJudgeProtocolHTML(result) {
+    const score = Number.isFinite(Number(result?.score)) ? Number(result.score) : null;
+    const scoreBasis = String(result?.score_basis || '').trim();
+    const rows = LLM_JUDGE_DIMENSION_META.map((item) => {
+      const dimScore = Number.isFinite(Number(result?.[`${item.key}_score`])) ? Number(result[`${item.key}_score`]) : null;
+      const dimLabel = String(result?.[item.key] || '').trim();
+      const current = dimScore === null ? '' : ` 本次 ${dimScore} 分${dimLabel ? `（${escapeHTML(dimLabel)}）` : ''}。`;
+      return `
+        <div style="margin-bottom:5px">
+          <b style="color:#5AC8FA">${escapeHTML(item.label)}</b>（${escapeHTML(item.brief)}）<span style="color:#FF9F0A">最多影响总分 ${item.points} 分</span>
+          <br><span style="color:rgba(255,255,255,0.6);font-size:10px">${escapeHTML(item.detail)}${current}</span>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.55;margin:6px 0 8px">
+        ${score === null ? 'GPT-5.5 总分不是 6 项平均分，而是 6 个语义维度按重要性加权后的结果。' : `当前 GPT-5.5 总分为 <b style="color:#fff">${score} 分</b>，不是简单平均分，而是 6 个维度按重要性加权后的结果。`}规则侧负责客观执行信号；GPT 只评语义体验，不重复给 token、耗时、错误码、空转步数打分。
+      </div>
+      <div style="color:rgba(255,255,255,0.85);font-size:11px;line-height:1.6">
+        ${rows}
+      </div>
+      <div class="tip-formula" style="margin-top:8px">总分公式：问题解决 ×30% + 意图匹配 ×18% + 效率体感 ×15% + 用户情绪 ×15% + 可执行性 ×12% + 幻觉风险 ×10%</div>
+      <div class="tip-formula" style="margin-top:6px">档位：<b style="color:#30D158">≥85 健康</b> · <b style="color:#FF9F0A">70–84 注意</b> · <b style="color:#BF5AF2">50–69 亚健康</b> · <b style="color:#FF453A">&lt;50 严重</b>；只有“无法判断”显示问号，不进入分数档位。</div>
+      ${scoreBasis ? `<div style="margin-top:6px;color:rgba(255,255,255,0.72);font-size:10px">本次判分依据：${escapeHTML(scoreBasis)}</div>` : ''}
+    `;
+  }
   window.renderInitialJudgePrompt = function renderInitialJudgePrompt() {
     const initialJudgePromptEl = document.getElementById('llm-judge-prompt');
     if (!initialJudgePromptEl) return;
-    initialJudgePromptEl.textContent = [
-      '[System Prompt]',
-      LLM_JUDGE_SYSTEM_PROMPT,
-      '',
-      '[Judge Input]',
-      '点击「立即评估」后展示本次会话输入。',
-      '',
-      '[Expected Output Schema]',
-      '点击「立即评估」后展示结构化输出示例。',
-    ].join('\n');
+    initialJudgePromptEl.innerHTML = renderJudgeProtocolHTML(null);
   };
   window.renderInitialJudgePrompt();
 
@@ -5289,19 +5665,43 @@
 
   function buildLLMJudgeInput(real) {
     const convo = buildConversationGroups(real);
+    let globalStep = 0;
     const rounds = (convo.groups || []).map((grp, idx) => {
       const assistantParts = [];
+      const steps = [];
       let toolCalls = 0;
       let modelCalls = 0;
       (grp.traces || []).forEach(t => {
-        (t.spans || []).forEach(sp => {
+        const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
+        const displayModelIds = new Set(getDisplayModelSpans(spans).map(sp => sp.span_id));
+        let currentStep = null;
+        spans.forEach(sp => {
           if (sp.span_type === 'model') {
             modelCalls++;
             const out = extractAssistantOutput(sp);
             if (out.text) assistantParts.push(out.text);
             toolCalls += out.tool_calls.length;
+            if (displayModelIds.has(sp.span_id)) {
+              globalStep += 1;
+              currentStep = {
+                step: globalStep,
+                span_id: sp.span_id || '',
+                kind: 'assistant',
+                text: normalizeJudgeText([out.reasoning, out.text].filter(Boolean).join('\n')).slice(0, 800),
+              };
+              steps.push(currentStep);
+            }
           } else if (sp.span_type === 'tool') {
             toolCalls++;
+            if (currentStep) {
+              steps.push({
+                step: currentStep.step,
+                span_id: sp.span_id || '',
+                kind: 'tool',
+                tool: sp.span_name || '',
+                text: normalizeJudgeText([sp.span_name || '', sp.input || '', sp.output || ''].filter(Boolean).join('\n')).slice(0, 500),
+              });
+            }
           }
         });
       });
@@ -5309,6 +5709,7 @@
         round: idx + 1,
         user: normalizeJudgeText(grp.userPrompt || grp.clarifyReply || ''),
         assistant: normalizeJudgeText(assistantParts.join('\n\n')),
+        steps: steps.slice(0, 80),
         model_calls: modelCalls,
         tool_calls: toolCalls,
       };
@@ -5322,87 +5723,6 @@
         turns: Number(real?.turns || 0),
         trace_count: Number(real?.trace_count || 0),
       },
-    };
-  }
-
-  function evaluateLLMJudgeFallback(input) {
-    const rounds = input.rounds || [];
-    const joinedUser = rounds.map(r => r.user).join(' ');
-    const joinedAssistant = rounds.map(r => r.assistant).join(' ');
-    const negativeHits = (joinedUser.match(/不行|没解决|没有解决|还是|又|重复|答非所问|不是|错误|报错|失败|崩|卡住|听不懂|没用|无效/g) || []).length;
-    const positiveHits = (joinedUser.match(/谢谢|好了|可以了|解决了|有用|不错|正确|满意/g) || []).length;
-    const emptyAnswerRounds = rounds.filter(r => r.user && !r.assistant).length;
-    const vagueAnswerRounds = rounds.filter(r => /无法|抱歉|不能|不确定|建议你|可以尝试/.test(r.assistant || '') && !/```|\n\d+[.、]|步骤|命令|文件|路径/.test(r.assistant || '')).length;
-    let repeatedQuestions = 0;
-    let repeatedAnswers = 0;
-    for (let i = 1; i < rounds.length; i++) {
-      if (textSimilarity(rounds[i - 1].user, rounds[i].user) > 0.72) repeatedQuestions++;
-      if (textSimilarity(rounds[i - 1].assistant, rounds[i].assistant) > 0.78) repeatedAnswers++;
-    }
-    const hasActionableSignal = /```|\n\d+[.、]|步骤|命令|执行|修改|文件|路径|点击|配置|检查|修复/.test(joinedAssistant)
-      || rounds.some(r => r.tool_calls > 0);
-    const hasCompletionClaim = /已完成|已经完成|修复了|创建了|生成了|我已|已将/.test(joinedAssistant);
-    const hasExecutionEvidence = rounds.some(r => r.tool_calls > 0);
-
-    const sentiment = negativeHits >= 3 ? '强负向' : negativeHits ? '负向' : positiveHits ? '正向' : '中性';
-    const resolved = negativeHits >= 2 || emptyAnswerRounds
-      ? '未解决'
-      : negativeHits
-        ? '部分解决'
-        : (hasCompletionClaim && hasExecutionEvidence ? '已解决' : hasActionableSignal ? '部分解决' : '无法判断');
-    const repeatLoop = repeatedQuestions + repeatedAnswers >= 3 ? '循环卡住' : repeatedQuestions || repeatedAnswers ? '轻微重复' : '无重复';
-    const actionability = hasActionableSignal ? '可直接执行' : '空泛不可执行';
-    const hallucinationRisk = hasCompletionClaim && !hasExecutionEvidence ? '中' : '低';
-    const intentMatch = emptyAnswerRounds
-      ? '明显答非所问'
-      : (vagueAnswerRounds || negativeHits ? '部分偏离' : hasActionableSignal ? '完全匹配' : '无法判断');
-    const dimensionScores = {
-      sentiment: scoreJudgeDimension('sentiment', sentiment),
-      resolved: scoreJudgeDimension('resolved', resolved),
-      intent_match: scoreJudgeDimension('intent_match', intentMatch),
-      repeat_loop: scoreJudgeDimension('repeat_loop', repeatLoop),
-      actionability: scoreJudgeDimension('actionability', actionability),
-      hallucination_risk: scoreJudgeDimension('hallucination_risk', hallucinationRisk),
-    };
-    const score = calcLLMJudgeOverallScore(dimensionScores);
-    const scoreBasis = buildLLMJudgeScoreBasis(dimensionScores);
-
-    const tags = [];
-    if (sentiment === '负向' || sentiment === '强负向') tags.push('用户负向');
-    if (resolved === '未解决' || resolved === '部分解决') tags.push(resolved);
-    if (repeatLoop !== '无重复') tags.push('重复空转');
-    if (intentMatch !== '无法判断') tags.push(intentMatch);
-    if (hallucinationRisk !== '低') tags.push('疑似幻觉');
-    if (!tags.length) tags.push('未见明显语义风险');
-
-    const evidence = [];
-    if (negativeHits) evidence.push({ round: Math.max(1, rounds.length), issue: '用户表达了未解决、报错或无效等负向信号', severity: negativeHits >= 3 ? 'high' : 'medium' });
-    if (repeatedQuestions || repeatedAnswers) evidence.push({ round: Math.max(1, rounds.length), issue: '相邻轮次存在语义相近的问题或回答', severity: repeatedQuestions + repeatedAnswers >= 3 ? 'high' : 'medium' });
-    if (!hasActionableSignal && rounds.length) evidence.push({ round: rounds.length, issue: '助手回复缺少明确步骤、命令、文件或工具执行证据', severity: 'medium' });
-    if (hasCompletionClaim && !hasExecutionEvidence) evidence.push({ round: rounds.length, issue: '助手声称已完成，但当前会话缺少工具执行证据支撑', severity: 'medium' });
-
-    return {
-      overall: score >= 80 ? '良好' : score >= 60 ? '需关注' : '严重问题',
-      score,
-      score_basis: scoreBasis,
-      sentiment,
-      sentiment_score: dimensionScores.sentiment,
-      resolved,
-      resolved_score: dimensionScores.resolved,
-      intent_match: intentMatch,
-      intent_match_score: dimensionScores.intent_match,
-      repeat_loop: repeatLoop,
-      repeat_loop_score: dimensionScores.repeat_loop,
-      actionability,
-      actionability_score: dimensionScores.actionability,
-      hallucination_risk: hallucinationRisk,
-      hallucination_risk_score: dimensionScores.hallucination_risk,
-      dimension_scores: dimensionScores,
-      tags: tags.slice(0, 5),
-      evidence: evidence.slice(0, 4),
-      reason: evidence[0]?.issue || '未发现明显的负向情绪、重复空转或答非所问信号。',
-      system_prompt: LLM_JUDGE_SYSTEM_PROMPT,
-      input,
     };
   }
 
@@ -5440,20 +5760,20 @@
   }
 
   const LLM_JUDGE_SCORE_WEIGHTS = {
-    sentiment: 0.15,
     resolved: 0.30,
-    intent_match: 0.20,
-    repeat_loop: 0.15,
-    actionability: 0.10,
+    intent_match: 0.18,
+    efficiency_feel: 0.15,
+    sentiment: 0.15,
+    actionability: 0.12,
     hallucination_risk: 0.10,
   };
 
   function scoreJudgeDimension(kind, value) {
     const scoreMap = {
-      sentiment: { '正向': 95, '中性': 72, '负向': 45, '强负向': 20, '无法判断': 50 },
       resolved: { '已解决': 95, '部分解决': 70, '未解决': 25, '无法判断': 50 },
       intent_match: { '完全匹配': 95, '部分偏离': 60, '明显答非所问': 20, '无法判断': 50 },
-      repeat_loop: { '无重复': 95, '轻微重复': 70, '明显重复': 40, '循环卡住': 15, '无法判断': 50 },
+      efficiency_feel: { '高效': 95, '一般': 70, '偏低效': 40, '无法判断': 50 },
+      sentiment: { '正向': 95, '中性': 72, '负向': 45, '强负向': 20, '无法判断': 50 },
       actionability: { '可直接执行': 95, '需要补充信息': 65, '空泛不可执行': 25, '无法判断': 50 },
       hallucination_risk: { '低': 95, '中': 55, '高': 20, '无法判断': 50 },
     };
@@ -5476,10 +5796,10 @@
   function buildLLMJudgeScoreBasis(scores) {
     return [
       `问题解决 ${scores.resolved}/100 ×30%`,
-      `意图匹配 ${scores.intent_match}/100 ×20%`,
+      `意图匹配 ${scores.intent_match}/100 ×18%`,
+      `效率体感 ${scores.efficiency_feel}/100 ×15%`,
       `用户情绪 ${scores.sentiment}/100 ×15%`,
-      `重复空转 ${scores.repeat_loop}/100 ×15%`,
-      `可执行性 ${scores.actionability}/100 ×10%`,
+      `可执行性 ${scores.actionability}/100 ×12%`,
       `幻觉风险 ${scores.hallucination_risk}/100 ×10%`,
     ].join('；');
   }
@@ -5538,54 +5858,61 @@
   }
 
   function hasJudgeSignal(result) {
-    return ['score', 'total_score', 'overall_score', 'quality_score', 'dimension_scores', 'scores', '分项分数', '总分', '得分', 'overall', '综合结论', 'sentiment', '用户情绪', 'resolved', '解决度', 'intent_match', '意图匹配', 'repeat_loop', '重复空转', 'hallucination_risk', '幻觉风险']
+    return ['score', 'total_score', 'overall_score', 'quality_score', 'dimension_scores', 'scores', '分项分数', '总分', '得分', 'overall', '综合结论', 'sentiment', '用户情绪', 'resolved', '解决度', 'intent_match', '意图匹配', 'efficiency_feel', '效率体感', 'hallucination_risk', '幻觉风险']
       .some(key => result && result[key] !== undefined && result[key] !== null && result[key] !== '');
   }
 
   function normalizeLLMJudgeResult(raw) {
     const result = unwrapJudgeResult(raw);
-    if (!hasJudgeSignal(result) && raw?.input) {
-      const fallback = evaluateLLMJudgeFallback(raw.input);
-      fallback.system_prompt = raw.system_prompt || LLM_JUDGE_SYSTEM_PROMPT;
-      fallback.input = raw.input;
-      fallback.raw_parse_warning = 'GPT-5.5 返回缺少评测字段，已使用本地语义兜底结果展示。';
-      return fallback;
+    if (!hasJudgeSignal(result)) {
+      throw new Error('GPT-5.5 返回缺少评测字段，无法解析为有效结果。');
     }
     const sentiment = firstJudgeValue(result, ['sentiment', 'user_sentiment', 'emotion', 'emotion_status', 'user_emotion', '用户情绪', '情绪']) || '无法判断';
     const resolved = firstJudgeValue(result, ['resolved', 'problem_resolved', 'resolution', 'resolution_status', 'task_resolved', '解决度', '问题解决']) || '无法判断';
     const intentMatch = firstJudgeValue(result, ['intent_match', 'intentMatch', 'intent_alignment', 'intent_status', '意图匹配', '意图匹配度']) || '无法判断';
-    const repeatLoop = firstJudgeValue(result, ['repeat_loop', 'repeatLoop', 'repetition', 'loop_status', '重复空转', '重复程度']) || '无法判断';
+    const efficiencyFeel = firstJudgeValue(result, ['efficiency_feel', 'efficiencyFeel', 'efficiency', 'efficiency_status', '效率体感', '效率']) || '无法判断';
     const actionability = firstJudgeValue(result, ['actionability', 'actionable', 'execution_readiness', '可执行性']) || '无法判断';
     const hallucinationRisk = firstJudgeValue(result, ['hallucination_risk', 'hallucinationRisk', 'hallucination', 'fabrication_risk', '幻觉风险']) || '无法判断';
     const dimensionScores = {
-      sentiment: getJudgeDimensionScore(result, 'sentiment', sentiment),
       resolved: getJudgeDimensionScore(result, 'resolved', resolved),
       intent_match: getJudgeDimensionScore(result, 'intent_match', intentMatch),
-      repeat_loop: getJudgeDimensionScore(result, 'repeat_loop', repeatLoop),
+      efficiency_feel: getJudgeDimensionScore(result, 'efficiency_feel', efficiencyFeel),
+      sentiment: getJudgeDimensionScore(result, 'sentiment', sentiment),
       actionability: getJudgeDimensionScore(result, 'actionability', actionability),
       hallucination_risk: getJudgeDimensionScore(result, 'hallucination_risk', hallucinationRisk),
     };
     const scoreRaw = result.score ?? result.total_score ?? result.overall_score ?? result.quality_score ?? result['总分'] ?? result['得分'];
     const score = Number(scoreRaw);
     const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : calcLLMJudgeOverallScore(dimensionScores);
-    const overall = result.overall || result.summary || result['综合结论'] || result['整体结论'] || (
+    const rawOverall = String(result.overall || result.summary || result['综合结论'] || result['整体结论'] || '').trim();
+    const overall = ({
+      '良好': '健康',
+      '需关注': '注意',
+      '严重问题': '严重',
+      '健康': '健康',
+      '注意': '注意',
+      '亚健康': '亚健康',
+      '严重': '严重',
+      '无法判断': '无法判断',
+    })[rawOverall] || (
       normalizedScore === null ? '无法判断' :
-      normalizedScore >= 80 ? '良好' :
-      normalizedScore >= 60 ? '需关注' : '严重问题'
+      normalizedScore >= 85 ? '健康' :
+      normalizedScore >= 70 ? '注意' :
+      normalizedScore >= 50 ? '亚健康' : '严重'
     );
     return {
       ...result,
       overall,
       score: normalizedScore,
       score_basis: result.score_basis || result['分数依据'] || buildLLMJudgeScoreBasis(dimensionScores),
-      sentiment,
-      sentiment_score: dimensionScores.sentiment,
       resolved,
       resolved_score: dimensionScores.resolved,
       intent_match: intentMatch,
       intent_match_score: dimensionScores.intent_match,
-      repeat_loop: repeatLoop,
-      repeat_loop_score: dimensionScores.repeat_loop,
+      efficiency_feel: efficiencyFeel,
+      efficiency_feel_score: dimensionScores.efficiency_feel,
+      sentiment,
+      sentiment_score: dimensionScores.sentiment,
       actionability,
       actionability_score: dimensionScores.actionability,
       hallucination_risk: hallucinationRisk,
@@ -5598,7 +5925,9 @@
   }
 
   function llmJudgeRowState(row) {
-    if (String(row.value || '').includes('无法判断') || row.value === '--' || row.value === null || row.value === undefined) {
+    const label = String(row?.label || '').trim();
+    const hasScore = Number.isFinite(Number(row?.score));
+    if (label === '无法判断' || (!label && !hasScore)) {
       return {
         icon: '?',
         color: 'var(--apple-orange)',
@@ -5606,13 +5935,16 @@
         style: 'font-weight:700;flex-shrink:0;line-height:1.3',
       };
     }
-    return row.passed
-      ? { icon: '✓', color: 'var(--apple-green)', label: '通过', style: 'font-weight:600;flex-shrink:0;line-height:1.3' }
-      : { icon: '✗', color: 'var(--apple-red)', label: '需关注', style: 'font-weight:600;flex-shrink:0;line-height:1.3' };
+    return llmScoreBandState(row?.score);
   }
 
   function renderLLMJudgeResult(result) {
-    result = normalizeLLMJudgeResult(result);
+    try {
+      result = normalizeLLMJudgeResult(result);
+    } catch (err) {
+      renderLLMJudgeError(String(err && err.message || err));
+      return;
+    }
     window.__llmJudgeResult = result;
     window.__llmJudgeInput = result.input || null;
     const summaryEl = document.getElementById('llm-judge-summary');
@@ -5620,7 +5952,8 @@
     const promptEl = document.getElementById('llm-judge-prompt');
     const btn = document.getElementById('llm-judge-run-btn');
     if (!summaryEl) return;
-    const color = result.overall === '良好' ? 'var(--apple-green)' : result.overall === '需关注' ? 'var(--apple-orange)' : result.overall === '无法判断' ? 'var(--text-tertiary)' : 'var(--apple-red)';
+    const summaryState = result.overall === '无法判断' ? { color: 'var(--text-tertiary)' } : llmScoreBandState(result.score);
+    const color = summaryState.color;
     summaryEl.textContent = result.score === null ? '--' : `${result.score}`;
     summaryEl.style.color = color;
     summaryEl.title = result.score_basis || '';
@@ -5629,71 +5962,136 @@
       const isNegativeSentiment = ['负向', '强负向'].includes(result.sentiment);
       const withScore = (label, score, reason) => `${Number.isFinite(Number(score)) ? score : '--'}/100（${label || '无法判断'}） · ${reason}`;
       const judgeReason = result.reason || 'GPT-5.5 未返回明确原因';
+      const resolvedReason = '检查核心问题是否真正闭环；声称完成但无执行证据视为未真正解决';
+      const sentimentReason = '只看用户表达的情绪信号词（如感谢/崩溃/没用），不受是否解决影响';
       const rows = [
-        { name: '用户情绪', question: '用户是否有负向或挫败信号', label: result.sentiment, score: result.sentiment_score, value: withScore(result.sentiment, result.sentiment_score, judgeReason), passed: !isNegativeSentiment, reason: judgeReason, formula: '权重 15% · 正向/中性更健康，负向/强负向扣分' },
-        { name: '问题解决', question: '核心问题是否真正闭环', label: result.resolved, score: result.resolved_score, value: withScore(result.resolved, result.resolved_score, judgeReason), passed: !['未解决'].includes(result.resolved), reason: judgeReason, formula: '权重 30% · 已解决得分最高，部分解决中等，未解决明显扣分' },
-        { name: '意图匹配', question: '回答是否围绕真实诉求', label: result.intent_match, score: result.intent_match_score, value: withScore(result.intent_match, result.intent_match_score, '检查回答是否紧扣用户原始目标和最新追问'), passed: !['明显答非所问'].includes(result.intent_match), reason: '检查回答是否紧扣用户原始目标和最新追问', formula: '权重 20% · 完全匹配最高，偏离或答非所问扣分' },
-        { name: '重复空转', question: '是否反复无效循环', label: result.repeat_loop, score: result.repeat_loop_score, value: withScore(result.repeat_loop, result.repeat_loop_score, '检查是否出现重复解释、反复确认或无效循环'), passed: !['明显重复', '循环卡住'].includes(result.repeat_loop), reason: '检查是否出现重复解释、反复确认或无效循环', formula: '权重 15% · 无重复最高，明显重复或循环卡住扣分' },
-        { name: '可执行性', question: '建议是否具体可执行', label: result.actionability, score: result.actionability_score, value: withScore(result.actionability, result.actionability_score, '检查是否给出可直接执行的步骤、文件、命令或验证方式'), passed: !['空泛不可执行'].includes(result.actionability), reason: '检查是否给出可直接执行的步骤、文件、命令或验证方式', formula: '权重 10% · 可直接执行最高，空泛不可执行扣分' },
-        { name: '幻觉风险', question: '是否存在编造或无证据结论', label: result.hallucination_risk, score: result.hallucination_risk_score, value: withScore(result.hallucination_risk, result.hallucination_risk_score, '检查关键结论是否有会话证据支撑，是否存在无依据完成声明'), passed: !['中', '高'].includes(result.hallucination_risk), reason: '检查关键结论是否有会话证据支撑，是否存在无依据完成声明', formula: '权重 10% · 低风险最高，中/高风险扣分' },
+        { key: 'resolved', name: '问题解决', question: '核心问题是否真正闭环', label: result.resolved, score: result.resolved_score, passed: !['未解决'].includes(result.resolved), reason: resolvedReason, formula: '最多影响总分 30 分 · 已解决最高，部分解决次之，未解决明显扣分；含「完成声明须有证据」' },
+        { key: 'intent_match', name: '意图匹配', question: '回答是否围绕真实诉求', label: result.intent_match, score: result.intent_match_score, passed: !['明显答非所问'].includes(result.intent_match), reason: '检查回答是否紧扣用户原始目标和最新追问', formula: '最多影响总分 18 分 · 完全匹配最高，偏离或答非所问扣分' },
+        { key: 'efficiency_feel', name: '效率体感', question: '以任务难度看耗时/步数是否合理', label: result.efficiency_feel, score: result.efficiency_feel_score, passed: !['偏低效'].includes(result.efficiency_feel), reason: '结合任务难度判断耗时与步数是否合理（难度由语义判断，规则无法判断）', formula: '最多影响总分 15 分 · 高效最高，一般中等，偏低效扣分' },
+        { key: 'sentiment', name: '用户情绪', question: '用户是否有负向或挫败信号', label: result.sentiment, score: result.sentiment_score, passed: !isNegativeSentiment, reason: sentimentReason, formula: '最多影响总分 15 分 · 正向/中性更健康，负向/强负向扣分' },
+        { key: 'actionability', name: '可执行性', question: '建议是否具体可执行', label: result.actionability, score: result.actionability_score, passed: !['空泛不可执行'].includes(result.actionability), reason: '检查是否给出可直接执行的步骤、文件、命令或验证方式', formula: '最多影响总分 12 分 · 可直接执行最高，空泛不可执行扣分' },
+        { key: 'hallucination_risk', name: '幻觉风险', question: '是否凭空编造事实或结论', label: result.hallucination_risk, score: result.hallucination_risk_score, passed: !['中', '高'].includes(result.hallucination_risk), reason: '只判断凭空编造的事实/API/引用/结论；完成声明无证据归「问题解决」', formula: '最多影响总分 10 分 · 低风险最高，中/高风险扣分' },
       ];
-      listEl.innerHTML = rows.map(r => {
-        const state = llmJudgeRowState(r);
-        const scoreText = Number.isFinite(Number(r.score)) ? `${r.score} 分` : 'N/A';
-        return `
-          <div class="flex items-start gap-1.5 llm-judge-row cursor-help" style="position:relative">
-            <span title="${state.label}" style="color:${state.color};${state.style}">${state.icon}</span>
-            <div class="flex-1 min-w-0">
-              <div class="text-[--text-primary]" style="line-height:1.3">${escapeHTML(r.name)}</div>
-              <div class="text-[10px] text-[--text-tertiary] truncate">${escapeHTML(r.value)}</div>
-            </div>
-            <span class="tip" style="width:260px">
-              <span class="tip-title">${escapeHTML(r.name)} · ${escapeHTML(r.question)}</span>
-              <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次得分 <b style="color:${state.color}">${escapeHTML(scoreText)}（${escapeHTML(r.label)}）</b></div>
-              <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${escapeHTML(r.reason)}</div>
-              <div class="tip-formula" style="margin-top:8px">${escapeHTML(r.formula)}</div>
-            </span>
+      // 命中论据：优先用 evidence.dimension 精确归属，其次按维度名子串匹配兜底。
+      const evidence = Array.isArray(result?.evidence) ? result.evidence : [];
+      const validDims = new Set(rows.map(r => r.key));
+      const evByDim = {};
+      const llmEvidenceLocators = getTraceStepLocators((window.SESSION && window.SESSION._real) || {});
+      const normalizeLLMEvidenceLoc = (raw) => {
+        const spanId = String(raw?.spanId || raw?.span_id || raw?.spanID || '').trim();
+        const step = Number(raw?.step || raw?.step_index || raw?.stepIndex);
+        const round = Number(raw?.round || raw?.round_index || raw?.roundIndex);
+        if (spanId && llmEvidenceLocators.spanMap.has(spanId)) {
+          const loc = llmEvidenceLocators.spanMap.get(spanId);
+          return {
+            round: Number.isFinite(round) && round > 0 ? round : loc.round,
+            step: Number.isFinite(step) && step > 0 ? step : loc.step,
+            spanId,
+          };
+        }
+        if (Number.isFinite(step) && step > 0 && llmEvidenceLocators.stepMap.has(step)) {
+          const loc = llmEvidenceLocators.stepMap.get(step);
+          return {
+            round: Number.isFinite(round) && round > 0 ? round : loc.round,
+            step,
+            spanId: loc.spanId,
+          };
+        }
+        return {
+          round: Number.isFinite(round) && round > 0 ? round : NaN,
+          step: Number.isFinite(step) && step > 0 ? step : NaN,
+          spanId,
+        };
+      };
+      evidence.forEach(ev => {
+        const issue = String(ev?.issue || ev?.['证据'] || '').trim();
+        if (!issue) return;
+        const dim = String(ev?.dimension || ev?.dim || '').trim();
+        let key = validDims.has(dim) ? dim : '';
+        if (!key) {
+          const hit = rows.find(r => issue.includes(r.name));
+          key = hit ? hit.key : '__global__';
+        }
+        const locSources = Array.isArray(ev?.locs) ? ev.locs
+          : Array.isArray(ev?.locations) ? ev.locations
+          : Array.isArray(ev?.span_ids) ? ev.span_ids.map(spanId => ({ spanId, round: ev.round }))
+          : Array.isArray(ev?.spanIds) ? ev.spanIds.map(spanId => ({ spanId, round: ev.round }))
+          : [ev];
+        const locs = locSources.map(normalizeLLMEvidenceLoc)
+          .filter(loc => loc && (loc.round || loc.step || loc.spanId));
+        (evByDim[key] = evByDim[key] || []).push({ locs, issue });
+      });
+      const evidenceCol = (r) => {
+        const list = evByDim[r.key];
+        if (list && list.length) {
+          return list.map(ev => {
+            const chip = renderEvidenceLocationChips(ev);
+            return `${chip ? `${chip} ` : ''}${escapeHTML(ev.issue)}`;
+          }).join('<br>');
+        }
+        const score = Number(r.score);
+        return Number.isFinite(score) && score >= 85
+          ? '<span class="text-[--text-tertiary]">本维度处于健康区间</span>'
+          : '<span class="text-[--text-tertiary]">—</span>';
+      };
+      const evidenceText = (r) => {
+        const list = evByDim[r.key];
+        if (list && list.length) {
+          return list.map(ev => {
+            const prefix = evidencePlainPrefix(ev);
+            return [prefix, ev.issue].filter(Boolean).join(' ');
+          }).join('\n');
+        }
+        const score = Number(r.score);
+        return Number.isFinite(score) && score >= 85 ? '本维度处于健康区间' : '—';
+      };
+      listEl.innerHTML = `
+        <div class="eval-table">
+          <div class="eval-row eval-head">
+            <span class="eval-dim">维度</span><span>分数</span><span>命中论据</span>
           </div>
-        `;
-      }).join('');
-      listEl.querySelectorAll('.llm-judge-row').forEach(bindTooltip);
+          ${rows.map(r => {
+            const state = llmJudgeRowState(r);
+            return `
+            <div class="eval-row llm-judge-row">
+              <span class="eval-dim">${escapeHTML(r.name)}</span>
+              <span class="eval-band" style="color:${state.color}">${Number.isFinite(Number(r.score)) ? r.score : 'N/A'}</span>
+              <span class="eval-ev eval-ev-clamp"${evalEvidenceFullAttr(evidenceText(r))}>${renderEvalEvidenceCell(evidenceCol(r), evidenceText(r))}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      bindEvalEvidenceTooltips(listEl);
+      // 维度行不再绑定 tooltip（评分标准已统一收敛到卡片头部 ? 说明）
     }
-    if (promptEl) {
-      promptEl.textContent = [
-        '[System Prompt]',
-        result.system_prompt,
-        '',
-        '[Judge Input]',
-        JSON.stringify(result.input, null, 2),
-        '',
-        '[GPT-5.5 原始返回]',
-        JSON.stringify(window.__llmJudgeRaw ?? '（本地兜底评估，无真实返回）', null, 2),
-        '',
-        '[当前展示结果]',
-        JSON.stringify({
-          overall: result.overall,
-          score: result.score,
-          score_basis: result.score_basis,
-          sentiment: result.sentiment,
-          sentiment_score: result.sentiment_score,
-          resolved: result.resolved,
-          resolved_score: result.resolved_score,
-          intent_match: result.intent_match,
-          intent_match_score: result.intent_match_score,
-          repeat_loop: result.repeat_loop,
-          repeat_loop_score: result.repeat_loop_score,
-          actionability: result.actionability,
-          actionability_score: result.actionability_score,
-          hallucination_risk: result.hallucination_risk,
-          hallucination_risk_score: result.hallucination_risk_score,
-          dimension_scores: result.dimension_scores,
-          tags: result.tags,
-          evidence: result.evidence,
-          reason: result.reason,
-        }, null, 2),
-      ].join('\n');
-    }
+    if (promptEl) promptEl.innerHTML = renderJudgeProtocolHTML(result);
     if (btn) btn.textContent = '重新评估';
+    if (typeof window.renderStatusFusionChips === 'function') window.renderStatusFusionChips();
+    if (typeof window.renderActionRecommendations === 'function') window.renderActionRecommendations();
+    updateCombinedHealth();
+  }
+
+  // GPT 未接通：明确的失败状态，绝不用本地兜底假数据冒充评测结果。
+  function renderLLMJudgeError(message) {
+    window.__llmJudgeResult = null;
+    window.__llmJudgeInput = null;
+    const summaryEl = document.getElementById('llm-judge-summary');
+    const listEl = document.getElementById('llm-judge-list');
+    const btn = document.getElementById('llm-judge-run-btn');
+    if (summaryEl) {
+      summaryEl.textContent = '未接通';
+      summaryEl.style.color = 'var(--apple-red)';
+      summaryEl.title = message || '';
+    }
+    if (listEl) {
+      listEl.classList.remove('hidden');
+      listEl.innerHTML = `
+        <div class="text-[11px] leading-relaxed text-[--text-secondary] bg-[--apple-red]/[0.06] rounded-lg px-3 py-2.5">
+          <div class="font-medium text-[--apple-red] mb-1">GPT-5.5 未接通</div>
+          <div class="text-[--text-tertiary]">${escapeHTML(message || '调用 GPT-5.5 评测失败，未获取到结果。')}</div>
+          <div class="text-[--text-tertiary] mt-1">综合健康度暂按规则评估计算，未混入任何兜底假数据。</div>
+        </div>`;
+    }
+    if (btn) btn.textContent = '重试评估';
     if (typeof window.renderStatusFusionChips === 'function') window.renderStatusFusionChips();
     if (typeof window.renderActionRecommendations === 'function') window.renderActionRecommendations();
     updateCombinedHealth();
@@ -5760,8 +6158,8 @@
       resolved_score: finiteJudgeScore(result?.resolved_score),
       intent_match: result?.intent_match || '',
       intent_match_score: finiteJudgeScore(result?.intent_match_score),
-      repeat_loop: result?.repeat_loop || '',
-      repeat_loop_score: finiteJudgeScore(result?.repeat_loop_score),
+      efficiency_feel: result?.efficiency_feel || '',
+      efficiency_feel_score: finiteJudgeScore(result?.efficiency_feel_score),
       actionability: result?.actionability || '',
       actionability_score: finiteJudgeScore(result?.actionability_score),
       hallucination_risk: result?.hallucination_risk || '',
@@ -5803,8 +6201,8 @@
       llm_resolved_score: finiteJudgeScore(result?.resolved_score),
       llm_intent_match: result?.intent_match || '',
       llm_intent_match_score: finiteJudgeScore(result?.intent_match_score),
-      llm_repeat_loop: result?.repeat_loop || '',
-      llm_repeat_loop_score: finiteJudgeScore(result?.repeat_loop_score),
+      llm_efficiency_feel: result?.efficiency_feel || '',
+      llm_efficiency_feel_score: finiteJudgeScore(result?.efficiency_feel_score),
       llm_actionability: result?.actionability || '',
       llm_actionability_score: finiteJudgeScore(result?.actionability_score),
       llm_hallucination_risk: result?.hallucination_risk || '',
@@ -5812,7 +6210,7 @@
       llm_tags: result?.tags || [],
       llm_summary: result?.reason || result?.overall || '',
       llm_score_basis: result?.score_basis || '',
-      llm_suggestions: buildLLMActionIssues(result).flatMap(item => item.actions || []).slice(0, 6),
+      llm_suggestions: (window.buildLLMActionIssues ? window.buildLLMActionIssues(result) : []).flatMap(item => item.actions || []).slice(0, 6),
       llm_evidence: result?.evidence || [],
       llm_eval_result: compactLLMResult,
       llm_raw_result: window.__llmJudgeRaw || {},
@@ -5878,14 +6276,9 @@
         console.warn('保存 LLM 评估结果失败', saveErr);
       }
     } catch (err) {
-      window.__llmJudgeRaw = { _error: String(err && err.message || err) };
-      const result = evaluateLLMJudgeFallback(input);
-      renderLLMJudgeResult(result);
-      try {
-        await saveQualityEvaluation(window.__llmJudgeResult || result);
-      } catch (saveErr) {
-        console.warn('保存 LLM 评估结果失败', saveErr);
-      }
+      const msg = String(err && err.message || err);
+      window.__llmJudgeRaw = { _error: msg };
+      renderLLMJudgeError(msg);
     }
   };
 
@@ -7037,11 +7430,11 @@
           // 每次 LLMCall = 一步（执行步数 Step 的全局编号）
           globalStepIdx++;
           const sepStyle = (ti === 0 && isFirstSpanInTrace) ? ' style="margin-top:4px"' : '';
+          const modelName = (sp.custom_tags || {}).model_name || 'LLM';
           parts.push(`<div class="agent-turn-sep" data-span-id="${escapeHTML(sp.span_id)}"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
           isFirstSpanInTrace = false;
 
           const { text, reasoning, tool_calls } = extractAssistantOutput(sp);
-          const modelName = (sp.custom_tags || {}).model_name || 'LLM';
           modelsUsed.add(modelName);
           totalLLMms += sp.duration_ms || 0;
 
@@ -7432,10 +7825,10 @@
     };
     traces.forEach(t => {
       const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
-      const modelSpans = spans.filter(s => s.span_type === 'model');
+      const modelSpans = getDisplayModelSpans(spans);
       if (!modelSpans.length && !(t.user_prompt || t.title)) return;
       roundNo++;
-      const firstLLM = modelSpans[0];
+      const firstLLM = pickPrimaryModelSpan(spans);
       let prompt = '';
       try { prompt = firstLLM ? pickPromptForSpan(firstLLM, t) : ''; } catch (e) {}
       prompt = prompt || normalizePromptText(t.user_prompt) || normalizePromptText(t.title) || '（未识别到用户提问）';

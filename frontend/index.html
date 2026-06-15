@@ -6,13 +6,13 @@
 
 <!-- SEO & Social Media Metadata -->
   <title>Agent Trace 诊断平台</title>
-  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化效率、稳定、思考、资源、编排 5 维健康度。">
+  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化执行规整、工具稳定、重复空转、资源开销、调度编排 5 维客观健康度，并叠加 GPT-5.5 语义体验评测。">
 
   <!-- Open Graph / Facebook / Feishu -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kejin-li.github.io/agent_trace_analysis/">
   <meta property="og:title" content="Agent Trace 诊断平台">
-  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化效率、稳定、思考、资源、编排 5 维健康度。">
+  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化执行规整、工具稳定、重复空转、资源开销、调度编排 5 维客观健康度，并叠加 GPT-5.5 语义体验评测。">
   <!-- 飞书和微信等通常抓取 og:image 作为卡片图标或预览图，这里生成一个带渐变背景和图标的占位 SVG 充当 Logo -->
   <meta property="og:image" content="https://api.dicebear.com/7.x/shapes/svg?seed=AgentTrace&backgroundColor=0071E3,BF5AF2">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -438,58 +438,58 @@
             <circle id="radar-d-thinking" cx="0" cy="0" r="3" fill="#0071E3"/>
             <circle id="radar-d-resource" cx="0" cy="0" r="3" fill="#0071E3"/>
             <circle id="radar-d-orch" cx="0" cy="0" r="3" fill="#0071E3"/>
-            <text x="0" y="-110" text-anchor="middle" font-size="11" fill="#6E6E73">效率 <tspan id="radar-l-response" class="num-mono">—</tspan></text>
-            <text x="105" y="-31" font-size="11" fill="#6E6E73">稳定 <tspan id="radar-l-stability" class="num-mono">—</tspan></text>
-            <text x="69" y="96" font-size="11" fill="#6E6E73">思考 <tspan id="radar-l-thinking" class="num-mono">—</tspan></text>
-            <text x="-69" y="96" text-anchor="end" font-size="11" fill="#6E6E73">资源 <tspan id="radar-l-resource" class="num-mono">—</tspan></text>
-            <text x="-105" y="-31" text-anchor="end" font-size="11" fill="#6E6E73">编排 <tspan id="radar-l-orch" class="num-mono">—</tspan></text>
+            <text x="0" y="-110" text-anchor="middle" font-size="11" fill="#6E6E73">执行规整 <tspan id="radar-l-response" class="num-mono">—</tspan></text>
+            <text x="105" y="-31" font-size="11" fill="#6E6E73">工具稳定 <tspan id="radar-l-stability" class="num-mono">—</tspan></text>
+            <text x="69" y="96" font-size="11" fill="#6E6E73">重复空转 <tspan id="radar-l-thinking" class="num-mono">—</tspan></text>
+            <text x="-69" y="96" text-anchor="end" font-size="11" fill="#6E6E73">资源开销 <tspan id="radar-l-resource" class="num-mono">—</tspan></text>
+            <text x="-105" y="-31" text-anchor="end" font-size="11" fill="#6E6E73">调度编排 <tspan id="radar-l-orch" class="num-mono">—</tspan></text>
           </g>
         </svg>
       </div>
       <div class="grid grid-cols-5 gap-2 mt-3 text-[11px] min-h-[36px]">
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">效率</div>
+          <div class="text-[--text-secondary]">执行规整</div>
           <div class="font-semibold num-mono" id="dim-response">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-orange] mr-1.5 align-middle"></span>效率：耗时是否花得值</div>
-            合并用户体感与结构效率：先按任务复杂度计算耗时体感分，再用重复调用、重复编辑、规划缺失等结构信号扣分。
-            <div class="tip-formula">效率 = 0.4 × 体感分 + 0.6 × 规则效率分</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-orange] mr-1.5 align-middle"></span>执行规整：执行模式是否规整完成</div>
+            只看客观结构信号：是否产出最终答复、是否被 max_steps 截断、工具意图是否落地、是否存在思考冗余/规划缺失/规划偏离/测试残留。耗时是否合理交给 GPT「效率体感」。
+            <div class="tip-formula">100 − 无答复35 − 截断25 − 工具意图未落地25 − 思考冗余10 − 缺规划10 − 规划偏离10 − 测试残留5</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">稳定</div>
+          <div class="text-[--text-secondary]">工具稳定</div>
           <div class="font-semibold num-mono" id="dim-stability">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-red] mr-1.5 align-middle"></span>稳定：调用最终成不成功</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-red] mr-1.5 align-middle"></span>工具稳定：调用最终成不成功</div>
             只看真实工具调用的最终成功率。看后果，不看是否经过重试；无真实工具调用时本维度不适用。
             <div class="tip-formula">score = N/A（无真实工具调用）或 100 × (1 − tool_fail_rate) − 5 × failures</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">思考</div>
+          <div class="text-[--text-secondary]">重复空转</div>
           <div class="font-semibold num-mono" id="dim-thinking">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>思考：轨迹是否健康走完</div>
-            检测轨迹是否产出最终答复、是否被 max_steps 截断、是否存在连续空转，以及是否识别出工具意图却没有真实落地执行。
-            <div class="tip-formula">100 − 无答复35 − 截断25 − 空转(每步10, 上限30) − 工具意图未落地25</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>重复空转：是否反复空转或循环</div>
+            检测连续空转步数、同名工具串行重试、同一文件被反复编辑等无效循环信号。
+            <div class="tip-formula">100 − 空转(每步10, 上限30) − 串行重试(连续 ≥3/5/7 次扣 10/20/30) − 重复编辑(同文件 ≥3 次 20)</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">资源</div>
+          <div class="text-[--text-secondary]">资源开销</div>
           <div class="font-semibold num-mono" id="dim-resource">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-cyan] mr-1.5 align-middle"></span>资源：单轮 Token 用得节制吗</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-cyan] mr-1.5 align-middle"></span>资源开销：单轮 Token 用得节制吗</div>
             单轮平均 Token ≤ 76k 满分，超出后线性扣分。
             <div class="tip-formula">100 × (1 − max(0, avg_tokens − 76k) ÷ 76k)</div>
           </div>
         </div>
         <div class="text-center help" style="flex-direction:column">
-          <div class="text-[--text-secondary]">编排</div>
+          <div class="text-[--text-secondary]">调度编排</div>
           <div class="font-semibold num-mono" id="dim-orch">—</div>
           <div class="tip">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-green] mr-1.5 align-middle"></span>编排：工具调度合理吗</div>
-            只看真实发生过的工具调度模式；无真实工具调用时本维度不适用。惩罚连续相同工具，奖励工具多样性。
-            <div class="tip-formula">score = N/A（无真实工具调用）或 100 − 串行重试惩罚 + 多样性奖励</div>
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-green] mr-1.5 align-middle"></span>调度编排：工具调度是否多样高效</div>
+            只看真实发生过的工具调度多样性；无真实工具调用时本维度不适用。串行重试归「重复空转」维度。
+            <div class="tip-formula">score = N/A（无真实工具调用）或 按 unique/total 多样性：≥0.6→100 / ≥0.4→85 / ≥0.25→70 / 否则 50</div>
           </div>
         </div>
       </div>
@@ -523,14 +523,14 @@
             <polygon class="llm-radar-area" id="llm-radar-area" points="0,0 0,0 0,0 0,0 0,0 0,0"/>
             <circle id="llm-radar-d-resolved" cx="0" cy="0" r="3" fill="#BF5AF2"/>
             <circle id="llm-radar-d-intent_match" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <circle id="llm-radar-d-efficiency_feel" cx="0" cy="0" r="3" fill="#BF5AF2"/>
             <circle id="llm-radar-d-sentiment" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <circle id="llm-radar-d-repeat_loop" cx="0" cy="0" r="3" fill="#BF5AF2"/>
             <circle id="llm-radar-d-actionability" cx="0" cy="0" r="3" fill="#BF5AF2"/>
             <circle id="llm-radar-d-hallucination_risk" cx="0" cy="0" r="3" fill="#BF5AF2"/>
             <text x="0" y="-110" text-anchor="middle" font-size="10.5" fill="#6E6E73">解决 <tspan id="llm-radar-l-resolved" class="num-mono">—</tspan></text>
             <text x="98" y="-52" font-size="10.5" fill="#6E6E73">意图 <tspan id="llm-radar-l-intent_match" class="num-mono">—</tspan></text>
-            <text x="98" y="57" font-size="10.5" fill="#6E6E73">情绪 <tspan id="llm-radar-l-sentiment" class="num-mono">—</tspan></text>
-            <text x="0" y="116" text-anchor="middle" font-size="10.5" fill="#6E6E73">重复 <tspan id="llm-radar-l-repeat_loop" class="num-mono">—</tspan></text>
+            <text x="98" y="57" font-size="10.5" fill="#6E6E73">效率 <tspan id="llm-radar-l-efficiency_feel" class="num-mono">—</tspan></text>
+            <text x="0" y="116" text-anchor="middle" font-size="10.5" fill="#6E6E73">情绪 <tspan id="llm-radar-l-sentiment" class="num-mono">—</tspan></text>
             <text x="-98" y="57" text-anchor="end" font-size="10.5" fill="#6E6E73">可执行 <tspan id="llm-radar-l-actionability" class="num-mono">—</tspan></text>
             <text x="-98" y="-52" text-anchor="end" font-size="10.5" fill="#6E6E73">幻觉 <tspan id="llm-radar-l-hallucination_risk" class="num-mono">—</tspan></text>
           </g>
@@ -942,18 +942,18 @@
         sentiment_score: session?.llm_sentiment_score,
         resolved_score: session?.llm_resolved_score,
         intent_match_score: session?.llm_intent_match_score,
-        repeat_loop_score: session?.llm_repeat_loop_score,
+        efficiency_feel_score: session?.llm_efficiency_feel_score,
         actionability_score: session?.llm_actionability_score,
         hallucination_risk_score: session?.llm_hallucination_risk_score,
       };
     }
     const LLM_DIMENSIONS = [
-      { key: 'resolved', label: '问题解决', field: 'resolved_score', desc: '核心问题是否闭环', formula: '权重 30% · 已解决更高，未解决明显扣分' },
-      { key: 'intent_match', label: '意图匹配', field: 'intent_match_score', desc: '是否答非所问或偏离需求', formula: '权重 20% · 完全匹配更高，偏离或答非所问扣分' },
+      { key: 'resolved', label: '问题解决', field: 'resolved_score', desc: '核心问题是否真正闭环', formula: '权重 30% · 已解决更高，未解决明显扣分；含「完成声明须有证据」' },
+      { key: 'intent_match', label: '意图匹配', field: 'intent_match_score', desc: '是否答非所问或偏离需求', formula: '权重 18% · 完全匹配更高，偏离或答非所问扣分' },
+      { key: 'efficiency_feel', label: '效率体感', field: 'efficiency_feel_score', desc: '以任务难度看耗时/步数是否合理', formula: '权重 15% · 高效更高，一般中等，偏低效扣分' },
       { key: 'sentiment', label: '用户情绪', field: 'sentiment_score', desc: '用户是否出现负向或挫败信号', formula: '权重 15% · 正向/中性更健康，负向扣分' },
-      { key: 'repeat_loop', label: '重复空转', field: 'repeat_loop_score', desc: '是否出现反复解释或循环卡住', formula: '权重 15% · 无重复更高，明显重复或循环扣分' },
-      { key: 'actionability', label: '可执行性', field: 'actionability_score', desc: '建议是否具体可执行', formula: '权重 10% · 可直接执行更高，空泛不可执行扣分' },
-      { key: 'hallucination_risk', label: '幻觉风险', field: 'hallucination_risk_score', desc: '是否存在无证据结论风险', formula: '权重 10% · 风险低更高，中/高风险扣分' },
+      { key: 'actionability', label: '可执行性', field: 'actionability_score', desc: '建议是否具体可执行', formula: '权重 12% · 可直接执行更高，空泛不可执行扣分' },
+      { key: 'hallucination_risk', label: '幻觉风险', field: 'hallucination_risk_score', desc: '是否凭空编造事实或结论', formula: '权重 10% · 风险低更高，中/高风险扣分' },
     ];
     function llmDimensionScore(result, dim) {
       if (!result) return null;
@@ -966,8 +966,8 @@
       const angleByKey = {
         resolved: -90,
         intent_match: -30,
-        sentiment: 30,
-        repeat_loop: 90,
+        efficiency_feel: 30,
+        sentiment: 90,
         actionability: 150,
         hallucination_risk: 210,
       };
@@ -1018,13 +1018,24 @@
           <div style="margin-top:6px;color:rgba(255,255,255,0.66);font-size:10.5px">人工送审只作为复核入口，不参与综合健康度。</div>
         </div>`;
     }
-    // 指标未聚合判定：来自上游 light bundle 时无任何已解析指标。
-    // 这类空骨架不能参与健康/异常统计，否则会被误判为满分健康。
-    // trace_count 不可作判据——light bundle 默认带 trace_count=1。
+    function hasPersistedQualityScore(s) {
+      return [s?.combined_score, s?.quality_score, s?.health_score, s?.rule_score, s?.llm_score, s?.llm_judge_score]
+        .some(v => v !== null && v !== undefined && v !== '');
+    }
+
+    function hasParsedRuleMetrics(s) {
+      if ((s?.turns || 0) > 0 || (s?.input_tokens || 0) > 0 || (s?.output_tokens || 0) > 0) return true;
+      if (Array.isArray(s?.rules) && s.rules.length > 0) return true;
+      if (typeof s?.score === 'number' && !Number.isNaN(s.score) && s.score > 0) return true;
+      const radar = s?.radar || {};
+      return ['response', 'stability', 'thinking', 'resource', 'orchestration']
+        .some(key => typeof radar[key] === 'number' && !Number.isNaN(radar[key]) && radar[key] > 0);
+    }
+
+    // 指标未聚合判定：来自上游 light bundle 时可能只有时长，没有雷达/规则/质量分。
+    // 这类空骨架不能参与健康/异常统计，否则会被误判为 0 分异常。
     function isPendingSession(s) {
-      return !((s.duration_ms > 0) || (s.turns > 0)
-        || (s.input_tokens > 0) || (s.output_tokens > 0)
-        || (Array.isArray(s.rules) && s.rules.length > 0));
+      return !(hasPersistedQualityScore(s) || hasParsedRuleMetrics(s));
     }
     // 与 sessions.html buildAnomalies 一致：用轨迹健康信号动态校准"执行效率健康"
     function buildAnomalies(s) {
@@ -1090,7 +1101,7 @@
     const adjustedScore = efficiencyHelper.adjustedScore;
 
     function getQualityScores(s) {
-      const ruleScore = adjustedScore(s);
+      const ruleScore = hasParsedRuleMetrics(s) ? adjustedScore(s) : null;
       return window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
         : { ruleScore, llmScore: null, combinedScore: ruleScore };
