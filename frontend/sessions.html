@@ -63,11 +63,14 @@
   .pending-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 10.5px; font-weight: 500; color: var(--text-tertiary); background: rgba(120,120,128,0.10); letter-spacing: 0.01em; white-space: nowrap; }
   .pending-pill .pending-dot { width: 5px; height: 5px; border-radius: 9999px; background: var(--apple-blue); opacity: 0.85; animation: pending-pulse 1.4s ease-in-out infinite; }
   .pending-dash { color: var(--text-tertiary); opacity: 0.55; }
+  .metric-pending { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); white-space: nowrap; }
+  .metric-pending .spinner { width: 10px; height: 10px; border-radius: 9999px; border: 1.5px solid rgba(0,113,227,0.16); border-top-color: var(--apple-blue); animation: pending-spin 0.9s linear infinite; }
   .pub-pill { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 9999px; font-size: 10px; font-weight: 500; letter-spacing: 0.01em; white-space: nowrap; }
   .pub-pill.is-published { color: var(--apple-green); background: rgba(52,199,89,0.12); }
   .pub-pill.is-unpublished { color: var(--text-secondary); background: rgba(120,120,128,0.12); }
   @keyframes pending-pulse { 0%, 100% { opacity: 0.25; transform: scale(0.85); } 50% { opacity: 0.9; transform: scale(1.15); } }
-  @media (prefers-reduced-motion: reduce) { .pending-pill .pending-dot { animation: none; } }
+  @keyframes pending-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .pending-pill .pending-dot, .metric-pending .spinner { animation: none; } }
   .seg { background: rgba(120,120,128,0.12); border-radius: 9px; padding: 2px; display: inline-flex; }
   .seg button { padding: 4px 12px; font-size: 12px; border-radius: 7px; color: var(--text-secondary); }
   .seg button.active { background: white; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
@@ -463,20 +466,20 @@
     <div class="overflow-x-auto scroll-x">
       <table class="w-full text-[13px] table-fixed">
         <colgroup>
-          <col style="width:34%" />
-          <col style="width:12%" />
-          <col style="width:12%" />
-          <col style="width:12%" />
+          <col style="width:31%" />
+          <col style="width:15%" />
           <col style="width:13%" />
+          <col style="width:12%" />
+          <col style="width:12%" />
           <col style="width:7%" />
           <col style="width:10%" />
         </colgroup>
         <thead class="bg-white/30">
           <tr class="text-[10.5px] text-[--text-tertiary] uppercase tracking-wider">
             <th class="text-left font-medium px-5 py-3">Session</th>
-            <th class="text-left font-medium py-3">用户</th>
-            <th class="text-left font-medium py-3">发布状态</th>
-            <th class="text-left font-medium py-3">
+            <th class="text-left font-medium px-4 py-3">用户</th>
+            <th class="text-left font-medium px-4 py-3">发布状态</th>
+            <th class="text-left font-medium px-4 py-3">
               <span class="with-tip cursor-help inline-flex items-center gap-1">
                 健康度
                 <svg class="w-3 h-3 text-[--text-tertiary]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 8v.01M11 12h1v4h1"/></svg>
@@ -494,8 +497,8 @@
                 </span>
               </span>
             </th>
-            <th class="text-left font-medium py-3">异常</th>
-            <th class="text-right font-medium py-3 num-mono">耗时</th>
+            <th class="text-left font-medium px-4 py-3">异常</th>
+            <th class="text-right font-medium px-4 py-3 num-mono">耗时</th>
             <th class="text-right font-medium py-3 pr-5">开始时间</th>
           </tr>
         </thead>
@@ -630,6 +633,10 @@
     }
 
     function hasPersistedQualityScore(s) {
+      if (window.AgentTraceTags?.getSessionQualityScores) {
+        const quality = window.AgentTraceTags.getSessionQualityScores(s, null);
+        return quality.ruleScore !== null || quality.llmScore !== null || quality.combinedScore !== null;
+      }
       return [s?.combined_score, s?.quality_score, s?.health_score, s?.rule_score, s?.llm_score, s?.llm_judge_score]
         .some(v => v !== null && v !== undefined && v !== '');
     }
@@ -718,6 +725,14 @@
       // 注意 duration_ms 不能作为判据——上游 light bundle 已带时长，但仍没有雷达/规则/质量分，
       // 如果把它当成已聚合，会把缺失分数误渲染成 0。
       const isPending = isPendingScoreSession(s);
+      const traceCount = Number(s.trace_count || 0);
+      const turns = Number(s.turns || 0);
+      const durationMs = Number(s.duration_ms || 0);
+      const hasTraceSkeleton = traceCount > 0 || !!s.trace || ((s.traces || []).length > 0);
+      const hasPartialMetrics = hasTraceSkeleton || !!s.started_at_ms || !isPending;
+      const isTurnsCalculating = !isPending && turns <= 0 && hasPartialMetrics;
+      const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
+      const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="spinner"></span><span class="pending-dash">${label}</span></span>`;
 
       const ruleScore = window.AgentTraceEfficiency.adjustedScore(s);
       const quality = window.AgentTraceTags?.getSessionQualityScores
@@ -751,9 +766,14 @@
       const pubPill = isUnpublished
         ? '<span class="pub-pill is-unpublished">未发布</span>'
         : '<span class="pub-pill is-published">已发布</span>';
+      const hasRealTraceSummary = turns > 0 || traceCount > 0 || ((s.traces || []).length > 0);
       const metaLine = isPending
         ? `${displayId(s.id)} · <span class="pending-dash">指标聚合中…</span>`
-        : `${displayId(s.id)} · ${s.turns || 0} turns · ${s.trace_count || 1} traces`;
+        : isTurnsCalculating
+          ? `${displayId(s.id)} · <span class="pending-dash">步数计算中…</span> · ${traceCount || 1} traces`
+          : hasRealTraceSummary
+            ? `${displayId(s.id)} · ${turns || 0} turns · ${traceCount || 1} traces`
+          : `${displayId(s.id)} · <span class="pending-dash">轮次待回填</span>`;
       const titleCellHtml = `
         <div class="min-w-0 cell-tip" data-tip='${encodeURIComponent(titleEsc)}'>
           <div class="session-title font-medium truncate">${titleEsc}</div>
@@ -769,22 +789,24 @@
 
       const durationCellHtml = isPending
         ? '<span class="pending-dash num-mono">—</span>'
-        : fmtDuration(s.duration_ms);
+        : isDurationCalculating
+          ? metricPendingHtml()
+          : fmtDuration(durationMs);
 
       const detailHref = `./session-detail?id=${encodeURIComponent(s.id)}` +
         (isUnpublished ? `&artifact_status=unpublished` : '');
       return `<tr class="row-hover cursor-pointer" data-href="${detailHref}">
         <td class="px-5 py-3.5">${titleCellHtml}</td>
-        <td class="py-3.5">
-          <div class="flex items-center gap-2 min-w-0">
+        <td class="px-4 py-3.5">
+          <div class="flex items-center gap-2.5 min-w-0">
             <div class="w-6 h-6 rounded-full bg-[--apple-blue] text-white text-[10px] font-semibold flex items-center justify-center flex-shrink-0">${userInitial}</div>
             <span class="text-[--text-secondary] truncate">${escapeHtml(s.user || 'anonymous')}</span>
           </div>
         </td>
-        <td class="py-3.5">${pubPill}</td>
-        <td class="py-3.5">${scoreCellHtml}</td>
-        <td class="py-3.5">${chipsCellHtml}</td>
-        <td class="text-right py-3.5 num-mono">${durationCellHtml}</td>
+        <td class="px-4 py-3.5">${pubPill}</td>
+        <td class="px-4 py-3.5">${scoreCellHtml}</td>
+        <td class="px-4 py-3.5">${chipsCellHtml}</td>
+        <td class="text-right px-4 py-3.5 num-mono">${durationCellHtml}</td>
         <td class="text-right py-3.5 pr-5 text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
       </tr>`;
     }

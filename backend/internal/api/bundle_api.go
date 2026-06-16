@@ -44,7 +44,8 @@ func normalizeArtifactStatus(raw string) string {
 //   - start_time / end_time：可选时间窗，格式 "YYYY-MM-DD HH:mm:ss"；缺省最近 7 天
 //   - user_id / user_name / session_id / artifact_id：本地二次过滤（上游接口当前不支持服务端过滤）
 //   - artifact_status：published / unpublished / all（默认 all）。控制查询已发布、未发布或两者合并；
-//     合并时按 session_id+artifact_id 去重，冲突保留 published。每条结果带 artifact_publication_status。
+//     all 模式会并发拉取 published/unpublished，两者按 session_id+artifact_id 合并去重。
+//     正常情况下同一 session/artifact 不应同时出现在两边；若上游短暂重复，则按最近状态取值并记日志。
 //
 // 列表项不实时拉 JSONL，仅返回元信息概览。当 aggregator 已对涉及日期完成预聚合时，
 // 会把缓存指标 join 到 bundle 上（chip / token / 雷达指标全部填充）；缺失的日期
@@ -98,8 +99,15 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
+	type listBundleItem struct {
+		bundle        apiSessionBundle
+		statusLabel   string
+		updatedAtMs   int64
+		createdAtMs   int64
+		recencyMillis int64
+	}
+
 	bundles := make([]apiSessionBundle, 0)
-	seen := make(map[string]bool)
 
 	// listOnce 仅负责回源上游拉一页原始数据，不触碰共享状态，可安全并发。
 	listOnce := func(onlyUnpublished bool) (*modellog.ListResponse, error) {
@@ -110,8 +118,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		})
 	}
 
-	// collect 把一页响应按过滤条件 + 去重合并进 bundles（单线程调用，保证顺序与去重优先级）。
-	collect := func(resp *modellog.ListResponse, statusLabel string) {
+	collectItems := func(resp *modellog.ListResponse, statusLabel string) []listBundleItem {
+		if resp == nil {
+			return nil
+		}
+		items := make([]listBundleItem, 0, len(resp.Data))
 		for _, s := range resp.Data {
 			if uid != "" && s.UserID != uid {
 				continue
@@ -125,22 +136,90 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			if aid != "" && s.ArtifactID != aid {
 				continue
 			}
-			key := pickFirstNonEmpty(s.SessionID, s.ArtifactID)
-			if key != "" && seen[key] {
-				continue
-			}
-			b := lightBundleFromAPI(s)
-			b.ArtifactPublicationStatus = statusLabel
+			bundle := lightBundleFromAPI(s)
+			bundle.ArtifactPublicationStatus = statusLabel
 			if h.aggregator != nil {
 				if m, ok := h.aggregator.Get(s.SessionID); ok {
-					b = applyCachedMetricsToBundle(b, m)
-					b.ArtifactPublicationStatus = statusLabel
+					bundle = applyCachedMetricsToBundle(bundle, m)
+					bundle.ArtifactPublicationStatus = statusLabel
 				}
 			}
-			if key != "" {
-				seen[key] = true
+			updatedAtMs := parseUpstreamTime(s.UpdateAt).UnixMilli()
+			createdAtMs := parseUpstreamTime(s.CreateAt).UnixMilli()
+			recencyMillis := updatedAtMs
+			if recencyMillis <= 0 {
+				recencyMillis = createdAtMs
 			}
-			bundles = append(bundles, b)
+			if recencyMillis <= 0 {
+				recencyMillis = bundle.StartedAtMs
+			}
+			items = append(items, listBundleItem{
+				bundle:        bundle,
+				statusLabel:   statusLabel,
+				updatedAtMs:   updatedAtMs,
+				createdAtMs:   createdAtMs,
+				recencyMillis: recencyMillis,
+			})
+		}
+		return items
+	}
+
+	isNewerBundleItem := func(incoming, existing listBundleItem) bool {
+		if incoming.recencyMillis != existing.recencyMillis {
+			return incoming.recencyMillis > existing.recencyMillis
+		}
+		if incoming.updatedAtMs != existing.updatedAtMs {
+			return incoming.updatedAtMs > existing.updatedAtMs
+		}
+		if incoming.createdAtMs != existing.createdAtMs {
+			return incoming.createdAtMs > existing.createdAtMs
+		}
+		return false
+	}
+
+	bundleMetaByKey := make(map[string]listBundleItem)
+	appendUniqueBundles := func(items []listBundleItem) {
+		indexByKey := make(map[string]int, len(bundles)+len(items))
+		for i, bundle := range bundles {
+			key := pickFirstNonEmpty(bundle.SessionID, bundle.ArtifactID)
+			if key != "" {
+				indexByKey[key] = i
+			}
+		}
+		for _, item := range items {
+			key := pickFirstNonEmpty(item.bundle.SessionID, item.bundle.ArtifactID)
+			if key == "" {
+				bundles = append(bundles, item.bundle)
+				continue
+			}
+			if idx, ok := indexByKey[key]; ok {
+				prevMeta := bundleMetaByKey[key]
+				if isNewerBundleItem(item, prevMeta) {
+					log.Printf(
+						"bundle list: duplicated session across publication states key=%s keep=%s drop=%s reason=newer_state keep_ts=%d drop_ts=%d",
+						key,
+						item.statusLabel,
+						prevMeta.statusLabel,
+						item.recencyMillis,
+						prevMeta.recencyMillis,
+					)
+					bundles[idx] = item.bundle
+					bundleMetaByKey[key] = item
+				} else {
+					log.Printf(
+						"bundle list: duplicated session across publication states key=%s keep=%s drop=%s reason=older_state keep_ts=%d drop_ts=%d",
+						key,
+						prevMeta.statusLabel,
+						item.statusLabel,
+						prevMeta.recencyMillis,
+						item.recencyMillis,
+					)
+				}
+				continue
+			}
+			indexByKey[key] = len(bundles)
+			bundleMetaByKey[key] = item
+			bundles = append(bundles, item.bundle)
 		}
 	}
 
@@ -151,18 +230,18 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	var pubResp, unpubResp *modellog.ListResponse
 	var pubErr, unpubErr error
 	var wg sync.WaitGroup
-	if wantPublished {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pubResp, pubErr = listOnce(false)
-		}()
-	}
 	if wantUnpublished {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			unpubResp, unpubErr = listOnce(true)
+		}()
+	}
+	if wantPublished {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pubResp, pubErr = listOnce(false)
 		}()
 	}
 	wg.Wait()
@@ -176,12 +255,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		return
 	}
 
-	// 合并顺序：先已发布再未发布，保证去重时优先保留 published 口径。
 	if wantPublished {
-		collect(pubResp, artifactStatusPublished)
+		appendUniqueBundles(collectItems(pubResp, artifactStatusPublished))
 	}
 	if wantUnpublished {
-		collect(unpubResp, artifactStatusUnpublished)
+		appendUniqueBundles(collectItems(unpubResp, artifactStatusUnpublished))
 	}
 
 	bundles = filterBundlesByQueryRange(bundles, tr)
@@ -295,20 +373,31 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	var hitStatus string
 	var lastErr error
 	for _, attempt := range attempts {
-		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-			TimeRange:                detailTR,
-			Page:                     modellog.Page{PageNo: 1, PageSize: 500},
-			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		for i := range resp.Data {
-			s := &resp.Data[i]
-			if s.SessionID == key || s.ArtifactID == key {
-				hit = s
-				hitStatus = attempt.label
+		const pageSize = 500
+		const maxPages = 6
+		for pageNo := 1; pageNo <= maxPages; pageNo++ {
+			resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+				TimeRange:                detailTR,
+				Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
+				OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
+			})
+			if err != nil {
+				lastErr = err
+				break
+			}
+			for i := range resp.Data {
+				s := &resp.Data[i]
+				if s.SessionID == key || s.ArtifactID == key {
+					hit = s
+					hitStatus = attempt.label
+					break
+				}
+			}
+			if hit != nil {
+				break
+			}
+			total := int(resp.Total)
+			if len(resp.Data) < pageSize || total <= pageNo*pageSize {
 				break
 			}
 		}

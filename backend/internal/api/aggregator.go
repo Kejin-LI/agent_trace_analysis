@@ -303,11 +303,15 @@ func (a *Aggregator) shouldSkipNightlyDate(date string, now time.Time) bool {
 	if a == nil || a.db == nil {
 		return false
 	}
-	var row model.APIDailyAggregateStatus
-	if err := a.db.Where("aggregate_date = ?", parseAggregateDate(date)).First(&row).Error; err != nil {
+	targetDate := parseAggregateDate(date)
+	if a.hasIncompleteSessionAggregates(targetDate) {
 		return false
 	}
-	return isNightlyFreshCompletion(row, parseAggregateDate(date), now)
+	var row model.APIDailyAggregateStatus
+	if err := a.db.Where("aggregate_date = ?", targetDate).First(&row).Error; err != nil {
+		return false
+	}
+	return isNightlyFreshCompletion(row, targetDate, now)
 }
 
 func isNightlyFreshCompletion(row model.APIDailyAggregateStatus, targetDate, now time.Time) bool {
@@ -617,7 +621,35 @@ func (a *Aggregator) isDateCompleted(date string) bool {
 	if err := a.db.Where("aggregate_date = ?", parseAggregateDate(date)).First(&row).Error; err != nil {
 		return false
 	}
-	return row.Status == "completed"
+	if row.Status != "completed" {
+		return false
+	}
+	targetDate := parseAggregateDate(date)
+	if a.hasIncompleteSessionAggregates(targetDate) {
+		log.Printf("aggregator: date=%s marked completed but still has incomplete session aggregates, will retry", targetDate.Format("2006-01-02"))
+		return false
+	}
+	return true
+}
+
+func isIncompleteAggregateCondition(db *gorm.DB) *gorm.DB {
+	return db.Where(
+		"trace_count = 0 AND turns = 0 AND duration_ms = 0 AND input_tokens = 0 AND output_tokens = 0 AND tool_calls = 0 AND COALESCE(bundle_json, '') IN ('', '{}')",
+	)
+}
+
+func (a *Aggregator) hasIncompleteSessionAggregates(date time.Time) bool {
+	if a == nil || a.db == nil {
+		return false
+	}
+	var count int64
+	if err := isIncompleteAggregateCondition(
+		a.db.Model(&model.APISessionAggregate{}).Where("aggregate_date = ?", date),
+	).Count(&count).Error; err != nil {
+		log.Printf("aggregator: check incomplete aggregates failed date=%s err=%v", date.Format("2006-01-02"), err)
+		return false
+	}
+	return count > 0
 }
 
 func (a *Aggregator) upsertDayStatus(date time.Time, status string, sessionCount, successCount, failCount, listTotal int, lastErr string, startedAt, completedAt, lastErrorAt *time.Time, costMs int64, fetchConcurrency int) {
@@ -829,16 +861,20 @@ func (a *Aggregator) refreshDailySummary(date time.Time) error {
 	return a.upsertDailySummary(buildDailySummaryFromAggregateRows(date, rows))
 }
 
-// aggregatedSessionIDs 返回当天已落库的 session_id 集合，供断点续补时跳过。
-// 只查 session_id 一列，避免把整张大表（含 bundle_json longtext）读进内存引发 OOM。
+// aggregatedSessionIDs 返回当天已完整落库的 session_id 集合，供断点续补时跳过。
+// 对明显未补齐的 0 行（trace/turns/duration/tokens/tool_calls 全 0 且无 bundle_json）不视为完成，
+// 这样下次触发补库时会自动重刷，而不是永久卡在 0ms/0 turns。
 func (a *Aggregator) aggregatedSessionIDs(date time.Time) map[string]struct{} {
 	out := make(map[string]struct{})
 	if a == nil || a.db == nil {
 		return out
 	}
 	var ids []string
-	if err := a.db.Model(&model.APISessionAggregate{}).
-		Where("aggregate_date = ?", date).
+	q := a.db.Model(&model.APISessionAggregate{}).
+		Where("aggregate_date = ?", date)
+	if err := q.Where(
+		"NOT (trace_count = 0 AND turns = 0 AND duration_ms = 0 AND input_tokens = 0 AND output_tokens = 0 AND tool_calls = 0 AND COALESCE(bundle_json, '') IN ('', '{}'))",
+	).
 		Pluck("session_id", &ids).Error; err != nil {
 		log.Printf("aggregator: load aggregated session ids failed date=%s err=%v", date.Format("2006-01-02"), err)
 		return out

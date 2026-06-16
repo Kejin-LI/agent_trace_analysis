@@ -4055,7 +4055,7 @@
 
       // ===== 左侧对话流 / 甘特图：仅在拿到完整 traces 后渲染（meta 骨架阶段跳过）=====
       if (stage === 'full' || (s._real && s._real.traces && s._real.traces.length)) {
-        renderChatStream(s._real);
+        renderChatStream(s._real, { detailUnavailable: stage === 'full' && (!s._real.traces || !s._real.traces.length) });
         renderGantt(s._real);
       }
       // 折叠交互只绑定一次，避免两段式渲染重复绑定
@@ -7594,16 +7594,19 @@
     axisViewport.scrollLeft = body.scrollLeft;
   }
 
-  function renderChatStream(real) {
+    function renderChatStream(real, options) {
     const stream = document.getElementById('chat-stream');
     const cnt = document.getElementById('chat-trace-count');
     if (!stream || !real) return;
+    const detailUnavailable = !!options?.detailUnavailable;
     const convo = buildConversationGroups(real);
     const traces = convo.traces || [];
     const groups = convo.groups || [];
     if (!traces.length) { 
       if (cnt) cnt.textContent = `· 0 轮`;
-      stream.innerHTML = '<div class="text-[11px] text-[--text-tertiary] text-center">无对话数据</div>'; 
+      stream.innerHTML = detailUnavailable
+        ? '<div class="text-[11px] text-[--apple-orange] text-center">真实对话流拉取失败，当前仅展示缓存指标，请稍后重试或检查后端详情接口命中情况</div>'
+        : '<div class="text-[11px] text-[--text-tertiary] text-center">无对话数据</div>'; 
       return; 
     }
 
