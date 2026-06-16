@@ -83,7 +83,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	pageNo := offset/limit + 1
 
 	tr := timeRangeFromQuery(c)
-	cookie := c.GetHeader("Cookie")
+	cookie := h.effectiveCookie(c)
 	if trimmed := strings.TrimSpace(cookie); trimmed == "" {
 		log.Printf("bundle list: missing cookie path=%s range=%s~%s", c.Request.URL.Path, tr.StartTime, tr.EndTime)
 	} else {
@@ -383,7 +383,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	}
 	key := c.Param("session_id")
 	tr := timeRangeFromQuery(c)
-	cookie := c.GetHeader("Cookie")
+	cookie := h.effectiveCookie(c)
 	status := normalizeArtifactStatus(c.Query("artifact_status"))
 	cachedBundle, hasCached, err := h.getCachedSessionBundle(key, status)
 	if err != nil {
