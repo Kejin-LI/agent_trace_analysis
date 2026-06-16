@@ -126,6 +126,13 @@
     return raw;
   }
 
+  function parseOptionalScore(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  }
+
   function stripSyntheticPromptPayload(text) {
     const raw = stripBusinessWrappedPrompt(stripQuestionAnswerResultPayload(text));
     const lower = raw.toLowerCase();
@@ -229,7 +236,7 @@
     const startedAtMs = Number(raw.started_at_ms || 0) || (traces[0] ? Number(traces[0].started_at_ms || 0) : 0);
     const helper = window.AgentTraceEfficiency;
     const llmJudgeResult = raw.llm_judge_result || raw.llmJudgeResult || raw.llm_judge || raw.gpt55_judge_result || null;
-    const persistedScore = Number.isFinite(Number(raw.score)) ? Math.max(0, Math.min(100, Math.round(Number(raw.score)))) : null;
+    const persistedScore = parseOptionalScore(raw.score);
 
     const session = {
       id: raw.id || raw.session_id,
@@ -278,7 +285,7 @@
       session.score = helper.adjustedScore(session);
       session.color = helper.scoreColor(session.score);
     } else {
-      session.score = Number(raw.score || 0);
+      session.score = parseOptionalScore(raw.score) ?? 0;
       session.color = raw.color || scoreBand(session.score);
     }
     session.chip = raw.chip || chipText(session);

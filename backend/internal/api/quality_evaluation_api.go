@@ -209,6 +209,7 @@ func (h *Handler) getQualityEvaluation(c *gin.Context) {
 			"llm_summary",
 			"llm_score_basis",
 			"llm_eval_result",
+			"llm_raw_result",
 			"combined_score",
 			"combined_grade",
 			"combined_score_basis",
@@ -467,6 +468,7 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 			"llm_summary",
 			"llm_score_basis",
 			"llm_eval_result",
+			"llm_raw_result",
 			"combined_score",
 			"combined_grade",
 			"combined_score_basis",
@@ -556,13 +558,17 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 	b.LLMActionabilityScore = row.LLMActionabilityScore
 	b.LLMHallucinationRiskScore = row.LLMHallucinationRiskScore
 	if includeFullResult {
-		if raw := strings.TrimSpace(row.LLMEvalResult); raw != "" && raw != "null" {
-			b.LLMJudgeResult = json.RawMessage(raw)
+		if llmJudgeResult := buildLLMJudgeResult(row); llmJudgeResult != nil {
+			if raw, ok := llmJudgeResult.(json.RawMessage); ok {
+				b.LLMJudgeResult = raw
+			} else if raw, err := json.Marshal(llmJudgeResult); err == nil {
+				b.LLMJudgeResult = raw
+			}
 		}
 	}
 }
 
-func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
+func buildLLMJudgeResult(row model.StgSessionQualityEvaluation) any {
 	// llm_judge_result 优先用结构化的 llm_eval_result;
 	// 该字段缺失时(老数据 / schema 漂移 / 异步任务只回写 raw),
 	// fallback 到 llm_raw_result;再不行就用 6 维分项分 + summary 兜底拼一个最小对象,
@@ -594,6 +600,11 @@ func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
 			llmJudgeResult = json.RawMessage(b)
 		}
 	}
+	return llmJudgeResult
+}
+
+func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
+	llmJudgeResult := buildLLMJudgeResult(row)
 	return gin.H{
 		"session_id":           row.SessionID,
 		"trace_id":             row.TraceID,

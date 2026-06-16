@@ -37,6 +37,21 @@ func normalizeArtifactStatus(raw string) string {
 	}
 }
 
+func bundleIdentityKey(sessionID, artifactID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	artifactID = strings.TrimSpace(artifactID)
+	switch {
+	case sessionID != "" && artifactID != "":
+		return sessionID + "::" + artifactID
+	case sessionID != "":
+		return "session::" + sessionID
+	case artifactID != "":
+		return "artifact::" + artifactID
+	default:
+		return ""
+	}
+}
+
 // listSessionBundlesAPI 走上游接口实时拉 session 列表（不落库）。
 //
 // 请求参数：
@@ -181,13 +196,13 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	appendUniqueBundles := func(items []listBundleItem) {
 		indexByKey := make(map[string]int, len(bundles)+len(items))
 		for i, bundle := range bundles {
-			key := pickFirstNonEmpty(bundle.SessionID, bundle.ArtifactID)
+			key := bundleIdentityKey(bundle.SessionID, bundle.ArtifactID)
 			if key != "" {
 				indexByKey[key] = i
 			}
 		}
 		for _, item := range items {
-			key := pickFirstNonEmpty(item.bundle.SessionID, item.bundle.ArtifactID)
+			key := bundleIdentityKey(item.bundle.SessionID, item.bundle.ArtifactID)
 			if key == "" {
 				bundles = append(bundles, item.bundle)
 				continue

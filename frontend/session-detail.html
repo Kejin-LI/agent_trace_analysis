@@ -4029,6 +4029,7 @@
             : ruleScore >= 50 ? 'var(--apple-purple)'
             : 'var(--apple-red)';
         }
+        updateCombinedHealth();
         ruleListEl.innerHTML = `
           <div class="eval-table">
             <div class="eval-row eval-head">
@@ -5876,8 +5877,12 @@
 
   function updateCombinedHealth() {
     const finiteScore = (v) => Number.isFinite(Number(v)) ? Math.max(0, Math.min(100, Math.round(Number(v)))) : null;
-    const ruleScore = finiteScore(window.__ruleHealthScore ?? window.__ruleEvalScore);
-    const llmScore = finiteScore(window.__llmJudgeResult?.score);
+    const summaryScore = (id) => {
+      const el = document.getElementById(id);
+      return el ? finiteScore(el.textContent) : null;
+    };
+    const ruleScore = finiteScore(window.__ruleEvalScore ?? window.__ruleHealthScore ?? summaryScore('rule-eval-summary'));
+    const llmScore = finiteScore(window.__llmJudgeResult?.score ?? summaryScore('llm-judge-summary'));
     const recipe = llmScore !== null
       ? [
           ['规则', ruleScore, 0.5],
@@ -6327,6 +6332,18 @@
   let persistedLLMJudgeFetchKey = '';
   let persistedLLMJudgeFetchPromise = null;
 
+  function qualityEvaluationLookupKeys(real) {
+    const pageSessionId = new URLSearchParams(location.search).get('id') || '';
+    const candidates = [real?.session_id, real?.artifact_id, window.SESSION?.id, pageSessionId];
+    const seen = new Set();
+    return candidates.filter(value => {
+      const key = String(value || '').trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   async function fetchPersistedQualityEvaluation(key) {
     const normalizedKey = String(key || '').trim();
     if (!normalizedKey) return null;
@@ -6370,20 +6387,28 @@
   function renderPersistedLLMJudge(real) {
     if (!real || window.__llmJudgeResult) return;
     if (renderPersistedLLMJudgeResult(real)) return;
-    const pageSessionId = new URLSearchParams(location.search).get('id') || '';
-    const key = [real.session_id, real.artifact_id, window.SESSION?.id, pageSessionId].find(v => String(v || '').trim());
-    if (!key) return;
-    if (persistedLLMJudgeFetchKey === key && persistedLLMJudgeFetchPromise) return;
-    persistedLLMJudgeFetchKey = key;
+    const keys = qualityEvaluationLookupKeys(real);
+    if (!keys.length) return;
+    const cacheKey = keys.join('|');
+    if (persistedLLMJudgeFetchKey === cacheKey && persistedLLMJudgeFetchPromise) return;
+    persistedLLMJudgeFetchKey = cacheKey;
     persistedLLMJudgeFetchPromise = (async () => {
       try {
-        const payload = await fetchPersistedQualityEvaluation(key);
+        let payload = null;
+        let hitKey = '';
+        for (const key of keys) {
+          payload = await fetchPersistedQualityEvaluation(key);
+          if (payload) {
+            hitKey = key;
+            break;
+          }
+        }
         if (!payload || window.__llmJudgeResult) return;
         const target = (window.SESSION && window.SESSION._real) || real;
         // 后端返回 running 表示后台异步评估仍在进行,前端进入"评估中"+ 轮询恢复
         if (String(payload.llm_eval_status || '').toLowerCase() === 'running') {
           showLLMJudgeRunning();
-          startLLMJudgePolling(target.session_id || key);
+          startLLMJudgePolling(target.session_id || hitKey || keys[0]);
           return;
         }
         applyPersistedQualityEvaluation(target, payload);
@@ -6391,7 +6416,7 @@
       } catch (err) {
         console.warn('回读持久化 GPT 评测结果失败', err);
       } finally {
-        if (persistedLLMJudgeFetchKey === key) persistedLLMJudgeFetchPromise = null;
+        if (persistedLLMJudgeFetchKey === cacheKey) persistedLLMJudgeFetchPromise = null;
       }
     })();
   }

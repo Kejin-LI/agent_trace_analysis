@@ -64,7 +64,9 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 
 	switch status {
 	case artifactStatusPublished:
-		summary.Total = publishedCount
+		if summary.Total == 0 {
+			summary.Total = publishedCount
+		}
 		summary.PublishedCount = publishedCount
 		summary.UnpublishedCount = 0
 	case artifactStatusUnpublished:
@@ -72,7 +74,7 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 		summary.PublishedCount = 0
 		summary.UnpublishedCount = unpublishedCount
 	default:
-		summary.Total = publishedCount + unpublishedCount
+		// 首页 total 统一使用聚合真值层的唯一 session 数，不再把上游 published/unpublished 两路 total 直接相加。
 		summary.PublishedCount = publishedCount
 		summary.UnpublishedCount = unpublishedCount
 	}
@@ -110,17 +112,14 @@ func finalizeDashboardSummary(summary *apiDashboardSummary) {
 	if summary.UnpublishedCount < 0 {
 		summary.UnpublishedCount = 0
 	}
-	if summary.PublishedCount > summary.Total {
-		summary.PublishedCount = summary.Total
-	}
-	if summary.UnpublishedCount > summary.Total {
-		summary.UnpublishedCount = summary.Total - summary.PublishedCount
-	}
 	summary.PendingCount = summary.Total - summary.AnalyzedCount
 	if summary.PendingCount < 0 {
 		summary.PendingCount = 0
 	}
-	if summary.Total > 0 {
+	publicationBase := summary.PublishedCount + summary.UnpublishedCount
+	if publicationBase > 0 {
+		summary.PublishedRate = int(math.Round(float64(summary.PublishedCount) * 100 / float64(publicationBase)))
+	} else if summary.Total > 0 {
 		summary.PublishedRate = int(math.Round(float64(summary.PublishedCount) * 100 / float64(summary.Total)))
 	}
 }
