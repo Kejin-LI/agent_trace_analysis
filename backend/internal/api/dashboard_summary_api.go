@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sync"
@@ -58,6 +59,12 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 
 	publishedCount, unpublishedCount, err := h.fetchDashboardPublicationCounts(ctx, c.GetHeader("Cookie"), tr, status)
 	if err != nil {
+		if isUpstreamAuthMissing(err) {
+			log.Printf("dashboard summary: upstream publication counts unavailable, fallback to aggregate cache err=%v", err)
+			finalizeDashboardSummary(&summary)
+			c.JSON(http.StatusOK, summary)
+			return
+		}
 		fail(c, fmt.Errorf("fetch dashboard publication counts: %w", err))
 		return
 	}

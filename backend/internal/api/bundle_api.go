@@ -52,6 +52,14 @@ func bundleIdentityKey(sessionID, artifactID string) string {
 	}
 }
 
+func isUpstreamAuthMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sid is empty") || strings.Contains(msg, "unauthorized")
+}
+
 // listSessionBundlesAPI 走上游接口实时拉 session 列表（不落库）。
 //
 // 请求参数：
@@ -262,10 +270,46 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	wg.Wait()
 
 	if wantPublished && pubErr != nil {
+		if isUpstreamAuthMissing(pubErr) {
+			if cached, total, ok, dbErr := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); dbErr != nil {
+				fail(c, fmt.Errorf("db fallback list session bundles: %w", dbErr))
+				return
+			} else if ok {
+				log.Printf("bundle list: upstream auth unavailable, fallback to aggregate cache err=%v", pubErr)
+				cached = filterBundlesByQueryRange(cached, tr)
+				cached = h.applyQualityEvaluations(cached)
+				tagBundlesPublication(cached, artifactStatusPublished)
+				c.JSON(http.StatusOK, gin.H{
+					"data":   cached,
+					"limit":  limit,
+					"offset": offset,
+					"total":  total,
+				})
+				return
+			}
+		}
 		fail(c, fmt.Errorf("upstream list published: %w", pubErr))
 		return
 	}
 	if wantUnpublished && unpubErr != nil {
+		if isUpstreamAuthMissing(unpubErr) {
+			if cached, total, ok, dbErr := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); dbErr != nil {
+				fail(c, fmt.Errorf("db fallback list session bundles: %w", dbErr))
+				return
+			} else if ok {
+				log.Printf("bundle list: upstream auth unavailable, fallback to aggregate cache err=%v", unpubErr)
+				cached = filterBundlesByQueryRange(cached, tr)
+				cached = h.applyQualityEvaluations(cached)
+				tagBundlesPublication(cached, artifactStatusPublished)
+				c.JSON(http.StatusOK, gin.H{
+					"data":   cached,
+					"limit":  limit,
+					"offset": offset,
+					"total":  total,
+				})
+				return
+			}
+		}
 		fail(c, fmt.Errorf("upstream list unpublished: %w", unpubErr))
 		return
 	}
