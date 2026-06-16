@@ -91,11 +91,10 @@
 
   /* Status chip */
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; font-size: 11px; font-weight: 500; letter-spacing: 0.01em; }
-  .pub-pill { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 9999px; font-size: 10px; font-weight: 500; letter-spacing: 0.01em; white-space: nowrap; }
-  .pub-pill.is-published { color: var(--apple-green); background: rgba(52,199,89,0.12); }
-  .pub-pill.is-unpublished { color: var(--text-secondary); background: rgba(120,120,128,0.12); }
+  .pending-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 10.5px; font-weight: 500; color: var(--text-tertiary); background: rgba(120,120,128,0.10); letter-spacing: 0.01em; white-space: nowrap; }
+  .pending-pill .pending-dot { width: 5px; height: 5px; border-radius: 9999px; background: var(--apple-blue); opacity: 0.85; }
+  .pending-dash { color: var(--text-tertiary); opacity: 0.55; }
   .metric-pending { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); white-space: nowrap; }
-  .metric-pending .spinner { width: 10px; height: 10px; border-radius: 9999px; border: 1.5px solid rgba(0,113,227,0.16); border-top-color: var(--apple-blue); animation: loaderSpin .9s linear infinite; }
   .quality-card {
     background: rgba(0,0,0,0.035);
     border: 1px solid rgba(0,0,0,0.035);
@@ -408,8 +407,7 @@
     <div>
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">DASHBOARD · <span id="hdr-today">2026-05-25</span></div>
       <h1 id="hdr-title" class="text-[34px] font-semibold tracking-tight leading-tight truncate max-w-[820px]"><span id="hdr-greet">早安 ☀️</span> <span id="hdr-rangelabel">最近 7 天</span>有 <span class="text-[--apple-orange]" id="hdr-issue-count">— 个</span> 异常会话需要关注</h1>
-      <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">系统整体健康度 <span class="text-[--text-primary] font-medium" id="hdr-avg-score">—</span>，共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，发布率 <span class="text-[--text-primary] font-medium num-mono" id="hdr-published-rate">—</span>，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
-      <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">⚠️ 数据量较大，当前仅分析最新的 2000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。</p>
+      <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
     </div>
     <div class="flex items-center gap-2"></div>
   </section>
@@ -551,8 +549,8 @@
   <section class="glass rounded-2xl overflow-hidden">
     <div class="flex items-center justify-between px-6 py-4 border-b border-black/5">
       <div>
-        <h2 class="text-[17px] font-semibold tracking-tight">最近 Session</h2>
-        <p class="text-[12px] text-[--text-secondary] mt-0.5">按健康度倒序优先排查 · 异常标签与 Session 列表口径一致</p>
+        <h2 class="text-[17px] font-semibold tracking-tight">异常Sessions</h2>
+        <p class="text-[12px] text-[--text-secondary] mt-0.5">仅展示有异常问题的最低健康度 10 个 sessions · 异常标签与 Session 列表口径一致</p>
       </div>
       <div class="flex items-center gap-2">
         <a href="./sessions.html" class="text-[12px] text-[--apple-blue] hover:underline ml-1">查看全部 →</a>
@@ -562,14 +560,13 @@
     <div class="overflow-x-auto scroll-x">
       <table class="w-full text-[13px] table-fixed">
         <colgroup>
-          <col style="width:7%" />
-          <col style="width:32%" />
-          <col style="width:11%" />
-          <col style="width:13%" />
-          <col style="width:9%" />
-          <col style="width:7%" />
+          <col style="width:8%" />
+          <col style="width:36%" />
           <col style="width:14%" />
-          <col style="width:7%" />
+          <col style="width:9%" />
+          <col style="width:8%" />
+          <col style="width:16%" />
+          <col style="width:9%" />
         </colgroup>
         <thead class="bg-white/30">
           <tr class="text-[10.5px] text-[--text-tertiary] uppercase tracking-wider">
@@ -590,7 +587,6 @@
               </span>
             </th>
             <th class="text-left font-medium py-3">Session</th>
-            <th class="text-left font-medium py-3">发布状态</th>
             <th class="text-left font-medium py-3">异常</th>
             <th class="text-right font-medium py-3 num-mono">耗时</th>
             <th class="text-right font-medium py-3 num-mono">
@@ -606,7 +602,7 @@
           </tr>
         </thead>
         <tbody id="risk-tbody" class="divide-y divide-black/5">
-          <tr><td colspan="8" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">加载中…</td></tr>
+          <tr><td colspan="7" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">加载中…</td></tr>
         </tbody>
       </table>
     </div>
@@ -662,7 +658,32 @@
     };
     let applySeq = 0;
     let appliedRangeKey = '';
+    const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
+    const DASHBOARD_CACHE_PREFIX = 'agenttrace.dashboard.rangeCache.v1:';
     const rangeCache = new Map();
+
+    function readDashboardCache(key) {
+      if (rangeCache.has(key)) return rangeCache.get(key);
+      try {
+        const raw = sessionStorage.getItem(DASHBOARD_CACHE_PREFIX + key);
+        if (!raw) return null;
+        const cached = JSON.parse(raw);
+        if (!cached || !Array.isArray(cached.sessions) || !cached.meta) return null;
+        rangeCache.set(key, cached);
+        return cached;
+      } catch {
+        return null;
+      }
+    }
+
+    function writeDashboardCache(key, cached) {
+      rangeCache.set(key, cached);
+      try {
+        sessionStorage.setItem(DASHBOARD_CACHE_PREFIX + key, JSON.stringify(cached));
+      } catch {
+        // 大数据超过浏览器容量时保留内存缓存即可。
+      }
+    }
 
     function currentRangeQuery(range) {
       const customFrom = parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null;
@@ -674,63 +695,46 @@
           customFrom,
           customTo,
           key: `custom:${customFrom}:${customTo}`,
-          cacheKey: `custom:${customFrom}:${customTo}`,
         };
       }
       const winMs = RANGE_MS[range] || RANGE_MS['7d'];
       const end = Date.now();
-      const minuteBucket = Math.floor(end / 60000);
       return {
         query: { startTime: fmtQueryTime(end - winMs), endTime: fmtQueryTime(end) },
         customFrom,
         customTo,
-        key: `${range}:${Math.floor(end / 1000)}`,
-        cacheKey: `${range}:${minuteBucket}`,
+        key: range,
       };
     }
 
-    function setCapHintMessage(message) {
-      const capHintEl = document.getElementById('cap-hint');
-      if (!capHintEl) return;
-      capHintEl.textContent = message || '';
-      capHintEl.classList.toggle('hidden', !message);
-    }
-
-    function setDashboardLoadingState(label, opts = {}) {
-      const usingCache = !!opts.usingCache;
+    function setDashboardLoadingState(label) {
       const issueCountEl = document.getElementById('hdr-issue-count');
       if (issueCountEl) issueCountEl.textContent = '— 个';
       const avgScoreEl = document.getElementById('hdr-avg-score');
       if (avgScoreEl) avgScoreEl.textContent = '—';
       const totalEl = document.getElementById('hdr-total');
       if (totalEl) totalEl.textContent = '—';
-      const publishedRateEl = document.getElementById('hdr-published-rate');
-      if (publishedRateEl) publishedRateEl.textContent = '—';
       const anomalyEl = document.getElementById('hdr-anomaly');
       if (anomalyEl) anomalyEl.textContent = '—';
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {
-        topIssueEl.innerHTML = usingCache
-          ? ' 正在基于最近缓存刷新最新统计，请以即将更新的数字为准。'
-          : ` 当前正在切换到${escapeHtml(label)}并重新统计，请稍候。`;
+        topIssueEl.innerHTML = ` 当前正在切换到${escapeHtml(label)}并重新统计，请稍候。`;
       }
-      setCapHintMessage(usingCache
-        ? `当前先展示最近一次缓存结果，正在刷新 ${label} 的最新头部统计和明细列表。`
-        : `正在刷新 ${label} 的头部统计和明细列表，请稍候。`);
+      const tbody = document.getElementById('risk-tbody');
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">正在加载${escapeHtml(label)}的 session...</td></tr>`;
+      }
+      const pgInfo = document.getElementById('risk-pg-info');
+      if (pgInfo) pgInfo.textContent = `正在切换到${label}`;
     }
 
     function renderSummaryPreview(summary, opts = {}) {
       if (!summary) return;
       const label = opts.label || '';
-      const usingCache = !!opts.usingCache;
       const total = Number(summary.total || 0) || 0;
       const anomalyCount = Number(summary.anomaly_count || 0) || 0;
       const pendingCount = Number(summary.pending_count || 0) || 0;
       const analyzedTotal = Number(summary.analyzed_count || 0) || 0;
-      const rawPublishedRate = summary.published_rate;
-      const publishedRate = rawPublishedRate !== undefined && rawPublishedRate !== null
-        ? Number(rawPublishedRate)
-        : null;
       const avgScore = summary.avg_score;
       const hasDisplayAvgScore = avgScore !== null && avgScore !== undefined && analyzedTotal > 0;
       const issueCountEl = document.getElementById('hdr-issue-count');
@@ -739,8 +743,6 @@
       if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       const totalEl = document.getElementById('hdr-total');
       if (totalEl) totalEl.textContent = total;
-      const publishedRateEl = document.getElementById('hdr-published-rate');
-      if (publishedRateEl) publishedRateEl.textContent = total && publishedRate !== null && Number.isFinite(publishedRate) ? `${publishedRate}%` : '—';
       const anomalyEl = document.getElementById('hdr-anomaly');
       if (anomalyEl) anomalyEl.textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
@@ -750,13 +752,23 @@
           : '';
         topIssueEl.innerHTML = ` 头部统计已切到${escapeHtml(label)}的最新结果，明细列表仍在加载中。${pendingHint}`;
       }
-      setCapHintMessage(usingCache
-        ? `已先展示缓存中的 ${label} 数据，并已拿到最新头部真汇总；下方明细列表仍在刷新中。`
-        : `头部统计已切到 ${label} 的最新真汇总；下方明细列表仍在加载中，请稍候。`);
+    }
+
+    function renderCachedDashboard(cached, key, label, shouldRefresh) {
+      window.dashboardData = cached.sessions || [];
+      window.dashboardMeta = cached.meta || {};
+      appliedRangeKey = key;
+      window.renderDashboard(window.dashboardData, window.dashboardMeta);
+      if (shouldRefresh) {
+        const topIssueEl = document.getElementById('hdr-top-issue');
+        if (topIssueEl) {
+          topIssueEl.innerHTML = ` 已先显示${escapeHtml(label)}的本地缓存，正在刷新最新数据。`;
+        }
+      }
     }
 
     async function apply(range) {
-      const { query, customFrom, customTo, key, cacheKey } = currentRangeQuery(range);
+      const { query, customFrom, customTo, key } = currentRangeQuery(range);
       const label = (range === 'custom' && customFrom && customTo)
         ? fmtCustom(customFrom, customTo)
         : RANGE_LABEL[range];
@@ -771,40 +783,83 @@
         window.renderDashboard(window.dashboardData, window.dashboardMeta || {});
         return;
       }
-      const cached = rangeCache.get(cacheKey);
+      const seq = ++applySeq;
+      const cached = readDashboardCache(key);
+      const cacheAge = cached ? Date.now() - cached.ts : Infinity;
+      const hasFreshCache = cacheAge <= DASHBOARD_CACHE_TTL_MS;
       if (cached) {
-        window.dashboardData = cached.sessions;
-        window.dashboardMeta = cached.meta;
-        appliedRangeKey = key;
-        window.renderDashboard(window.dashboardData, window.dashboardMeta);
-        setDashboardLoadingState(label, { usingCache: true });
+        renderCachedDashboard(cached, key, label, !hasFreshCache);
+        if (hasFreshCache) return;
       } else {
         setDashboardLoadingState(label);
       }
 
-      const seq = ++applySeq;
       const summaryPromise = window.AgentTraceDB.loadDashboardSummary
         ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
         : Promise.resolve(null);
-      const sessionsPromise = window.AgentTraceDB.loadSessions(query);
+      const anomalyPromise = window.AgentTraceDB.loadTopAnomalySessions
+        ? window.AgentTraceDB.loadTopAnomalySessions(query).catch(() => window.AgentTraceDB.loadSessions(query))
+        : window.AgentTraceDB.loadSessions(query);
       const summary = await summaryPromise;
       if (seq === applySeq && summary) {
         window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, { summary });
-        renderSummaryPreview(summary, { label, usingCache: !!cached });
+        renderSummaryPreview(summary, { label });
       }
-      const payload = await sessionsPromise;
+      let payload;
+      try {
+        payload = await anomalyPromise;
+      } catch (err) {
+        if (cached) return;
+        throw err;
+      }
       if (seq !== applySeq) return;
-      window.dashboardData = (payload.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
+      const sessions = payload.topAnomalyOnly
+        ? await hydrateTopAnomalySessions(payload.sessions || [], query)
+        : (payload.sessions || []);
+      if (seq !== applySeq) return;
+      window.dashboardData = sessions.slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
       window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, {
         total: Number(payload.total || 0) || window.dashboardData.length,
         sampleCount: window.dashboardData.length,
+        topAnomalyTotal: Number(payload.total || 0) || window.dashboardData.length,
+        topAnomalyOnly: !!payload.topAnomalyOnly,
       });
       appliedRangeKey = key;
-      rangeCache.set(cacheKey, { sessions: window.dashboardData, meta: window.dashboardMeta });
+      writeDashboardCache(key, { ts: Date.now(), sessions: window.dashboardData, meta: window.dashboardMeta });
       window.renderDashboard(window.dashboardData, window.dashboardMeta);
     }
 
     window.applyRange = apply;
+
+    async function hydrateTopAnomalySessions(sessions, query) {
+      if (!window.AgentTraceDB?.loadSession || !Array.isArray(sessions) || !sessions.length) return sessions || [];
+      const out = new Array(sessions.length);
+      let cursor = 0;
+      const workerCount = Math.min(3, sessions.length);
+      async function worker() {
+        while (cursor < sessions.length) {
+          const idx = cursor++;
+          const s = sessions[idx];
+          const id = s?.id || s?.session_id || s?.artifact_id;
+          if (!id) {
+            out[idx] = s;
+            continue;
+          }
+          try {
+            const hydrated = await window.AgentTraceDB.loadSession(id, {
+              startTime: query?.startTime,
+              endTime: query?.endTime,
+            });
+            if (hydrated) hydrated.__topAnomaly = s.__topAnomaly;
+            out[idx] = hydrated || s;
+          } catch {
+            out[idx] = s;
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: workerCount }, worker));
+      return out.filter(Boolean);
+    }
   })();
 
   /* ===== Global Tooltip Portal: 防遮挡 / 防裁切 ===== */
@@ -1015,6 +1070,22 @@
         .some(key => typeof radar[key] === 'number' && !Number.isNaN(radar[key]) && radar[key] > 0);
     }
 
+    function hasRuleScoreEvidence(s) {
+      if ((s?.input_tokens || 0) > 0 || (s?.output_tokens || 0) > 0) return true;
+      if (Array.isArray(s?.rules) && s.rules.length > 0) return true;
+      const radar = s?.radar || {};
+      return ['response', 'stability', 'thinking', 'resource', 'orchestration']
+        .some(key => typeof radar[key] === 'number' && !Number.isNaN(radar[key]) && radar[key] > 0);
+    }
+
+    function validAggregateScore(s) {
+      const raw = Number(s?.score);
+      if (!Number.isFinite(raw)) return null;
+      const score = Math.max(0, Math.min(100, Math.round(raw)));
+      if (score === 0 && !hasRuleScoreEvidence(s)) return null;
+      return score;
+    }
+
     // 指标未聚合判定：来自上游 light bundle 时可能只有时长，没有雷达/规则/质量分。
     // 这类空骨架不能参与健康/异常统计，否则会被误判为 0 分异常。
     function isPendingSession(s) {
@@ -1084,16 +1155,30 @@
     const adjustedScore = efficiencyHelper.adjustedScore;
 
     function realRuleScore(s) {
-      const aggregateScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Math.round(Number(s.score)))) : null;
-      if (aggregateScore !== null) return aggregateScore;
-      return hasParsedRuleMetrics(s) ? adjustedScore(s) : null;
+      const aggregateScore = validAggregateScore(s);
+      if (s?.radar && hasParsedRuleMetrics(s)) return adjustedScore(s);
+      return aggregateScore !== null ? aggregateScore : null;
     }
 
     function getQualityScores(s) {
       const ruleScore = realRuleScore(s);
-      return window.AgentTraceTags?.getSessionQualityScores
+      const base = window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
-        : { ruleScore, llmScore: null, combinedScore: ruleScore };
+        : { ruleScore, llmScore: null, combinedScore: ruleScore, ruleSource: ruleScore !== null ? 'aggregate' : null };
+      const finalRuleScore = ruleScore !== null && ruleScore !== undefined ? ruleScore : base.ruleScore;
+      const finalLLMScore = base.llmScore;
+      const combinedScore = finalLLMScore !== null && finalLLMScore !== undefined && finalRuleScore !== null && finalRuleScore !== undefined
+        ? Math.round(finalRuleScore * 0.5 + finalLLMScore * 0.5)
+        : (finalRuleScore !== null && finalRuleScore !== undefined ? finalRuleScore : finalLLMScore);
+      return {
+        ...base,
+        ruleScore: finalRuleScore,
+        combinedScore,
+        source: finalLLMScore !== null && finalLLMScore !== undefined ? 'combined' : 'rule',
+        basis: finalLLMScore !== null && finalLLMScore !== undefined
+          ? `规则 ${finalRuleScore ?? '--'} × 50% + GPT-5.5 ${finalLLMScore} × 50%`
+          : `规则 ${finalRuleScore ?? '--'} × 100%；GPT-5.5 未评估`,
+      };
     }
 
     function sessionQualityScore(s) {
@@ -1109,16 +1194,34 @@
         isPending: isPendingSession(s),
         quality,
         score,
-        anomaly,
+        anomaly: anomaly || fallbackTopAnomaly(s, score),
         scoreBand: score === null || score === undefined ? null : scoreBand(score),
       };
       s.__dashboardMeta = meta;
       return meta;
     }
 
+    function fallbackTopAnomaly(s, score) {
+      if (!s?.__topAnomaly || score === null || score === undefined) return null;
+      const band = scoreBand(score);
+      const label = score < 50 ? '严重风险'
+        : score < 70 ? '亚健康'
+        : score < 85 ? '健康度偏低'
+        : '异常';
+      return {
+        color: band,
+        list: [{
+          label,
+          detail: `综合健康度 ${score} 分`,
+          color: band,
+          source: 'rule',
+        }],
+      };
+    }
+
     function renderEmpty(msg) {
       tbody.innerHTML = `<tr>
-        <td colspan="8" class="px-6 py-16 text-center">
+        <td colspan="7" class="px-6 py-16 text-center">
           <div class="flex flex-col items-center justify-center space-y-3">
             <div class="w-12 h-12 rounded-full bg-black/5 flex items-center justify-center mb-1">
               <svg class="w-6 h-6 text-[--text-tertiary]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
@@ -1132,9 +1235,9 @@
       
       // Empty other KPIs
       document.getElementById('hdr-issue-count').textContent = '0 个';
-      document.getElementById('hdr-avg-score').textContent = '-';
+      const avgScoreEl = document.getElementById('hdr-avg-score');
+      if (avgScoreEl) avgScoreEl.textContent = '-';
       document.getElementById('hdr-total').textContent = '0';
-      document.getElementById('hdr-published-rate').textContent = '—';
       document.getElementById('hdr-anomaly').textContent = '0';
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) topIssueEl.textContent = '没有数据可供分析。';
@@ -1188,8 +1291,9 @@
       const meta = getSessionMeta(s);
       const isPending = meta.isPending;
       const quality = meta.quality;
-      const score = meta.score ?? adjustedScore(s);
-      const color = meta.scoreBand || scoreBand(score);
+      const score = meta.score;
+      const hasDisplayScore = score !== null && score !== undefined;
+      const color = hasDisplayScore ? (meta.scoreBand || scoreBand(score)) : 'tertiary';
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const ano = meta.anomaly;
       const traceCount = Number(s.trace_count || 0);
@@ -1200,11 +1304,15 @@
       const hasPartialMetrics = hasTraceSkeleton || !!s.started_at_ms || !isPending;
       const isTurnsCalculating = !isPending && turnsRaw <= 0 && hasPartialMetrics;
       const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
-      const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="spinner"></span><span class="text-[--text-tertiary]">${label}</span></span>`;
+      const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="pending-dash">${label}</span></span>`;
+      const calculatingHtml = metricPendingHtml('计算中...');
       const turnsClass = (turnsN >= 3 && turnsN <= 9) ? '' : 'text-[--apple-orange]';
 
+      const pendingPill = '<span class="pending-pill"><span class="pending-dot"></span>聚合中</span>';
       let chipsHtml = '<span class="text-[--text-tertiary]">—</span>';
-      if (ano) {
+      if (isPending) {
+        chipsHtml = pendingPill;
+      } else if (ano) {
         const main = ano.list[0];
         const extra = ano.list.length - 1;
         const tipHtml = `<div class="chips-list">${ano.list.map(it => `<span class="chip"><span class="badge-dot bg-[--apple-${it.color || ano.color}]"></span>${escapeHtml(it.label)}${it.detail ? ` <span style="opacity:.6;margin-left:4px">· ${escapeHtml(it.detail)}</span>` : ''}</span>`).join('')}</div>`;
@@ -1217,20 +1325,15 @@
           </div>`;
       }
 
-      const pubStatus = s.artifact_publication_status || '';
-      const isPublished = pubStatus === 'published';
-      const isUnpublished = pubStatus === 'unpublished';
-      const pubPill = isUnpublished
-        ? '<span class="pub-pill is-unpublished">未发布</span>'
-        : (isPublished ? '<span class="pub-pill is-published">已发布</span>' : '<span class="text-[--text-tertiary]">-</span>');
-      const detailHref = `./session-detail?id=${encodeURIComponent(s.id)}` +
-        (isUnpublished ? `&artifact_status=unpublished` : '');
+      const detailHref = `./session-detail?id=${encodeURIComponent(s.id)}&artifact_status=unpublished`;
       return `<tr class="hover:bg-white/40 cursor-pointer transition-colors" data-href="${detailHref}">
         <td class="px-5 py-3.5">
-          <div class="cell-tip inline-flex items-center gap-1.5" data-tip='${encodeURIComponent(buildScoreTipHtml(quality))}'>
-            <span class="num-mono font-semibold text-[--apple-${color}]">${score}</span>
-            <span class="text-[10px] text-[--text-tertiary]">${quality.llmScore === null ? '规则' : '综合'}</span>
-          </div>
+          ${hasDisplayScore
+            ? `<div class="cell-tip inline-flex items-center gap-1.5" data-tip='${encodeURIComponent(buildScoreTipHtml(quality))}'>
+                <span class="num-mono font-semibold text-[--apple-${color}]">${score}</span>
+                <span class="text-[10px] text-[--text-tertiary]">${quality.llmScore === null ? '规则' : '综合'}</span>
+              </div>`
+            : '<span class="text-[--text-tertiary] num-mono">—</span>'}
         </td>
         <td class="py-3.5">
           <div class="min-w-0">
@@ -1238,10 +1341,9 @@
             <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5 truncate">${escapeHtml(displayId(s.id))} · ${escapeHtml(s.user || 'anonymous')} · ${s.trace_count || 1} traces</div>
           </div>
         </td>
-        <td class="py-3.5">${pubPill}</td>
         <td class="py-3.5">${chipsHtml}</td>
-        <td class="py-3.5 text-right num-mono">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : (isDurationCalculating ? metricPendingHtml() : fmtDuration(durationMs))}</td>
-        <td class="py-3.5 text-right num-mono ${turnsClass}">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : (isTurnsCalculating ? metricPendingHtml() : turnsN)}</td>
+        <td class="py-3.5 text-right num-mono">${(isPending || isDurationCalculating) ? calculatingHtml : fmtDuration(durationMs)}</td>
+        <td class="py-3.5 text-right num-mono ${turnsClass}">${(isPending || isTurnsCalculating) ? calculatingHtml : turnsN}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
           <a href="${detailHref}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">
@@ -1305,18 +1407,8 @@
       const sampledTotal = sessions.length;
       const summary = meta.summary || null;
       const total = Number(summary?.total || meta.total || 0) || sampledTotal;
-      const capHintEl = document.getElementById('cap-hint');
-      if (capHintEl) {
-        const partial = sampledTotal > 0 && total > sampledTotal;
-        const usingBackendSummary = !!summary;
-        capHintEl.classList.toggle('hidden', !(partial || usingBackendSummary));
-        if (partial || usingBackendSummary) {
-          capHintEl.textContent = usingBackendSummary
-            ? `头部健康度、异常数、发布率与规则雷达已切到后端真汇总；下方列表仍展示已拉取的 ${sampledTotal} / ${total} 个 session。`
-            : `当前仅分析已拉取的 ${sampledTotal} / ${total} 个 session，头部总量按接口总数展示；异常/发布率/雷达仍基于已拉取样本计算。切小时间范围可获得完整统计。`;
-        }
-      }
-      if (!sampledTotal) { renderEmpty('此时间范围内暂无 session 数据'); return; }
+      const topAnomalyTotal = Number(meta.topAnomalyTotal || 0) || 0;
+      if (!sampledTotal && !summary) { renderEmpty('此时间范围内暂无 session 数据'); return; }
 
       // ===== 聚合 =====
       // 仅对已聚合指标的 session 做健康/异常统计；
@@ -1332,8 +1424,6 @@
 
       let samplePendingCount = 0;
       let sampleAnalyzedTotal = 0;
-      let publishedCount = 0;
-      let knownPublicationTotal = 0;
       let totalTokens = 0;
       let llmScoreCount = 0;
       let llmScoreSum = 0;
@@ -1341,11 +1431,13 @@
       let combinedScoreSum = 0;
       let ruleScoreCount = 0;
       let ruleScoreSum = 0;
+      let anomalySessionCount = 0;
       const durations = [];
       const recentSessions = [];
 
       const insertRecentSession = (session, scoreValue) => {
-        const item = { session, score: scoreValue ?? 0 };
+        if (scoreValue === null || scoreValue === undefined || !Number.isFinite(Number(scoreValue))) return;
+        const item = { session, score: Number(scoreValue) };
         let inserted = false;
         for (let i = 0; i < recentSessions.length; i++) {
           if (item.score < recentSessions[i].score) {
@@ -1362,11 +1454,6 @@
         const sessionMeta = getSessionMeta(s);
         const quality = sessionMeta.quality;
         const score = sessionMeta.score;
-        insertRecentSession(s, score);
-
-        const pubStatus = s.artifact_publication_status;
-        if (pubStatus === 'published') publishedCount++;
-        if (pubStatus === 'published' || pubStatus === 'unpublished') knownPublicationTotal++;
 
         if (quality.llmScore !== null && quality.llmScore !== undefined) {
           llmScoreCount++;
@@ -1403,6 +1490,8 @@
           ruleScoreSum += quality.ruleScore;
         }
         if (sessionMeta.anomaly) {
+          anomalySessionCount++;
+          insertRecentSession(s, score);
           sessionMeta.anomaly.list.forEach(it => {
             const prev = issueMap.get(it.label) || { count: 0, source: it.source || 'rule', color: it.color || 'blue' };
             prev.count += 1;
@@ -1420,7 +1509,6 @@
         }
       });
 
-      const samplePublishedRate = knownPublicationTotal ? Math.round(publishedCount / knownPublicationTotal * 100) : null;
       const sampleAvgScore = combinedScoreCount ? (combinedScoreSum / combinedScoreCount) : null;
       const avgRuleScore = ruleScoreCount ? (ruleScoreSum / ruleScoreCount) : null;
       const avgLLMScore = llmScoreCount ? (llmScoreSum / llmScoreCount) : null;
@@ -1438,10 +1526,6 @@
       const pendingCount = Number(summary?.pending_count ?? samplePendingCount);
       const analyzedTotal = Number(summary?.analyzed_count ?? sampleAnalyzedTotal);
       const anomalyCount = Number(summary?.anomaly_count ?? sampleAnomalyCount);
-      const rawPublishedRate = summary?.published_rate;
-      const publishedRate = rawPublishedRate !== undefined && rawPublishedRate !== null
-        ? Number(rawPublishedRate)
-        : samplePublishedRate;
       const avgScore = summary?.avg_score ?? sampleAvgScore;
       const displayRadar = summary?.radar
         ? {
@@ -1457,9 +1541,9 @@
       // ===== H1 标题 =====
       const issueCountEl = document.getElementById('hdr-issue-count');
       if (issueCountEl) issueCountEl.textContent = `${anomalyCount} 个`;
-      document.getElementById('hdr-avg-score').textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
+      const avgScoreEl = document.getElementById('hdr-avg-score');
+      if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       document.getElementById('hdr-total').textContent = total;
-      document.getElementById('hdr-published-rate').textContent = total && publishedRate !== null && Number.isFinite(publishedRate) ? `${publishedRate}%` : '—';
       document.getElementById('hdr-anomaly').textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {
@@ -1537,10 +1621,16 @@
         });
       }
 
-      // ===== 最近 Session 表 =====
-      tbody.innerHTML = recentSessions.map(item => renderRow(item.session)).join('');
+      // ===== 异常 Session 表 =====
+      if (recentSessions.length) {
+        tbody.innerHTML = recentSessions.map(item => renderRow(item.session)).join('');
+      } else {
+        tbody.innerHTML = `<tr><td colspan="7" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">暂无异常 session</td></tr>`;
+      }
       setupCellTooltip();
-      document.getElementById('risk-pg-info').textContent = `显示 1 – ${recentSessions.length}，共 ${total} 条`;
+      document.getElementById('risk-pg-info').textContent = recentSessions.length
+        ? `显示健康度最低的 ${recentSessions.length} 个，共 ${topAnomalyTotal || anomalySessionCount} 个异常`
+        : `显示 0 个，共 ${topAnomalyTotal || anomalySessionCount} 个异常`;
     };
 
     try {

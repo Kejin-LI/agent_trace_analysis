@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,23 +17,15 @@ import (
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
-// 产物发布状态：用于列表/详情区分已发布与未发布的 template 产物。
+// 产物发布状态：平台只纳入未发布 template 产物。
 const (
 	artifactStatusPublished   = "published"
 	artifactStatusUnpublished = "unpublished"
-	artifactStatusAll         = "all"
 )
 
-// normalizeArtifactStatus 解析 query 参数 artifact_status，缺省/非法值回落到 all。
-func normalizeArtifactStatus(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case artifactStatusPublished:
-		return artifactStatusPublished
-	case artifactStatusUnpublished:
-		return artifactStatusUnpublished
-	default:
-		return artifactStatusAll
-	}
+// normalizeArtifactStatus 保留兼容旧 query 参数，但平台统一强制未发布口径。
+func normalizeArtifactStatus(_ string) string {
+	return artifactStatusUnpublished
 }
 
 func bundleIdentityKey(sessionID, artifactID string) string {
@@ -59,15 +50,14 @@ func isUpstreamAuthMissing(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "sid is empty") || strings.Contains(msg, "unauthorized")
 }
+
 // listSessionBundlesAPI 走上游接口实时拉 session 列表（不落库）。
 //
 // 请求参数：
 //   - limit / offset：分页（offset / limit 换算成 page_no / page_size）
 //   - start_time / end_time：可选时间窗，格式 "YYYY-MM-DD HH:mm:ss"；缺省最近 7 天
 //   - user_id / user_name / session_id / artifact_id：本地二次过滤（上游接口当前不支持服务端过滤）
-//   - artifact_status：published / unpublished / all（默认 all）。控制查询已发布、未发布或两者合并；
-//     all 模式会并发拉取 published/unpublished，两者按 session_id+artifact_id 合并去重。
-//     正常情况下同一 session/artifact 不应同时出现在两边；若上游短暂重复，则按最近状态取值并记日志。
+//   - artifact_status：兼容旧参数但会被忽略，接口固定只返回未发布 sessions。
 //
 // 列表项不实时拉 JSONL，仅返回元信息概览。当 aggregator 已对涉及日期完成预聚合时，
 // 会把缓存指标 join 到 bundle 上（chip / token / 雷达指标全部填充）；缺失的日期
@@ -92,55 +82,18 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	uname := c.Query("user_name")
 	sid := c.Query("session_id")
 	aid := c.Query("artifact_id")
-	status := normalizeArtifactStatus(c.Query("artifact_status"))
-
-	// 仅 published 模式可走 DB 快路径：历史聚合表数据均为已发布口径，
-	// unpublished / all 模式 DB 里没有未发布数据，必须实时回上游。
-	if status == artifactStatusPublished {
-		if bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); err != nil {
-			fail(c, fmt.Errorf("db list session bundles: %w", err))
-			return
-		} else if ok {
-			bundles = filterBundlesByQueryRange(bundles, tr)
-			bundles = h.applyQualityEvaluations(bundles)
-			tagBundlesPublication(bundles, artifactStatusPublished)
-			total = int64(len(bundles))
-			if h.aggregator != nil {
-				h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"data":   bundles,
-				"limit":  limit,
-				"offset": offset,
-				"total":  total,
-			})
-			return
-		}
-	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	type listBundleItem struct {
 		bundle        apiSessionBundle
-		statusLabel   string
-		updatedAtMs   int64
-		createdAtMs   int64
 		recencyMillis int64
 	}
 
 	bundles := make([]apiSessionBundle, 0)
 
-	// listOnce 仅负责回源上游拉一页原始数据，不触碰共享状态，可安全并发。
-	listOnce := func(onlyUnpublished bool) (*modellog.ListResponse, error) {
-		return h.upstream.List(ctx, cookie, modellog.ListRequest{
-			TimeRange:                tr,
-			Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
-			OnlyUnpublishedArtifacts: onlyUnpublished,
-		})
-	}
-
-	collectItems := func(resp *modellog.ListResponse, statusLabel string) []listBundleItem {
+	collectItems := func(resp *modellog.ListResponse) []listBundleItem {
 		if resp == nil {
 			return nil
 		}
@@ -159,11 +112,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 				continue
 			}
 			bundle := lightBundleFromAPI(s)
-			bundle.ArtifactPublicationStatus = statusLabel
+			bundle.ArtifactPublicationStatus = artifactStatusUnpublished
 			if h.aggregator != nil {
 				if m, ok := h.aggregator.Get(s.SessionID); ok {
 					bundle = applyCachedMetricsToBundle(bundle, m)
-					bundle.ArtifactPublicationStatus = statusLabel
+					bundle.ArtifactPublicationStatus = artifactStatusUnpublished
 				}
 			}
 			updatedAtMs := parseUpstreamTime(s.UpdateAt).UnixMilli()
@@ -177,26 +130,10 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			}
 			items = append(items, listBundleItem{
 				bundle:        bundle,
-				statusLabel:   statusLabel,
-				updatedAtMs:   updatedAtMs,
-				createdAtMs:   createdAtMs,
 				recencyMillis: recencyMillis,
 			})
 		}
 		return items
-	}
-
-	isNewerBundleItem := func(incoming, existing listBundleItem) bool {
-		if incoming.recencyMillis != existing.recencyMillis {
-			return incoming.recencyMillis > existing.recencyMillis
-		}
-		if incoming.updatedAtMs != existing.updatedAtMs {
-			return incoming.updatedAtMs > existing.updatedAtMs
-		}
-		if incoming.createdAtMs != existing.createdAtMs {
-			return incoming.createdAtMs > existing.createdAtMs
-		}
-		return false
 	}
 
 	bundleMetaByKey := make(map[string]listBundleItem)
@@ -216,26 +153,9 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			}
 			if idx, ok := indexByKey[key]; ok {
 				prevMeta := bundleMetaByKey[key]
-				if isNewerBundleItem(item, prevMeta) {
-					log.Printf(
-						"bundle list: duplicated session across publication states key=%s keep=%s drop=%s reason=newer_state keep_ts=%d drop_ts=%d",
-						key,
-						item.statusLabel,
-						prevMeta.statusLabel,
-						item.recencyMillis,
-						prevMeta.recencyMillis,
-					)
+				if item.recencyMillis > prevMeta.recencyMillis {
 					bundles[idx] = item.bundle
 					bundleMetaByKey[key] = item
-				} else {
-					log.Printf(
-						"bundle list: duplicated session across publication states key=%s keep=%s drop=%s reason=older_state keep_ts=%d drop_ts=%d",
-						key,
-						prevMeta.statusLabel,
-						item.statusLabel,
-						prevMeta.recencyMillis,
-						item.recencyMillis,
-					)
 				}
 				continue
 			}
@@ -245,80 +165,16 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		}
 	}
 
-	wantPublished := status == artifactStatusPublished || status == artifactStatusAll
-	wantUnpublished := status == artifactStatusUnpublished || status == artifactStatusAll
-
-	// 并发回源：已发布与未发布两次上游请求互不依赖，并行执行可将等待时间从“两次相加”降到“两次取最大”。
-	var pubResp, unpubResp *modellog.ListResponse
-	var pubErr, unpubErr error
-	var wg sync.WaitGroup
-	if wantUnpublished {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			unpubResp, unpubErr = listOnce(true)
-		}()
-	}
-	if wantPublished {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pubResp, pubErr = listOnce(false)
-		}()
-	}
-	wg.Wait()
-
-	if wantPublished && pubErr != nil {
-		if isUpstreamAuthMissing(pubErr) {
-			if cached, total, ok, dbErr := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); dbErr != nil {
-				fail(c, fmt.Errorf("db fallback list session bundles: %w", dbErr))
-				return
-			} else if ok {
-				log.Printf("bundle list: upstream auth unavailable, fallback to aggregate cache err=%v", pubErr)
-				cached = filterBundlesByQueryRange(cached, tr)
-				cached = h.applyQualityEvaluations(cached)
-				tagBundlesPublication(cached, artifactStatusPublished)
-				c.JSON(http.StatusOK, gin.H{
-					"data":   cached,
-					"limit":  limit,
-					"offset": offset,
-					"total":  total,
-				})
-				return
-			}
-		}
-		fail(c, fmt.Errorf("upstream list published: %w", pubErr))
+	unpubResp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+		TimeRange:                tr,
+		Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
+		OnlyUnpublishedArtifacts: true,
+	})
+	if err != nil {
+		fail(c, fmt.Errorf("upstream list unpublished: %w", err))
 		return
 	}
-	if wantUnpublished && unpubErr != nil {
-		if isUpstreamAuthMissing(unpubErr) {
-			if cached, total, ok, dbErr := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); dbErr != nil {
-				fail(c, fmt.Errorf("db fallback list session bundles: %w", dbErr))
-				return
-			} else if ok {
-				log.Printf("bundle list: upstream auth unavailable, fallback to aggregate cache err=%v", unpubErr)
-				cached = filterBundlesByQueryRange(cached, tr)
-				cached = h.applyQualityEvaluations(cached)
-				tagBundlesPublication(cached, artifactStatusPublished)
-				c.JSON(http.StatusOK, gin.H{
-					"data":   cached,
-					"limit":  limit,
-					"offset": offset,
-					"total":  total,
-				})
-				return
-			}
-		}
-		fail(c, fmt.Errorf("upstream list unpublished: %w", unpubErr))
-		return
-	}
-
-	if wantPublished {
-		appendUniqueBundles(collectItems(pubResp, artifactStatusPublished))
-	}
-	if wantUnpublished {
-		appendUniqueBundles(collectItems(unpubResp, artifactStatusUnpublished))
-	}
+	appendUniqueBundles(collectItems(unpubResp))
 
 	bundles = filterBundlesByQueryRange(bundles, tr)
 	bundles = h.applyQualityEvaluations(bundles)
@@ -329,29 +185,8 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	}
 
 	reportedTotal := len(bundles)
-	switch status {
-	case artifactStatusPublished:
-		if pubResp != nil && int(pubResp.Total) > reportedTotal {
-			reportedTotal = int(pubResp.Total)
-		}
-	case artifactStatusUnpublished:
-		if unpubResp != nil && int(unpubResp.Total) > reportedTotal {
-			reportedTotal = int(unpubResp.Total)
-		}
-	default:
-		totalPublished := 0
-		totalUnpublished := 0
-		if pubResp != nil {
-			totalPublished = int(pubResp.Total)
-		}
-		if unpubResp != nil {
-			totalUnpublished = int(unpubResp.Total)
-		}
-		if totalPublished+totalUnpublished > reportedTotal {
-			// published / unpublished 理论上互斥；若上游短暂重复，宁可轻微高估 total，
-			// 也不要把"仅当前页条数"误报成整个时间窗的总量。
-			reportedTotal = totalPublished + totalUnpublished
-		}
+	if unpubResp != nil && int(unpubResp.Total) > reportedTotal {
+		reportedTotal = int(unpubResp.Total)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -360,13 +195,6 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		"offset": offset,
 		"total":  reportedTotal,
 	})
-}
-
-// tagBundlesPublication 给一批 bundle 统一打上发布状态标识（就地修改）。
-func tagBundlesPublication(bundles []apiSessionBundle, status string) {
-	for i := range bundles {
-		bundles[i].ArtifactPublicationStatus = status
-	}
 }
 
 // getSessionBundleAPI 详情页：按 session_id / artifact_id 命中上游某条记录，
@@ -423,35 +251,15 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		}
 	}
 
-	// 按发布状态决定上游扫描顺序：显式 artifact_status 优先；缺省时先已发布再未发布兜底，
-	// 这样未发布 trace 详情页在不带参数时也能命中。
+	// 详情页同样固定只扫描未发布产物，避免已发布数据进入平台口径。
 	var attempts []struct {
 		onlyUnpublished bool
 		label           string
 	}
-	switch status {
-	case artifactStatusPublished:
-		attempts = append(attempts, struct {
-			onlyUnpublished bool
-			label           string
-		}{false, artifactStatusPublished})
-	case artifactStatusUnpublished:
-		attempts = append(attempts, struct {
-			onlyUnpublished bool
-			label           string
-		}{true, artifactStatusUnpublished})
-	default:
-		attempts = append(attempts,
-			struct {
-				onlyUnpublished bool
-				label           string
-			}{false, artifactStatusPublished},
-			struct {
-				onlyUnpublished bool
-				label           string
-			}{true, artifactStatusUnpublished},
-		)
-	}
+	attempts = append(attempts, struct {
+		onlyUnpublished bool
+		label           string
+	}{true, artifactStatusUnpublished})
 
 	var hit *modellog.Session
 	var hitStatus string
@@ -657,8 +465,7 @@ func (h *Handler) getCachedSessionBundle(key, statusHint string) (apiSessionBund
 		return apiSessionBundle{}, false, err
 	}
 	bundle := buildDetailBundleFromAggregateRow(row)
-	if bundle.ArtifactPublicationStatus == "" &&
-		(statusHint == artifactStatusPublished || statusHint == artifactStatusUnpublished) {
+	if statusHint == artifactStatusUnpublished {
 		bundle.ArtifactPublicationStatus = statusHint
 	}
 	if realTraceID, err := h.lookupRealTraceID(row.SessionID, row.ArtifactID); err != nil {

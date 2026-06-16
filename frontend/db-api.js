@@ -12,6 +12,18 @@
     try { return JSON.parse(v); } catch { return null; }
   }
 
+  function friendlyFetchError(errors) {
+    const uniqueErrors = uniq(errors.map(e => String(e || '').trim()).filter(Boolean));
+    if (!uniqueErrors.length) return '接口请求失败';
+    if (uniqueErrors.every(e => /failed to fetch/i.test(e))) {
+      return '接口连接失败，请确认已登录并使用线上同域页面访问';
+    }
+    if (uniqueErrors.some(e => /non-json response/i.test(e))) {
+      return '接口返回了登录页或非 JSON 数据，请确认登录状态';
+    }
+    return uniqueErrors.join(' | ');
+  }
+
   function normalizeCustomTags(tags) {
     if (!tags) return {};
     if (typeof tags === 'string') return safeJSON(tags) || {};
@@ -28,14 +40,18 @@
 
   function candidateBases() {
     const manual = param('api_base') || param('apiBase');
+    if (manual) return uniq([manual]);
     const saved = isLocalEnv() ? localStorage.getItem('agenttrace.apiBase') : null;
     const origin = window.location.origin;
+    const originPort = window.location.port;
+    const originLooksLikeApi = !isLocalEnv() || originPort === '18080';
     const fallbacks = [];
     if (isLocalEnv()) {
       if (origin !== 'http://127.0.0.1:18080') fallbacks.push('http://127.0.0.1:18080');
       if (origin !== 'http://localhost:18080') fallbacks.push('http://localhost:18080');
+      fallbacks.push('https://agentic-aidp.bytedance.net/trace_sever');
     }
-    return uniq([manual, saved, origin, ...fallbacks]);
+    return uniq([saved, originLooksLikeApi ? origin : null, ...fallbacks]);
   }
 
   // 基础 path：取当前页面所在目录，用于把 "/api/..." 拼到正确的网关前缀下
@@ -58,20 +74,29 @@
       const url = base.replace(/\/$/, '') + finalPath;
       try {
         // same-origin 请求需要带 cookie 才能透传到上游 SSO。
-        const resp = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
+        const isCrossOrigin = new URL(url, window.location.href).origin !== window.location.origin;
+        const resp = await fetch(url, { cache: 'no-store', credentials: isCrossOrigin ? 'include' : 'same-origin' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ' + url);
-        resolvedBase = base;
-        if (isLocalEnv()) localStorage.setItem('agenttrace.apiBase', base);
         // 204 No Content 或空 body：视为"暂无数据"，返回 null 而非解析空 body 报错。
         if (resp.status === 204) return null;
         const text = await resp.text();
         if (!text) return null;
-        return JSON.parse(text);
+        const trimmed = text.trim();
+        if (trimmed.startsWith('<')) {
+          if (isLocalEnv() && localStorage.getItem('agenttrace.apiBase') === base) {
+            localStorage.removeItem('agenttrace.apiBase');
+          }
+          throw new Error('Non-JSON response @ ' + url);
+        }
+        const json = JSON.parse(text);
+        resolvedBase = base;
+        if (isLocalEnv()) localStorage.setItem('agenttrace.apiBase', base);
+        return json;
       } catch (err) {
         errors.push(err.message || String(err));
       }
     }
-    throw new Error(errors.join(' | '));
+    throw new Error(friendlyFetchError(errors));
   }
 
   function scoreBand(score) {
@@ -237,6 +262,9 @@
     const helper = window.AgentTraceEfficiency;
     const llmJudgeResult = raw.llm_judge_result || raw.llmJudgeResult || raw.llm_judge || raw.gpt55_judge_result || null;
     const persistedScore = parseOptionalScore(raw.score);
+    const rawRadar = raw.radar && typeof raw.radar === 'object' ? raw.radar : null;
+    const hasRadarEvidence = rawRadar && ['response', 'stability', 'thinking', 'resource', 'orchestration']
+      .some(key => typeof rawRadar[key] === 'number' && !Number.isNaN(rawRadar[key]));
 
     const session = {
       id: raw.id || raw.session_id,
@@ -257,7 +285,7 @@
       tool_calls: Number(raw.tool_calls || 0) || Number(raw.features?.tool_calls || 0),
       features: raw.features || {},
       rules: raw.rules || [],
-      radar: raw.radar || { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 },
+      radar: rawRadar,
       traces,
       terminated_by: raw.terminated_by || '',
       rule_score: raw.rule_score ?? raw.ruleScore ?? null,
@@ -277,16 +305,18 @@
       combined_score: raw.combined_score ?? raw.combinedScore ?? null,
     };
 
-    if (persistedScore !== null) {
-      session.score = persistedScore;
-      session.color = raw.color || scoreBand(session.score);
-      if (helper && session.radar) session.derived_rule_score = helper.adjustedScore(session);
-    } else if (helper && session.radar) {
-      session.score = helper.adjustedScore(session);
+    if (helper && session.radar && hasRadarEvidence) {
+      session.cached_score = persistedScore;
+      session.derived_rule_score = helper.adjustedScore(session);
+      session.score = session.derived_rule_score;
       session.color = helper.scoreColor(session.score);
+    } else if (persistedScore !== null) {
+      session.cached_score = persistedScore;
+      session.score = null;
+      session.color = raw.color || 'gray';
     } else {
-      session.score = parseOptionalScore(raw.score) ?? 0;
-      session.color = raw.color || scoreBand(session.score);
+      session.score = null;
+      session.color = raw.color || 'gray';
     }
     session.chip = raw.chip || chipText(session);
     return session;
@@ -296,7 +326,7 @@
     const params = new URLSearchParams({ limit: '2000' });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
-    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
+    params.set('artifact_status', 'unpublished');
     const payload = await fetchJSON('/api/session-bundles?' + params.toString());
     const sessions = (payload?.data || []).map(normalizeSession);
     return {
@@ -312,15 +342,38 @@
     const params = new URLSearchParams();
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
-    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
     return await fetchJSON('/api/dashboard-summary' + (params.toString() ? '?' + params.toString() : ''));
+  }
+
+  async function loadTopAnomalySessions(opts) {
+    const params = new URLSearchParams({ limit: '10' });
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    const payload = await fetchJSON('/api/top-anomaly-sessions?' + params.toString());
+    const sessions = (payload?.data || []).map(raw => {
+      const session = normalizeSession(raw);
+      session.__topAnomaly = true;
+      return session;
+    });
+    return {
+      sessions,
+      // Top anomaly 接口的 payload.total 在旧线上版本里可能是时间窗内 session 总数，
+      // 不是异常总数；这里用实际返回行数，避免 UI 显示“0 行，共 144 个异常”。
+      total: Number(payload?.anomaly_total ?? payload?.top_anomaly_total ?? payload?.filtered_total ?? sessions.length) || sessions.length,
+      limit: payload?.limit || 0,
+      offset: payload?.offset || 0,
+      topAnomalyOnly: true,
+      apiBase: resolvedBase,
+    };
   }
 
   async function loadSession(sessionId, opts) {
     const metaOnly = opts && opts.metaOnly;
     const params = new URLSearchParams();
     if (metaOnly) params.set('meta_only', '1');
-    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    params.set('artifact_status', 'unpublished');
     const qs = params.toString();
     const url = '/api/session-bundles/' + encodeURIComponent(sessionId) + (qs ? '?' + qs : '');
     const payload = await fetchJSON(url);
@@ -331,6 +384,7 @@
   window.AgentTraceDB = {
     loadSessions,
     loadDashboardSummary,
+    loadTopAnomalySessions,
     loadSession,
     getApiBase: function () { return resolvedBase || candidateBases()[0] || ''; },
     // buildUrl 把 "/api/x" 解析成与 fetchJSON 完全一致的最终 URL（含网关前缀），

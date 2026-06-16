@@ -160,15 +160,18 @@
   function getSessionQualityScores(session, fallbackRuleScore) {
     const llm = pickLLMResult(session);
     const ruleEvidence = hasRuleEvidence(session);
+    const realtimeRuleScore = clampScore(fallbackRuleScore);
     const persistedRule = firstScore([
       session?.rule_score,
       session?.rule_eval_score,
       session?.ruleEvalScore,
     ]);
-    const ruleScore = (persistedRule === 0 && !ruleEvidence)
-      ? clampScore(fallbackRuleScore)
-      : (persistedRule !== null ? persistedRule : clampScore(fallbackRuleScore));
-    const ruleSource = persistedRule !== null ? 'persisted' : (ruleScore !== null ? 'aggregate' : null);
+    const ruleScore = realtimeRuleScore !== null
+      ? realtimeRuleScore
+      : ((persistedRule === 0 && !ruleEvidence)
+        ? null
+        : persistedRule);
+    const ruleSource = realtimeRuleScore !== null ? 'realtime' : (persistedRule !== null ? 'persisted' : null);
     const rawLLMScore = firstScore([
       session?.llm_score,
       session?.llm_judge_score,
@@ -185,7 +188,7 @@
       session?.quality_score,
       session?.health_score,
     ]);
-    const storedCombined = sanitizeCombinedScore(session, rawStoredCombined, ruleScore, llmScore, llm);
+    const storedCombined = realtimeRuleScore !== null ? null : sanitizeCombinedScore(session, rawStoredCombined, ruleScore, llmScore, llm);
     const combinedScore = storedCombined !== null
       ? storedCombined
       : (llmScore !== null && ruleScore !== null

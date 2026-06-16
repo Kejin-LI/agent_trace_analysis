@@ -205,6 +205,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/session-bundles", h.listSessionBundles)
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
 		g.GET("/dashboard-summary", h.getDashboardSummary)
+		g.GET("/top-anomaly-sessions", h.getTopAnomalySessions)
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
