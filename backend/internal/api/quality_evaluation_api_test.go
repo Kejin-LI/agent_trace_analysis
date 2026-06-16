@@ -1,6 +1,11 @@
 package api
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
+)
 
 func TestFilterColumnsByAvailabilityPreservesExistingColumns(t *testing.T) {
 	available := map[string]struct{}{
@@ -50,5 +55,40 @@ func TestFilterAssignmentsByAvailabilityDropsUnknownColumns(t *testing.T) {
 	}
 	if got["session_id"] != "ses_123" || got["llm_eval_status"] != "running" {
 		t.Fatalf("expected required columns to survive filtering: %v", got)
+	}
+}
+
+func TestBuildLLMJudgeResultFallsBackToStructuredSummary(t *testing.T) {
+	score := 38
+	resolvedScore := 20
+	row := model.StgSessionQualityEvaluation{
+		LLMScore:            &score,
+		LLMModel:            "gpt-5.5",
+		LLMSummary:          "问题未解决",
+		LLMScoreBasis:       "根据会话证据判分",
+		LLMResolved:         "未解决",
+		LLMResolvedScore:    &resolvedScore,
+		LLMIntentMatch:      "部分偏离",
+		LLMEfficiencyFeel:   "偏低效",
+		LLMSentiment:        "中性",
+		LLMActionability:    "空泛不可执行",
+		LLMHallucinationRisk:"中",
+	}
+
+	got := buildLLMJudgeResult(row)
+	raw, ok := got.(json.RawMessage)
+	if !ok || len(raw) == 0 {
+		t.Fatalf("expected fallback llm judge result, got=%T %#v", got, got)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal fallback result: %v", err)
+	}
+	if decoded["reason"] != "问题未解决" {
+		t.Fatalf("unexpected fallback reason: %#v", decoded)
+	}
+	if decoded["model_label"] != "gpt-5.5" {
+		t.Fatalf("unexpected fallback model label: %#v", decoded)
 	}
 }

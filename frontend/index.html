@@ -685,6 +685,72 @@
       };
     }
 
+    function setCapHintMessage(message) {
+      const capHintEl = document.getElementById('cap-hint');
+      if (!capHintEl) return;
+      capHintEl.textContent = message || '';
+      capHintEl.classList.toggle('hidden', !message);
+    }
+
+    function setDashboardLoadingState(label, opts = {}) {
+      const usingCache = !!opts.usingCache;
+      const issueCountEl = document.getElementById('hdr-issue-count');
+      if (issueCountEl) issueCountEl.textContent = '— 个';
+      const avgScoreEl = document.getElementById('hdr-avg-score');
+      if (avgScoreEl) avgScoreEl.textContent = '—';
+      const totalEl = document.getElementById('hdr-total');
+      if (totalEl) totalEl.textContent = '—';
+      const publishedRateEl = document.getElementById('hdr-published-rate');
+      if (publishedRateEl) publishedRateEl.textContent = '—';
+      const anomalyEl = document.getElementById('hdr-anomaly');
+      if (anomalyEl) anomalyEl.textContent = '—';
+      const topIssueEl = document.getElementById('hdr-top-issue');
+      if (topIssueEl) {
+        topIssueEl.innerHTML = usingCache
+          ? ' 正在基于最近缓存刷新最新统计，请以即将更新的数字为准。'
+          : ` 当前正在切换到${escapeHtml(label)}并重新统计，请稍候。`;
+      }
+      setCapHintMessage(usingCache
+        ? `当前先展示最近一次缓存结果，正在刷新 ${label} 的最新头部统计和明细列表。`
+        : `正在刷新 ${label} 的头部统计和明细列表，请稍候。`);
+    }
+
+    function renderSummaryPreview(summary, opts = {}) {
+      if (!summary) return;
+      const label = opts.label || '';
+      const usingCache = !!opts.usingCache;
+      const total = Number(summary.total || 0) || 0;
+      const anomalyCount = Number(summary.anomaly_count || 0) || 0;
+      const pendingCount = Number(summary.pending_count || 0) || 0;
+      const analyzedTotal = Number(summary.analyzed_count || 0) || 0;
+      const rawPublishedRate = summary.published_rate;
+      const publishedRate = rawPublishedRate !== undefined && rawPublishedRate !== null
+        ? Number(rawPublishedRate)
+        : null;
+      const avgScore = summary.avg_score;
+      const hasDisplayAvgScore = avgScore !== null && avgScore !== undefined && analyzedTotal > 0;
+      const issueCountEl = document.getElementById('hdr-issue-count');
+      if (issueCountEl) issueCountEl.textContent = `${anomalyCount} 个`;
+      const avgScoreEl = document.getElementById('hdr-avg-score');
+      if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
+      const totalEl = document.getElementById('hdr-total');
+      if (totalEl) totalEl.textContent = total;
+      const publishedRateEl = document.getElementById('hdr-published-rate');
+      if (publishedRateEl) publishedRateEl.textContent = total && publishedRate !== null && Number.isFinite(publishedRate) ? `${publishedRate}%` : '—';
+      const anomalyEl = document.getElementById('hdr-anomaly');
+      if (anomalyEl) anomalyEl.textContent = anomalyCount;
+      const topIssueEl = document.getElementById('hdr-top-issue');
+      if (topIssueEl) {
+        const pendingHint = pendingCount > 0
+          ? `另有 <span class="num-mono">${pendingCount}</span> 个 session 指标待分析（暂未纳入健康统计）。`
+          : '';
+        topIssueEl.innerHTML = ` 头部统计已切到${escapeHtml(label)}的最新结果，明细列表仍在加载中。${pendingHint}`;
+      }
+      setCapHintMessage(usingCache
+        ? `已先展示缓存中的 ${label} 数据，并已拿到最新头部真汇总；下方明细列表仍在刷新中。`
+        : `头部统计已切到 ${label} 的最新真汇总；下方明细列表仍在加载中，请稍候。`);
+    }
+
     async function apply(range) {
       const { query, customFrom, customTo, key, cacheKey } = currentRangeQuery(range);
       const label = (range === 'custom' && customFrom && customTo)
@@ -707,26 +773,29 @@
         window.dashboardMeta = cached.meta;
         appliedRangeKey = key;
         window.renderDashboard(window.dashboardData, window.dashboardMeta);
-        return;
+        setDashboardLoadingState(label, { usingCache: true });
+      } else {
+        setDashboardLoadingState(label);
       }
 
       const seq = ++applySeq;
       const summaryPromise = window.AgentTraceDB.loadDashboardSummary
         ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
         : Promise.resolve(null);
-      const payload = await window.AgentTraceDB.loadSessions(query);
+      const sessionsPromise = window.AgentTraceDB.loadSessions(query);
+      const summary = await summaryPromise;
+      if (seq === applySeq && summary) {
+        window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, { summary });
+        renderSummaryPreview(summary, { label, usingCache: !!cached });
+      }
+      const payload = await sessionsPromise;
       if (seq !== applySeq) return;
       window.dashboardData = (payload.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
-      window.dashboardMeta = {
+      window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, {
         total: Number(payload.total || 0) || window.dashboardData.length,
         sampleCount: window.dashboardData.length,
-      };
-      rangeCache.set(cacheKey, { sessions: window.dashboardData, meta: window.dashboardMeta });
+      });
       appliedRangeKey = key;
-      window.renderDashboard(window.dashboardData, window.dashboardMeta);
-      const summary = await summaryPromise;
-      if (seq !== applySeq || !summary) return;
-      window.dashboardMeta = Object.assign({}, window.dashboardMeta, { summary });
       rangeCache.set(cacheKey, { sessions: window.dashboardData, meta: window.dashboardMeta });
       window.renderDashboard(window.dashboardData, window.dashboardMeta);
     }
