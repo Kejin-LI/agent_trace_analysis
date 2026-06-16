@@ -94,6 +94,8 @@
   .pub-pill { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 9999px; font-size: 10px; font-weight: 500; letter-spacing: 0.01em; white-space: nowrap; }
   .pub-pill.is-published { color: var(--apple-green); background: rgba(52,199,89,0.12); }
   .pub-pill.is-unpublished { color: var(--text-secondary); background: rgba(120,120,128,0.12); }
+  .metric-pending { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); white-space: nowrap; }
+  .metric-pending .spinner { width: 10px; height: 10px; border-radius: 9999px; border: 1.5px solid rgba(0,113,227,0.16); border-top-color: var(--apple-blue); animation: loaderSpin .9s linear infinite; }
   .quality-card {
     background: rgba(0,0,0,0.035);
     border: 1px solid rgba(0,0,0,0.035);
@@ -412,11 +414,11 @@
     <div class="flex items-center gap-2"></div>
   </section>
 
-  <!-- ===== Row 1: Rule Radar + LLM Evaluation ===== -->
+  <!-- ===== Row 1: Rule Radar ===== -->
   <section class="grid grid-cols-12 gap-5">
 
     <!-- Radar -->
-    <div class="glass rounded-2xl p-6 col-span-6 lift flex flex-col">
+    <div class="glass rounded-2xl p-6 col-span-12 lift flex flex-col">
       <div class="flex items-center justify-between mb-2 min-h-[46px]">
         <div>
           <div class="text-[12px] text-[--text-tertiary]">规则评估雷达 · 5 维</div>
@@ -499,49 +501,6 @@
       </div>
     </div>
 
-    <!-- GPT 语义质量 -->
-    <div class="col-span-6 glass rounded-2xl p-6 lift flex flex-col">
-      <div class="flex items-center justify-between mb-2 min-h-[46px]">
-        <div>
-          <div class="text-[12px] text-[--text-tertiary]">GPT-5.5 评估雷达 · 6 维</div>
-          <div class="text-[20px] font-semibold mt-0.5">GPT均分 <span class="num-mono text-[--apple-purple]" id="kpi-llm-score">—</span></div>
-        </div>
-        <div class="text-[11px] text-[--text-tertiary]">
-          <span class="num-mono" id="llm-evaluated-n">—</span> 已评估（<span class="num-mono text-[--apple-purple]" id="kpi-llm-coverage">—</span> 覆盖率）
-        </div>
-      </div>
-
-      <div class="relative h-[240px]">
-        <svg viewBox="0 0 240 240" class="w-full h-[240px]">
-          <g transform="translate(120,120)">
-            <polygon class="radar-grid" points="0,-100 87,-50 87,50 0,100 -87,50 -87,-50"/>
-            <polygon class="radar-grid" points="0,-75 65,-38 65,38 0,75 -65,38 -65,-38"/>
-            <polygon class="radar-grid" points="0,-50 43,-25 43,25 0,50 -43,25 -43,-25"/>
-            <polygon class="radar-grid" points="0,-25 22,-13 22,13 0,25 -22,13 -22,-13"/>
-            <line class="radar-axis" x1="0" y1="0" x2="0" y2="-100"/>
-            <line class="radar-axis" x1="0" y1="0" x2="87" y2="-50"/>
-            <line class="radar-axis" x1="0" y1="0" x2="87" y2="50"/>
-            <line class="radar-axis" x1="0" y1="0" x2="0" y2="100"/>
-            <line class="radar-axis" x1="0" y1="0" x2="-87" y2="50"/>
-            <line class="radar-axis" x1="0" y1="0" x2="-87" y2="-50"/>
-            <polygon class="llm-radar-area" id="llm-radar-area" points="0,0 0,0 0,0 0,0 0,0 0,0"/>
-            <circle id="llm-radar-d-resolved" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <circle id="llm-radar-d-intent_match" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <circle id="llm-radar-d-efficiency_feel" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <circle id="llm-radar-d-sentiment" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <circle id="llm-radar-d-actionability" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <circle id="llm-radar-d-hallucination_risk" cx="0" cy="0" r="3" fill="#BF5AF2"/>
-            <text x="0" y="-110" text-anchor="middle" font-size="10.5" fill="#6E6E73">解决 <tspan id="llm-radar-l-resolved" class="num-mono">—</tspan></text>
-            <text x="98" y="-52" font-size="10.5" fill="#6E6E73">意图 <tspan id="llm-radar-l-intent_match" class="num-mono">—</tspan></text>
-            <text x="98" y="57" font-size="10.5" fill="#6E6E73">效率 <tspan id="llm-radar-l-efficiency_feel" class="num-mono">—</tspan></text>
-            <text x="0" y="116" text-anchor="middle" font-size="10.5" fill="#6E6E73">情绪 <tspan id="llm-radar-l-sentiment" class="num-mono">—</tspan></text>
-            <text x="-98" y="57" text-anchor="end" font-size="10.5" fill="#6E6E73">可执行 <tspan id="llm-radar-l-actionability" class="num-mono">—</tspan></text>
-            <text x="-98" y="-52" text-anchor="end" font-size="10.5" fill="#6E6E73">幻觉 <tspan id="llm-radar-l-hallucination_risk" class="num-mono">—</tspan></text>
-          </g>
-        </svg>
-      </div>
-      <div class="grid grid-cols-6 gap-2 mt-3 text-[11px] min-h-[36px]" id="llm-dim-grid"></div>
-    </div>
   </section>
 
   <!-- ===== Row 2: Combined Quality Conclusion ===== -->
@@ -1184,6 +1143,10 @@
         </div>`;
     }
     function hasPersistedQualityScore(s) {
+      if (window.AgentTraceTags?.getSessionQualityScores) {
+        const quality = window.AgentTraceTags.getSessionQualityScores(s, null);
+        return quality.ruleScore !== null || quality.llmScore !== null || quality.combinedScore !== null;
+      }
       return [s?.combined_score, s?.quality_score, s?.health_score, s?.rule_score, s?.llm_score, s?.llm_judge_score]
         .some(v => v !== null && v !== undefined && v !== '');
     }
@@ -1350,7 +1313,15 @@
       const color = scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const ano = buildAnomalies(s);
-      const turnsN = (typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0);
+      const traceCount = Number(s.trace_count || 0);
+      const turnsRaw = Number(s.turns || 0);
+      const turnsN = traceCount > 0 ? traceCount : turnsRaw;
+      const durationMs = Number(s.duration_ms || 0);
+      const hasTraceSkeleton = traceCount > 0 || !!s.trace || ((s.traces || []).length > 0);
+      const hasPartialMetrics = hasTraceSkeleton || !!s.started_at_ms || !isPending;
+      const isTurnsCalculating = !isPending && turnsRaw <= 0 && hasPartialMetrics;
+      const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
+      const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="spinner"></span><span class="text-[--text-tertiary]">${label}</span></span>`;
       const turnsClass = (turnsN >= 3 && turnsN <= 9) ? '' : 'text-[--apple-orange]';
 
       let chipsHtml = '<span class="text-[--text-tertiary]">—</span>';
@@ -1388,8 +1359,8 @@
         </td>
         <td class="py-3.5">${pubPill}</td>
         <td class="py-3.5">${chipsHtml}</td>
-        <td class="py-3.5 text-right num-mono">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : fmtDuration(s.duration_ms)}</td>
-        <td class="py-3.5 text-right num-mono ${turnsClass}">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : turnsN}</td>
+        <td class="py-3.5 text-right num-mono">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : (isDurationCalculating ? metricPendingHtml() : fmtDuration(durationMs))}</td>
+        <td class="py-3.5 text-right num-mono ${turnsClass}">${isPending ? '<span class="text-[--text-tertiary]">—</span>' : (isTurnsCalculating ? metricPendingHtml() : turnsN)}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
           <a href="${detailHref}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">

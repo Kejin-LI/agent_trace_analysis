@@ -66,21 +66,38 @@
     );
   }
 
-  // 当持久化总分=0 时,只有同时存在分项佐证或评测成功状态,才认定为"有效 0";
-  // 否则视为脏数据(如 schema 漂移导致的空记录),按未评估处理。
-  function hasLLMEvidence(session, llm) {
+  function hasScoreEvidence(value) {
+    return clampScore(value) !== null;
+  }
+
+  // 判定一个 GPT 分数是否为「真实评测」。仅当存在至少一个真实的分项分数时才算数。
+  // 故意不把 llm_judge_model / llm_evaluated_at / llm_eval_version 这类元数据，
+  // 以及空的 reason/summary 当成证据：失败/脏的评测行也会带这些元数据，但分项分全为 NULL，
+  // 若据此把总分 0 当成有效 GPT 分，会覆盖健康的规则分（线上大盘综合健康度恒为 0 的根因）。
+  function hasLLMScoreEvidence(session, llm) {
     const status = String(session?.llm_eval_status || '').toLowerCase();
     if (status === 'succeeded' || status === 'success') return true;
-    const dimScores = [
-      session?.llm_sentiment_score, session?.llm_resolved_score,
-      session?.llm_intent_match_score, session?.llm_efficiency_feel_score,
-      session?.llm_actionability_score, session?.llm_hallucination_risk_score,
-      llm?.sentiment_score, llm?.resolved_score, llm?.intent_match_score,
-      llm?.efficiency_feel_score, llm?.actionability_score, llm?.hallucination_risk_score,
-    ];
-    if (dimScores.some(v => clampScore(v) !== null)) return true;
-    if (llm && (llm.reason || llm.score_basis || llm.summary)) return true;
-    return false;
+    const nested = llm?.dimension_scores || llm?.scores || llm?.['分项分数'] || null;
+    return (
+      hasScoreEvidence(llm?.sentiment_score) ||
+      hasScoreEvidence(llm?.resolved_score) ||
+      hasScoreEvidence(llm?.intent_match_score) ||
+      hasScoreEvidence(llm?.efficiency_feel_score) ||
+      hasScoreEvidence(llm?.actionability_score) ||
+      hasScoreEvidence(llm?.hallucination_risk_score) ||
+      hasScoreEvidence(nested?.sentiment) ||
+      hasScoreEvidence(nested?.resolved) ||
+      hasScoreEvidence(nested?.intent_match) ||
+      hasScoreEvidence(nested?.efficiency_feel) ||
+      hasScoreEvidence(nested?.actionability) ||
+      hasScoreEvidence(nested?.hallucination_risk) ||
+      hasScoreEvidence(session?.llm_sentiment_score) ||
+      hasScoreEvidence(session?.llm_resolved_score) ||
+      hasScoreEvidence(session?.llm_intent_match_score) ||
+      hasScoreEvidence(session?.llm_efficiency_feel_score) ||
+      hasScoreEvidence(session?.llm_actionability_score) ||
+      hasScoreEvidence(session?.llm_hallucination_risk_score)
+    );
   }
 
   function hasRuleEvidence(session) {
@@ -97,39 +114,47 @@
     return n;
   }
 
+  function sanitizeLLMScore(session, llmScore, llm) {
+    return takeIfNonZeroOrEvidenced(llmScore, hasLLMScoreEvidence(session, llm));
+  }
+
+  function sanitizeCombinedScore(session, combinedScore, ruleScore, llmScore, llm) {
+    if (combinedScore === null) return null;
+    if (combinedScore !== 0) return combinedScore;
+    if (llmScore !== null) return combinedScore;
+    if (!hasRuleEvidence(session) && !hasLLMScoreEvidence(session, llm)) return null;
+    if (ruleScore !== null && ruleScore > 0) return null;
+    return combinedScore;
+  }
+
   function getSessionQualityScores(session, fallbackRuleScore) {
     const llm = pickLLMResult(session);
-    const llmEvidence = hasLLMEvidence(session, llm);
     const ruleEvidence = hasRuleEvidence(session);
-
     const persistedRule = firstScore([
-      session?.rule_score, session?.rule_eval_score, session?.ruleEvalScore,
+      session?.rule_score,
+      session?.rule_eval_score,
+      session?.ruleEvalScore,
     ]);
-    // 持久化规则分=0 但无任何规则佐证时,回退到实时分(防脏数据覆盖)
     const ruleScore = (persistedRule === 0 && !ruleEvidence)
       ? clampScore(fallbackRuleScore)
       : (persistedRule !== null ? persistedRule : clampScore(fallbackRuleScore));
-
-    const persistedLLM = [
-      session?.llm_score, session?.llm_judge_score, session?.llmJudgeScore,
-      session?.gpt55_score, llm?.score, llm?.total_score,
-      llm?.overall_score, llm?.quality_score,
-    ];
-    let llmScore = null;
-    for (const v of persistedLLM) {
-      const n = takeIfNonZeroOrEvidenced(v, llmEvidence);
-      if (n !== null) { llmScore = n; break; }
-    }
-
-    const persistedCombined = [
-      session?.combined_score, session?.quality_score, session?.health_score,
-    ];
-    let storedCombined = null;
-    for (const v of persistedCombined) {
-      const n = takeIfNonZeroOrEvidenced(v, llmEvidence || ruleEvidence);
-      if (n !== null) { storedCombined = n; break; }
-    }
-
+    const rawLLMScore = firstScore([
+      session?.llm_score,
+      session?.llm_judge_score,
+      session?.llmJudgeScore,
+      session?.gpt55_score,
+      llm?.score,
+      llm?.total_score,
+      llm?.overall_score,
+      llm?.quality_score,
+    ]);
+    const llmScore = sanitizeLLMScore(session, rawLLMScore, llm);
+    const rawStoredCombined = firstScore([
+      session?.combined_score,
+      session?.quality_score,
+      session?.health_score,
+    ]);
+    const storedCombined = sanitizeCombinedScore(session, rawStoredCombined, ruleScore, llmScore, llm);
     const combinedScore = storedCombined !== null
       ? storedCombined
       : (llmScore !== null && ruleScore !== null
@@ -190,12 +215,14 @@
       session?.gpt55_judge_result
     );
     if (full) return collectLLMTags(full);
-    // 无完整 result 时,需要至少有一项分项维度作为佐证才生成标签;
-    // 防止脏数据(总分存在、维度全空)被规则降为"幻觉风险高"等假标签。
-    if (!hasLLMEvidence(session, null)) return [];
-    if (firstScore([session?.llm_score, session?.llm_judge_score, session?.llmJudgeScore]) === null) return [];
+    const llmScore = sanitizeLLMScore(
+      session,
+      firstScore([session?.llm_score, session?.llm_judge_score, session?.llmJudgeScore]),
+      null
+    );
+    if (llmScore === null) return [];
     return collectLLMTags({
-      score: session?.llm_score ?? session?.llm_judge_score ?? session?.llmJudgeScore,
+      score: llmScore,
       sentiment_score: session?.llm_sentiment_score,
       resolved_score: session?.llm_resolved_score,
       intent_match_score: session?.llm_intent_match_score,
@@ -243,6 +270,8 @@
     mergeTags,
     buildSessionTags,
     getSessionQualityScores,
+    hasLLMScoreEvidence,
+    hasLLMEvidence: hasLLMScoreEvidence,
     dimensionOf,
   };
 })();
