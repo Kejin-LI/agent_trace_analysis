@@ -1,0 +1,78 @@
+backend/internal/api/quality_evaluation_api.go
+  s_4040379d660487::t_7639632cfa8d31 42-86,138-175,187-219,242-243,252-256,314-384
+frontend/index.html
+  s_1c787db1d003ad::t_caa199aecf1093 412
+  s_1c787db1d003ad::t_489b651165066d 1593
+  s_1c787db1d003ad::t_25a8de05121369 1420-1421
+backend/internal/api/llm_judge_async_api.go
+  s_4040379d660487::t_97ae5384ee634e 186-360
+frontend/sessions.html
+  s_1c787db1d003ad::t_a7e92c2e838a0a 710-711
+  s_1c787db1d003ad::t_659fbe86d90091 675
+  s_1c787db1d003ad::t_8d314b123595c3 377-379
+frontend/range-picker.js
+  s_1c787db1d003ad::t_1180764008cd49 75
+  s_1c787db1d003ad::t_1ddbde704530ce 196-205
+  s_1c787db1d003ad::t_eb40a6d72da93c 344
+  s_1c787db1d003ad::t_d9efcc4e4700c3 156-161
+backend/internal/api/bundle_api.go
+  s_10f67af67f2429::t_ec2211368a6d52 113,229,242,245
+  s_10f67af67f2429::t_8ceff9b35d7367 231
+  s_1c787db1d003ad::t_3299e58e21a8f7 111-112,119-121,248,252-262
+  s_10f67af67f2429::t_a32bbdbdcb793c 48
+  s_1c787db1d003ad::t_4c3e21ac5b38e7 726,731
+  s_10f67af67f2429::t_45169d227d7486 123,164,226-227,230,232-238,240-241,243,246-247,249
+  s_a6adef089d8ebf::t_31f10ea1819903 114,122,244,250-251
+frontend/clusters.html
+  s_1c787db1d003ad::t_618670545669b1 381
+  s_1c787db1d003ad::t_19b70d0e7c3d63 711-712
+  s_1c787db1d003ad::t_56d4e6fd6961fe 307
+backend/internal/api/quality_evaluation_api_test.go
+  s_4040379d660487::t_72a9516535aabd 38-41
+  s_4040379d660487::t_90120c5407d482 1-37,42-54
+frontend/tag-system.js
+  s_10f67af67f2429::t_4c08aabc6d7e98 118,121,125,132-133,138-140,157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1d590793ac29d0b077357b266b64f22913499663",
+  "prompts": {},
+  "sessions": {
+    "s_10f67af67f2429": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a311bc9ba34f71a0fe48985",
+        "model": "gpt-5.4__dev"
+      },
+      "human_author": "li.kejin <li.kejin@bytedance.com>"
+    },
+    "s_1c787db1d003ad": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a310eba131a8a6dfd515773",
+        "model": "openrouter-3o__dev"
+      },
+      "human_author": "li.kejin <li.kejin@bytedance.com>"
+    },
+    "s_4040379d660487": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a311cfdba34f71a0fe48a99",
+        "model": "gpt-5.4__dev",
+        "display_model_name": "GPT-5.4"
+      },
+      "human_author": "li.kejin <li.kejin@bytedance.com>"
+    },
+    "s_a6adef089d8ebf": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a30ffd4131a8a6dfd515210",
+        "model": "gpt-5.4__dev"
+      },
+      "human_author": "li.kejin <li.kejin@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
