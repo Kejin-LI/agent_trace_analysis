@@ -57,7 +57,7 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
 
-	publishedCount, unpublishedCount, err := h.fetchDashboardPublicationCounts(ctx, c.GetHeader("Cookie"), tr, status)
+	publishedCount, unpublishedCount, err := h.fetchDashboardPublicationCounts(ctx, h.effectiveCookie(c), tr, status)
 	if err != nil {
 		if isUpstreamAuthMissing(err) {
 			log.Printf("dashboard summary: upstream publication counts unavailable, fallback to aggregate cache err=%v", err)

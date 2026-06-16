@@ -39,6 +39,26 @@ type Handler struct {
 	aggregatorInitError string
 }
 
+func (h *Handler) effectiveCookie(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if cookie := strings.TrimSpace(c.GetHeader("Cookie")); cookie != "" {
+		return cookie
+	}
+	if h != nil && h.aggregator != nil {
+		if cached := strings.TrimSpace(h.aggregator.currentCookie()); cached != "" {
+			path := ""
+			if c.Request != nil && c.Request.URL != nil {
+				path = c.Request.URL.Path
+			}
+			log.Printf("api: request cookie missing, using cached cookie fallback path=%s len=%d", path, len(cached))
+			return cached
+		}
+	}
+	return ""
+}
+
 // New 构造依赖 DB 的 Handler（fornax / tos 模式）。
 func New(db *gorm.DB) *Handler {
 	h := &Handler{db: db, fetcher: tracelog.NewFetcher(), ark: ark.NewClient(), llmJudge: llmjudge.NewClient()}
