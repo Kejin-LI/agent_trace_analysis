@@ -406,7 +406,7 @@
     <div>
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">DASHBOARD · <span id="hdr-today">2026-05-25</span></div>
       <h1 id="hdr-title" class="text-[34px] font-semibold tracking-tight leading-tight truncate max-w-[820px]"><span id="hdr-greet">早安 ☀️</span> <span id="hdr-rangelabel">最近 7 天</span>有 <span class="text-[--apple-orange]" id="hdr-issue-count">— 个</span> 异常会话需要关注</h1>
-      <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">系统整体健康度 <span class="text-[--text-primary] font-medium" id="hdr-avg-score">—</span>，共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
+      <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">系统整体健康度 <span class="text-[--text-primary] font-medium" id="hdr-avg-score">—</span>，共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，发布率 <span class="text-[--text-primary] font-medium num-mono" id="hdr-published-rate">—</span>，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
       <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">⚠️ 数据量较大，当前仅分析最新的 2000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。</p>
     </div>
     <div class="flex items-center gap-2"></div>
@@ -541,137 +541,6 @@
         </svg>
       </div>
       <div class="grid grid-cols-6 gap-2 mt-3 text-[11px] min-h-[36px]" id="llm-dim-grid"></div>
-    </div>
-  </section>
-
-  <!-- ===== Row 2: Combined Quality Conclusion ===== -->
-  <section class="glass rounded-2xl p-5 lift">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <div class="text-[12px] text-[--text-tertiary]">综合结论 · <span class="kpi-rangelabel">最近 7 天</span></div>
-        <div class="text-[17px] font-semibold mt-0.5">会话质量综合评估</div>
-      </div>
-      <div class="text-[10px] text-[--text-tertiary] num-mono"><span id="kpi-total">—</span> sessions</div>
-    </div>
-
-    <div class="grid grid-cols-12 gap-5">
-      <div class="col-span-4">
-        <div class="grid grid-cols-2 gap-2">
-          <div class="quality-card">
-            <div class="text-[10.5px] text-[--text-tertiary]">综合健康度</div>
-            <div class="num-mono text-[22px] font-semibold mt-1" id="kpi-combined-score">—</div>
-          </div>
-          <div class="quality-card">
-            <div class="text-[10.5px] text-[--text-tertiary]">规则均分</div>
-            <div class="num-mono text-[22px] font-semibold mt-1" id="kpi-rule-score">—</div>
-          </div>
-        </div>
-        <div class="mt-3 rounded-xl bg-black/[0.028] border border-black/[0.035] p-3 text-[11.5px] text-[--text-secondary] leading-relaxed">
-          综合健康度优先展示规则与 GPT-5.5 的融合结果；当 GPT-5.5 尚未覆盖时，自动降级为规则评估分。
-        </div>
-      </div>
-
-      <div class="col-span-4">
-      <div class="pt-3 border-t border-black/5">
-        <div class="flex items-center justify-between mb-2">
-          <div class="text-[11px] text-[--text-secondary]">执行成本</div>
-          <div class="text-[10px] text-[--text-tertiary]">客观规则信号</div>
-        </div>
-        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
-          <div class="grid grid-cols-[1fr_auto] gap-2 items-baseline">
-            <dt class="text-[--text-secondary] help">
-              P95 时延
-            <div class="tip">
-              <div class="tip-title">⏱ 端到端 95 分位时延</div>
-              所有 session 的 duration_ms 排序后第 95 分位，代表"几乎全部用户"的体验下限：5% 的会话比这更慢。
-              <div class="tip-formula">P95 = sort(durations)[⌈N × 0.95⌉ − 1]</div>
-            </div>
-            </dt>
-            <dd class="text-right font-semibold num-mono tabular-nums" id="kpi-p95">—</dd>
-          </div>
-          <div class="grid grid-cols-[1fr_auto] gap-2 items-baseline">
-            <dt class="text-[--text-secondary] help">
-              P50 时延
-            <div class="tip">
-              <div class="tip-title">⏱ 端到端中位时延</div>
-              典型用户体验：一半 session 比这快、一半比这慢。和 P95 配合看，差距越大说明长尾越严重。
-              <div class="tip-formula">P50 = median(durations)</div>
-            </div>
-            </dt>
-            <dd class="text-right font-semibold num-mono tabular-nums" id="kpi-p50">—</dd>
-          </div>
-          <div class="grid grid-cols-[1fr_auto] gap-2 items-baseline">
-            <dt class="text-[--text-secondary] help">
-              总成本
-            <div class="tip">
-              <div class="tip-title">💰 累计花费</div>
-              所有 session 的 LLM token 累计费用估算，按 $1.5 / 1M token 折算（input + output 不分开计价）。
-              <div class="tip-formula">Σ (input + output) × $1.5 / 1M</div>
-            </div>
-            </dt>
-            <dd class="text-right font-semibold num-mono tabular-nums">$<span id="kpi-cost">—</span></dd>
-          </div>
-          <div class="grid grid-cols-[1fr_auto] gap-2 items-baseline">
-            <dt class="text-[--text-secondary] help">
-              Token
-            <div class="tip">
-              <div class="tip-title">🔡 累计 Token 用量</div>
-              所有 session 的 input_tokens + output_tokens 之和。1M = 100 万。
-              <div class="tip-formula">Σ (input_tokens + output_tokens)</div>
-            </div>
-            </dt>
-            <dd class="text-right font-semibold num-mono tabular-nums"><span id="kpi-tokens">—</span></dd>
-          </div>
-        </dl>
-      </div>
-      </div>
-
-      <div class="col-span-4">
-      <div class="pt-3 border-t border-black/5">
-        <div class="flex items-center justify-between mb-2">
-          <div class="text-[11px] text-[--text-secondary] help">
-            健康度分档
-            <div class="tip">
-              <div class="tip-title">🎯 健康度分档（基于综合评分）</div>
-              按每个 session 的健康度评分落入档位，统计当前窗口下的分布。
-              <div class="tip-row"><span class="tip-good">≥ 85</span><span>健康</span></div>
-              <div class="tip-row"><span class="tip-warn">70–84</span><span>注意</span></div>
-              <div class="tip-row"><span style="color:#BF5AF2">50–69</span><span>亚健康</span></div>
-              <div class="tip-row"><span class="tip-bad">&lt; 50</span><span>严重</span></div>
-            </div>
-          </div>
-          <div class="text-[10px] text-[--text-tertiary] num-mono">分布</div>
-        </div>
-        <div class="h-1.5 rounded-full overflow-hidden flex bg-black/[0.04]" id="band-bar">
-          <div class="h-full bg-[--apple-green]"  style="width:0%" data-band="green"></div>
-          <div class="h-full bg-[--apple-orange]" style="width:0%" data-band="orange"></div>
-          <div class="h-full bg-[--apple-purple]" style="width:0%" data-band="purple"></div>
-          <div class="h-full bg-[--apple-red]"    style="width:0%" data-band="red"></div>
-        </div>
-        <div class="grid grid-cols-4 gap-2 mt-2 text-[11px]">
-          <div class="flex items-center gap-1.5">
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
-            <span class="text-[--text-secondary]">健康</span>
-            <span class="num-mono font-semibold ml-auto" id="band-green">—</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-[--apple-orange]"></span>
-            <span class="text-[--text-secondary]">注意</span>
-            <span class="num-mono font-semibold ml-auto" id="band-orange">—</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-[--apple-purple]"></span>
-            <span class="text-[--text-secondary]">亚健康</span>
-            <span class="num-mono font-semibold ml-auto" id="band-purple">—</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-[--apple-red]"></span>
-            <span class="text-[--text-secondary]">严重</span>
-            <span class="num-mono font-semibold ml-auto" id="band-red">—</span>
-          </div>
-        </div>
-      </div>
-      </div>
     </div>
   </section>
 
@@ -1294,6 +1163,7 @@
       document.getElementById('hdr-issue-count').textContent = '0 个';
       document.getElementById('hdr-avg-score').textContent = '-';
       document.getElementById('hdr-total').textContent = '0';
+      document.getElementById('hdr-published-rate').textContent = '—';
       document.getElementById('hdr-anomaly').textContent = '0';
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) topIssueEl.textContent = '没有数据可供分析。';
@@ -1459,15 +1329,18 @@
       const analyzedTotal = analyzed.length;
 
       const qualityScores = analyzed.map(getQualityScores);
+      const allQualityScores = sessions.map(getQualityScores);
       const scores = qualityScores.map(q => q.combinedScore).filter(v => v !== null && v !== undefined);
       const ruleScores = qualityScores.map(q => q.ruleScore).filter(v => v !== null && v !== undefined);
-      const llmScores = qualityScores.map(q => q.llmScore).filter(v => v !== null && v !== undefined);
+      const llmScores = allQualityScores.map(q => q.llmScore).filter(v => v !== null && v !== undefined);
+      const publishedCount = sessions.filter(s => s.artifact_publication_status !== 'unpublished').length;
+      const publishedRate = total ? Math.round(publishedCount / total * 100) : 0;
       const durations = analyzed.map(s => s.duration_ms || 0);
       const totalTokens = analyzed.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
       const avgScore = avg(scores);
       const avgRuleScore = avg(ruleScores);
       const avgLLMScore = avg(llmScores);
-      const llmCoverage = analyzedTotal ? Math.round(llmScores.length / analyzedTotal * 100) : 0;
+      const llmCoverage = total ? Math.round(llmScores.length / total * 100) : 0;
 
       // 分档计数
       const band = { green: 0, orange: 0, purple: 0, red: 0 };
@@ -1508,7 +1381,7 @@
       const avgLLMDims = {};
       const llmDimCount = {};
       LLM_DIMENSIONS.forEach(dim => { avgLLMDims[dim.key] = 0; llmDimCount[dim.key] = 0; });
-      analyzed.forEach(s => {
+      sessions.forEach(s => {
         const llm = pickLLMResult(s);
         if (!llm) return;
         LLM_DIMENSIONS.forEach(dim => {
@@ -1528,6 +1401,7 @@
       if (issueCountEl) issueCountEl.textContent = `${anomalyCount} 个`;
       document.getElementById('hdr-avg-score').textContent = analyzedTotal ? Math.round(avgScore) : '—';
       document.getElementById('hdr-total').textContent = total;
+      document.getElementById('hdr-published-rate').textContent = total ? `${publishedRate}%` : '—';
       document.getElementById('hdr-anomaly').textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {
@@ -1556,7 +1430,8 @@
       renderRadar(avgRadar);
 
       // ===== 核心指标 =====
-      document.getElementById('kpi-total').textContent = total;
+      const kpiTotalEl = document.getElementById('kpi-total');
+      if (kpiTotalEl) kpiTotalEl.textContent = total;
       const combinedEl = document.getElementById('kpi-combined-score');
       if (combinedEl) {
         combinedEl.textContent = scores.length ? Math.round(avgScore) : '—';
@@ -1573,7 +1448,7 @@
         llmEl.style.color = llmScores.length ? scoreColor(avgLLMScore) : 'var(--text-tertiary)';
       }
       const coverageEl = document.getElementById('kpi-llm-coverage');
-      if (coverageEl) coverageEl.textContent = analyzedTotal ? `${llmCoverage}%` : '—';
+      if (coverageEl) coverageEl.textContent = total ? `${llmCoverage}%` : '—';
       const llmNEl = document.getElementById('llm-evaluated-n');
       if (llmNEl) llmNEl.textContent = llmScores.length;
       renderLLMMatrix(avgLLMDims, llmScores.length);
@@ -1587,14 +1462,22 @@
         qualityScores,
       });
       if (window.bindHelpTooltips) window.bindHelpTooltips(document);
-      document.getElementById('kpi-p95').innerHTML = fmtDuration(percentile(durations, 0.95));
-      document.getElementById('kpi-p50').textContent = fmtDuration(median(durations));
-      document.getElementById('band-green').textContent = band.green;
-      document.getElementById('band-orange').textContent = band.orange;
-      document.getElementById('band-purple').textContent = band.purple;
-      document.getElementById('band-red').textContent = band.red;
-      document.getElementById('kpi-cost').textContent = fmtCost(totalTokens);
-      document.getElementById('kpi-tokens').textContent = fmtTokens(totalTokens) + ' tokens';
+      const kpiP95El = document.getElementById('kpi-p95');
+      if (kpiP95El) kpiP95El.innerHTML = fmtDuration(percentile(durations, 0.95));
+      const kpiP50El = document.getElementById('kpi-p50');
+      if (kpiP50El) kpiP50El.textContent = fmtDuration(median(durations));
+      const bandGreenEl = document.getElementById('band-green');
+      if (bandGreenEl) bandGreenEl.textContent = band.green;
+      const bandOrangeEl = document.getElementById('band-orange');
+      if (bandOrangeEl) bandOrangeEl.textContent = band.orange;
+      const bandPurpleEl = document.getElementById('band-purple');
+      if (bandPurpleEl) bandPurpleEl.textContent = band.purple;
+      const bandRedEl = document.getElementById('band-red');
+      if (bandRedEl) bandRedEl.textContent = band.red;
+      const kpiCostEl = document.getElementById('kpi-cost');
+      if (kpiCostEl) kpiCostEl.textContent = fmtCost(totalTokens);
+      const kpiTokensEl = document.getElementById('kpi-tokens');
+      if (kpiTokensEl) kpiTokensEl.textContent = fmtTokens(totalTokens) + ' tokens';
 
       // 分档堆叠条宽度（按已分析 session 数占比）
       const bandBar = document.getElementById('band-bar');
