@@ -407,6 +407,7 @@
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">DASHBOARD · <span id="hdr-today">2026-05-25</span></div>
       <h1 id="hdr-title" class="text-[34px] font-semibold tracking-tight leading-tight truncate max-w-[820px]"><span id="hdr-greet">早安 ☀️</span> <span id="hdr-rangelabel">最近 7 天</span>有 <span class="text-[--apple-orange]" id="hdr-issue-count">— 个</span> 异常会话需要关注</h1>
       <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">系统整体健康度 <span class="text-[--text-primary] font-medium" id="hdr-avg-score">—</span>，共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
+      <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">⚠️ 数据量较大，当前仅分析最新的 2000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。</p>
     </div>
     <div class="flex items-center gap-2"></div>
   </section>
@@ -1445,6 +1446,8 @@
 
     window.renderDashboard = function(sessions) {
       const total = sessions.length;
+      const capHintEl = document.getElementById('cap-hint');
+      if (capHintEl) capHintEl.classList.toggle('hidden', total < 2000);
       if (!total) { renderEmpty('此时间范围内暂无 session 数据'); return; }
 
       // ===== 聚合 =====
@@ -1616,7 +1619,7 @@
     };
 
     try {
-      const savedRange = localStorage.getItem('agenttrace.range') || '7d';
+      const savedRange = localStorage.getItem('agenttrace.range') || '30d';
       await window.applyRange(savedRange);
       hideGlobalLoader();
     } catch (e) {

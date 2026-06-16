@@ -371,6 +371,9 @@
       <p class="text-[13px] text-[--text-secondary] mt-1">
         共 <span class="font-medium text-[--text-primary] num-mono" id="total-count">--</span> 个 session，按时间由近到远排序，便于查看最新记录。
       </p>
+      <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">
+        ⚠️ 数据量较大，当前仅分析最新的 2000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。
+      </p>
     </div>
   </section>
 
@@ -662,7 +665,7 @@
         score: 'all',           // all / green / orange / red
         pub: 'all',             // all / published / unpublished（发布状态）
         keyword: '',            // 模糊搜索：session_id / 标题 / 用户
-        range: localStorage.getItem('agenttrace.range') || '7d',
+        range: localStorage.getItem('agenttrace.range') || '30d',
         customFrom: parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null, // ms
         customTo: parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null,     // ms
       },
@@ -697,6 +700,8 @@
       const d = await window.AgentTraceDB.loadSessions(currentRangeQuery());
       if (seq !== loadSeq) return;
       state.all = d.sessions || [];
+      const capHintEl = document.getElementById('cap-hint');
+      if (capHintEl) capHintEl.classList.toggle('hidden', state.all.length < 2000);
       buildDynamicDropdowns();
       if (!tooltipReady) {
         setupCellTooltip();

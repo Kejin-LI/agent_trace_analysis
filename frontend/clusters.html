@@ -304,6 +304,7 @@
         <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-blue]"></span> 规则评估</span>
         <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-purple]"></span> GPT-5.5</span>
       </p>
+      <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">⚠️ 数据量较大，当前仅分析最新的 2000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。</p>
     </div>
   </section>
 
@@ -377,7 +378,7 @@
  */
 
 const COLOR = { red:'#FF453A', orange:'#FF9F0A', green:'#30D158', purple:'#BF5AF2', cyan:'#64D2FF', blue:'#0071E3' };
-const STATE = { range: localStorage.getItem('agenttrace.range') || '7d' };
+const STATE = { range: localStorage.getItem('agenttrace.range') || '30d' };
 
 /* 健康度档位 → 颜色（与 sessions.html 完全一致） */
 function scoreBand(score) {
@@ -707,6 +708,8 @@ function render() {
   try {
     const d = await window.AgentTraceDB.loadSessions();
     ALL_SESSIONS = d.sessions || [];
+    const capHintEl = document.getElementById('cap-hint');
+    if (capHintEl) capHintEl.classList.toggle('hidden', ALL_SESSIONS.length < 2000);
     render();
     // 挂载共享日期筛选器（数据加载后）
     window.mountRangePicker({
