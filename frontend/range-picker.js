@@ -72,7 +72,7 @@
            style="background: rgba(255,255,255,0.96); backdrop-filter: blur(30px) saturate(200%); -webkit-backdrop-filter: blur(30px) saturate(200%); border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 20px 50px rgba(0,0,0,0.18);">
         <div class="flex items-center justify-between mb-3">
           <div class="text-[13px] font-semibold">自定义区间</div>
-          <div class="text-[11px] text-[--text-tertiary]">按 session 首次提问时间</div>
+          <div class="text-[11px] text-[--text-tertiary]">最多选最近 30d</div>
         </div>
 
         <!-- Tabs：开始 / 结束 -->
@@ -153,6 +153,12 @@
     const sameDay = (a, b) => a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
     const inRange = (d) => picked.from && picked.to && d > picked.from && d < picked.to;
 
+    // 仅允许选择最近 30 天：早于 (今天-29天) 或晚于今天的日期置灰不可选。
+    const dayStart = (dt) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+    const minSelectable = dayStart(new Date(today.getTime() - 29 * 24 * 3600 * 1000));
+    const maxSelectable = dayStart(today);
+    const isSelectableDay = (d) => { const ds = dayStart(d); return ds >= minSelectable && ds <= maxSelectable; };
+
     // ===== 渲染日历 =====
     const renderGrid = () => {
       monthEl.textContent = `${viewYear} 年 ${viewMonth + 1} 月`;
@@ -187,6 +193,16 @@
 
         const btn = document.createElement('button');
         btn.className = 'h-8 rounded-lg flex items-center justify-center num-mono transition-colors';
+        const disabled = !isSelectableDay(date);
+        if (disabled) {
+          btn.disabled = true;
+          btn.style.color = 'var(--text-tertiary)';
+          btn.style.opacity = '0.35';
+          btn.style.cursor = 'not-allowed';
+          btn.textContent = c.d;
+          gridEl.appendChild(btn);
+          return;
+        }
         if (c.muted) btn.style.color = 'var(--text-tertiary)';
         if (isFrom || isTo) {
           btn.style.background = 'var(--apple-blue)';
@@ -325,7 +341,7 @@
   // 工具：读取当前状态
   function getCurrentRange() {
     return {
-      range: localStorage.getItem(STORAGE_KEY) || '7d',
+      range: localStorage.getItem(STORAGE_KEY) || '30d',
       customFrom: parseInt(localStorage.getItem(STORAGE_FROM) || '0', 10) || null,
       customTo: parseInt(localStorage.getItem(STORAGE_TO) || '0', 10) || null,
     };

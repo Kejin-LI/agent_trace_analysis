@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -99,15 +100,18 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 
 	bundles := make([]apiSessionBundle, 0)
 	seen := make(map[string]bool)
-	fetch := func(onlyUnpublished bool, statusLabel string) error {
-		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+
+	// listOnce 仅负责回源上游拉一页原始数据，不触碰共享状态，可安全并发。
+	listOnce := func(onlyUnpublished bool) (*modellog.ListResponse, error) {
+		return h.upstream.List(ctx, cookie, modellog.ListRequest{
 			TimeRange:                tr,
 			Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
 			OnlyUnpublishedArtifacts: onlyUnpublished,
 		})
-		if err != nil {
-			return err
-		}
+	}
+
+	// collect 把一页响应按过滤条件 + 去重合并进 bundles（单线程调用，保证顺序与去重优先级）。
+	collect := func(resp *modellog.ListResponse, statusLabel string) {
 		for _, s := range resp.Data {
 			if uid != "" && s.UserID != uid {
 				continue
@@ -138,21 +142,46 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			}
 			bundles = append(bundles, b)
 		}
-		return nil
 	}
 
-	// 顺序：先已发布再未发布，保证去重时优先保留 published 口径。
-	if status == artifactStatusPublished || status == artifactStatusAll {
-		if err := fetch(false, artifactStatusPublished); err != nil {
-			fail(c, fmt.Errorf("upstream list published: %w", err))
-			return
-		}
+	wantPublished := status == artifactStatusPublished || status == artifactStatusAll
+	wantUnpublished := status == artifactStatusUnpublished || status == artifactStatusAll
+
+	// 并发回源：已发布与未发布两次上游请求互不依赖，并行执行可将等待时间从“两次相加”降到“两次取最大”。
+	var pubResp, unpubResp *modellog.ListResponse
+	var pubErr, unpubErr error
+	var wg sync.WaitGroup
+	if wantPublished {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pubResp, pubErr = listOnce(false)
+		}()
 	}
-	if status == artifactStatusUnpublished || status == artifactStatusAll {
-		if err := fetch(true, artifactStatusUnpublished); err != nil {
-			fail(c, fmt.Errorf("upstream list unpublished: %w", err))
-			return
-		}
+	if wantUnpublished {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			unpubResp, unpubErr = listOnce(true)
+		}()
+	}
+	wg.Wait()
+
+	if wantPublished && pubErr != nil {
+		fail(c, fmt.Errorf("upstream list published: %w", pubErr))
+		return
+	}
+	if wantUnpublished && unpubErr != nil {
+		fail(c, fmt.Errorf("upstream list unpublished: %w", unpubErr))
+		return
+	}
+
+	// 合并顺序：先已发布再未发布，保证去重时优先保留 published 口径。
+	if wantPublished {
+		collect(pubResp, artifactStatusPublished)
+	}
+	if wantUnpublished {
+		collect(unpubResp, artifactStatusUnpublished)
 	}
 
 	bundles = filterBundlesByQueryRange(bundles, tr)
@@ -605,12 +634,12 @@ func filterBundlesByQueryRange(bundles []apiSessionBundle, tr modellog.TimeRange
 	return out
 }
 
-// timeRangeFromQuery 从 query 解析时间窗，缺省最近 7 天。
+// timeRangeFromQuery 从 query 解析时间窗，缺省最近 30 天。
 // 格式严格 "YYYY-MM-DD HH:mm:ss"，前端可任意精度，由 sanitize 补齐。
 func timeRangeFromQuery(c *gin.Context) modellog.TimeRange {
 	now := time.Now()
 	defaultEnd := now.Format("2006-01-02 15:04:05")
-	defaultStart := now.AddDate(0, 0, -7).Format("2006-01-02 15:04:05")
+	defaultStart := now.AddDate(0, 0, -30).Format("2006-01-02 15:04:05")
 
 	st := c.Query("start_time")
 	if st == "" {
