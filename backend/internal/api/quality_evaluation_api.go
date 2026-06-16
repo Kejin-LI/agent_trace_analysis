@@ -39,10 +39,14 @@ func (h *Handler) qualityEvaluationColumns() map[string]struct{} {
 	return qualityEvalColsCache
 }
 
-func (h *Handler) filterExistingColumns(cols []string) []string {
-	available := h.qualityEvaluationColumns()
+func filterColumnsByAvailability(available map[string]struct{}, cols []string) []string {
+	if len(cols) == 0 {
+		return nil
+	}
 	if len(available) == 0 {
-		return cols
+		out := make([]string, len(cols))
+		copy(out, cols)
+		return out
 	}
 	out := make([]string, 0, len(cols))
 	for _, c := range cols {
@@ -51,6 +55,33 @@ func (h *Handler) filterExistingColumns(cols []string) []string {
 		}
 	}
 	return out
+}
+
+func filterAssignmentsByAvailability(available map[string]struct{}, values map[string]interface{}) map[string]interface{} {
+	if len(values) == 0 {
+		return map[string]interface{}{}
+	}
+	out := make(map[string]interface{}, len(values))
+	if len(available) == 0 {
+		for k, v := range values {
+			out[k] = v
+		}
+		return out
+	}
+	for k, v := range values {
+		if _, ok := available[k]; ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (h *Handler) filterExistingColumns(cols []string) []string {
+	return filterColumnsByAvailability(h.qualityEvaluationColumns(), cols)
+}
+
+func (h *Handler) filterExistingAssignments(values map[string]interface{}) map[string]interface{} {
+	return filterAssignmentsByAvailability(h.qualityEvaluationColumns(), values)
 }
 
 type qualityEvaluationRequest struct {
@@ -219,6 +250,7 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 	version := 1
 	var old model.StgSessionQualityEvaluation
 	if err := h.db.
+		Select(h.filterExistingColumns([]string{"id", "session_id", "artifact_id", "llm_eval_version", "updated_at"})).
 		Where("(session_id = ? OR artifact_id = ?) AND is_deleted = 0", req.SessionID, req.ArtifactID).
 		Order("updated_at DESC, id DESC").
 		First(&old).Error; err == nil {
@@ -279,21 +311,77 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 		CombinedScoreBasis:        trimLen(req.CombinedScoreBasis, 1024),
 		IsDeleted:                 0,
 	}
-	if err := h.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "session_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"trace_id", "artifact_id", "session_title", "session_user", "session_user_id",
-			"session_started_at", "session_duration_ms", "session_turns", "session_trace_count",
-			"rule_score", "rule_grade", "rule_tags", "rule_summary", "rule_suggestions", "rule_eval_result", "rule_eval_at",
-			"llm_score", "llm_grade", "llm_model", "llm_eval_version", "llm_eval_status", "llm_triggered_by", "llm_evaluated_at",
-			"llm_sentiment", "llm_sentiment_score", "llm_resolved", "llm_resolved_score",
-			"llm_intent_match", "llm_intent_match_score", "llm_efficiency_feel", "llm_efficiency_feel_score", "llm_repeat_loop", "llm_repeat_loop_score",
-			"llm_actionability", "llm_actionability_score", "llm_hallucination_risk", "llm_hallucination_risk_score",
-			"llm_tags", "llm_summary", "llm_score_basis", "llm_suggestions", "llm_evidence", "llm_eval_result", "llm_raw_result", "llm_error",
-			"combined_score", "combined_grade", "combined_tags", "combined_summary", "combined_suggestions", "combined_score_basis",
-			"is_deleted", "updated_at",
-		}),
-	}).Create(&row).Error; err != nil {
+	values := h.filterExistingAssignments(map[string]interface{}{
+		"session_id":                   row.SessionID,
+		"trace_id":                     row.TraceID,
+		"artifact_id":                  row.ArtifactID,
+		"session_title":                row.SessionTitle,
+		"session_user":                 row.SessionUser,
+		"session_user_id":              row.SessionUserID,
+		"session_started_at":           row.SessionStartedAt,
+		"session_duration_ms":          row.SessionDurationMs,
+		"session_turns":                row.SessionTurns,
+		"session_trace_count":          row.SessionTraceCount,
+		"rule_score":                   row.RuleScore,
+		"rule_grade":                   row.RuleGrade,
+		"rule_tags":                    row.RuleTags,
+		"rule_summary":                 row.RuleSummary,
+		"rule_suggestions":             row.RuleSuggestions,
+		"rule_eval_result":             row.RuleEvalResult,
+		"rule_eval_at":                 row.RuleEvalAt,
+		"llm_score":                    row.LLMScore,
+		"llm_grade":                    row.LLMGrade,
+		"llm_model":                    row.LLMModel,
+		"llm_eval_version":             row.LLMEvalVersion,
+		"llm_eval_status":              row.LLMEvalStatus,
+		"llm_triggered_by":             row.LLMTriggeredBy,
+		"llm_evaluated_at":             row.LLMEvaluatedAt,
+		"llm_sentiment":                row.LLMSentiment,
+		"llm_sentiment_score":          row.LLMSentimentScore,
+		"llm_resolved":                 row.LLMResolved,
+		"llm_resolved_score":           row.LLMResolvedScore,
+		"llm_intent_match":             row.LLMIntentMatch,
+		"llm_intent_match_score":       row.LLMIntentMatchScore,
+		"llm_efficiency_feel":          row.LLMEfficiencyFeel,
+		"llm_efficiency_feel_score":    row.LLMEfficiencyFeelScore,
+		"llm_repeat_loop":              row.LLMRepeatLoop,
+		"llm_repeat_loop_score":        row.LLMRepeatLoopScore,
+		"llm_actionability":            row.LLMActionability,
+		"llm_actionability_score":      row.LLMActionabilityScore,
+		"llm_hallucination_risk":       row.LLMHallucinationRisk,
+		"llm_hallucination_risk_score": row.LLMHallucinationRiskScore,
+		"llm_tags":                     row.LLMTags,
+		"llm_summary":                  row.LLMSummary,
+		"llm_score_basis":              row.LLMScoreBasis,
+		"llm_suggestions":              row.LLMSuggestions,
+		"llm_evidence":                 row.LLMEvidence,
+		"llm_eval_result":              row.LLMEvalResult,
+		"llm_raw_result":               row.LLMRawResult,
+		"llm_error":                    row.LLMError,
+		"combined_score":               row.CombinedScore,
+		"combined_grade":               row.CombinedGrade,
+		"combined_tags":                row.CombinedTags,
+		"combined_summary":             row.CombinedSummary,
+		"combined_suggestions":         row.CombinedSuggestions,
+		"combined_score_basis":         row.CombinedScoreBasis,
+		"is_deleted":                   row.IsDeleted,
+	})
+	updateColumns := h.filterExistingColumns([]string{
+		"trace_id", "artifact_id", "session_title", "session_user", "session_user_id",
+		"session_started_at", "session_duration_ms", "session_turns", "session_trace_count",
+		"rule_score", "rule_grade", "rule_tags", "rule_summary", "rule_suggestions", "rule_eval_result", "rule_eval_at",
+		"llm_score", "llm_grade", "llm_model", "llm_eval_version", "llm_eval_status", "llm_triggered_by", "llm_evaluated_at",
+		"llm_sentiment", "llm_sentiment_score", "llm_resolved", "llm_resolved_score",
+		"llm_intent_match", "llm_intent_match_score", "llm_efficiency_feel", "llm_efficiency_feel_score", "llm_repeat_loop", "llm_repeat_loop_score",
+		"llm_actionability", "llm_actionability_score", "llm_hallucination_risk", "llm_hallucination_risk_score",
+		"llm_tags", "llm_summary", "llm_score_basis", "llm_suggestions", "llm_evidence", "llm_eval_result", "llm_raw_result", "llm_error",
+		"combined_score", "combined_grade", "combined_tags", "combined_summary", "combined_suggestions", "combined_score_basis",
+		"is_deleted", "updated_at",
+	})
+	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "session_id"}},
+		DoUpdates: clause.AssignmentColumns(updateColumns),
+	}).Create(values).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
