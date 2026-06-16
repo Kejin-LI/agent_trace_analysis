@@ -6,7 +6,9 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"sync"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,15 +26,31 @@ type apiDashboardSummaryRadar struct {
 }
 
 type apiDashboardSummary struct {
-	Total            int                      `json:"total"`
-	PublishedCount   int                      `json:"published_count"`
-	UnpublishedCount int                      `json:"unpublished_count"`
-	PublishedRate    int                      `json:"published_rate"`
-	AnalyzedCount    int                      `json:"analyzed_count"`
-	PendingCount     int                      `json:"pending_count"`
-	AnomalyCount     int                      `json:"anomaly_count"`
-	AvgScore         *float64                 `json:"avg_score,omitempty"`
-	Radar            apiDashboardSummaryRadar `json:"radar"`
+	Total         int                      `json:"total"`
+	AnalyzedCount int                      `json:"analyzed_count"`
+	PendingCount  int                      `json:"pending_count"`
+	AnomalyCount  int                      `json:"anomaly_count"`
+	AvgScore      *float64                 `json:"avg_score,omitempty"`
+	Radar         apiDashboardSummaryRadar `json:"radar"`
+}
+
+func (h *Handler) getTopAnomalySessions(c *gin.Context) {
+	limit := 10
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 50 {
+		limit = v
+	}
+	tr := timeRangeFromQuery(c)
+	bundles, total, err := h.topAnomalySessionsFromAggregates(tr, limit)
+	if err != nil {
+		fail(c, fmt.Errorf("build top anomaly sessions: %w", err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data":   bundles,
+		"limit":  limit,
+		"offset": 0,
+		"total":  total,
+	})
 }
 
 func (h *Handler) getDashboardSummary(c *gin.Context) {
@@ -46,61 +64,37 @@ func (h *Handler) getDashboardSummary(c *gin.Context) {
 
 func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 	tr := timeRangeFromQuery(c)
-	status := normalizeArtifactStatus(c.Query("artifact_status"))
-
-	summary, err := h.buildDashboardSummaryFromAggregates(tr, status)
-	if err != nil {
-		fail(c, fmt.Errorf("build dashboard summary from aggregates: %w", err))
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
 
-	publishedCount, unpublishedCount, err := h.fetchDashboardPublicationCounts(ctx, h.effectiveCookie(c), tr, status)
+	totalCount, err := h.fetchDashboardTotalCount(ctx, h.effectiveCookie(c), tr)
 	if err != nil {
 		if isUpstreamAuthMissing(err) {
-			log.Printf("dashboard summary: upstream publication counts unavailable, fallback to aggregate cache err=%v", err)
+			log.Printf("dashboard summary: upstream total count unavailable err=%v", err)
+			summary := apiDashboardSummary{}
 			finalizeDashboardSummary(&summary)
 			c.JSON(http.StatusOK, summary)
 			return
 		}
-		fail(c, fmt.Errorf("fetch dashboard publication counts: %w", err))
+		fail(c, fmt.Errorf("fetch dashboard total count: %w", err))
 		return
 	}
 
-	switch status {
-	case artifactStatusPublished:
-		if summary.Total == 0 {
-			summary.Total = publishedCount
-		}
-		summary.PublishedCount = publishedCount
-		summary.UnpublishedCount = 0
-	case artifactStatusUnpublished:
-		summary.Total = unpublishedCount
-		summary.PublishedCount = 0
-		summary.UnpublishedCount = unpublishedCount
-	default:
-		// 首页 total 统一使用聚合真值层的唯一 session 数，不再把上游 published/unpublished 两路 total 直接相加。
-		summary.PublishedCount = publishedCount
-		summary.UnpublishedCount = unpublishedCount
-	}
+	summary := apiDashboardSummary{Total: totalCount}
 	finalizeDashboardSummary(&summary)
 	c.JSON(http.StatusOK, summary)
 }
 
 func (h *Handler) getDashboardSummaryDB(c *gin.Context) {
 	tr := timeRangeFromQuery(c)
-	summary, err := h.buildDashboardSummaryFromAggregates(tr, artifactStatusPublished)
+	summary, err := h.buildDashboardSummaryFromAggregates(tr)
 	if err != nil {
 		fail(c, fmt.Errorf("build dashboard summary from db: %w", err))
 		return
 	}
 	if summary.Total == 0 {
 		summary.Total = summary.AnalyzedCount
-	}
-	if summary.PublishedCount == 0 {
-		summary.PublishedCount = summary.Total
 	}
 	finalizeDashboardSummary(&summary)
 	c.JSON(http.StatusOK, summary)
@@ -113,27 +107,15 @@ func finalizeDashboardSummary(summary *apiDashboardSummary) {
 	if summary.Total < summary.AnalyzedCount {
 		summary.Total = summary.AnalyzedCount
 	}
-	if summary.PublishedCount < 0 {
-		summary.PublishedCount = 0
-	}
-	if summary.UnpublishedCount < 0 {
-		summary.UnpublishedCount = 0
-	}
 	summary.PendingCount = summary.Total - summary.AnalyzedCount
 	if summary.PendingCount < 0 {
 		summary.PendingCount = 0
 	}
-	publicationBase := summary.PublishedCount + summary.UnpublishedCount
-	if publicationBase > 0 {
-		summary.PublishedRate = int(math.Round(float64(summary.PublishedCount) * 100 / float64(publicationBase)))
-	} else if summary.Total > 0 {
-		summary.PublishedRate = int(math.Round(float64(summary.PublishedCount) * 100 / float64(summary.Total)))
-	}
 }
 
-func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange, status string) (apiDashboardSummary, error) {
+func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (apiDashboardSummary, error) {
 	summary := apiDashboardSummary{}
-	if h == nil || h.db == nil || status == artifactStatusUnpublished {
+	if h == nil || h.db == nil {
 		return summary, nil
 	}
 	bundles, err := h.listSummaryBundlesFromDB(tr)
@@ -147,8 +129,6 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange, sta
 
 	summary.AnalyzedCount = len(bundles)
 	summary.Total = len(bundles)
-	summary.PublishedCount = len(bundles)
-
 	scores := make([]float64, 0, len(bundles))
 	var anomalyCount int
 	var totalResponse float64
@@ -215,6 +195,121 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange, sta
 	return summary, nil
 }
 
+func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, error) {
+	if h == nil || h.db == nil {
+		return nil, 0, nil
+	}
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return nil, 0, nil
+	}
+	startDate := startOfLocalDay(startAt)
+	endDate := startOfLocalDay(endAt)
+	var rows []model.APISessionAggregate
+	if err := h.db.Model(&model.APISessionAggregate{}).
+		Where(
+			"(started_at_ms BETWEEN ? AND ?) OR "+
+				"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
+				"(started_at_ms = 0 AND started_at IS NULL AND aggregate_date BETWEEN ? AND ?)",
+			startAt.UnixMilli(), endAt.UnixMilli(), startAt, endAt, startDate, endDate,
+		).
+		Select([]string{
+			"id",
+			"session_id",
+			"artifact_id",
+			"aggregate_date",
+			"user_id",
+			"user_name",
+			"started_at_ms",
+			"started_at",
+			"duration_ms",
+			"trace_id",
+			"title",
+			"chip",
+			"input_tokens",
+			"output_tokens",
+			"total_tokens",
+			"avg_tokens_per_turn",
+			"turns",
+			"trace_count",
+			"tool_calls",
+			"unique_tools",
+			"tool_failures",
+			"tool_fail_rate_bp",
+			"tool_retries",
+			"max_serial_run",
+			"has_root_fail",
+			"has_loop",
+			"score",
+			"response_score",
+			"stability_score",
+			"thinking_score",
+			"resource_score",
+			"orchestration_score",
+			"abnormal_level",
+			"rules_json",
+			"features_json",
+			"created_at",
+			"updated_at",
+		}).
+		Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	bundles := make([]apiSessionBundle, 0, len(rows))
+	for _, row := range rows {
+		bundle := buildBundleFromAggregateRow(row)
+		bundles = append(bundles, bundle)
+	}
+	bundles = h.applyQualityEvaluations(bundles)
+	candidates := make([]apiSessionBundle, 0, len(bundles))
+	for i, bundle := range bundles {
+		abnormalLevel := 0
+		if i < len(rows) {
+			abnormalLevel = rows[i].AbnormalLevel
+		}
+		if dashboardBundleHasAnomaly(bundle, abnormalLevel) && getDashboardQualityScores(bundle).CombinedScore != nil {
+			candidates = append(candidates, bundle)
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		qi := getDashboardQualityScores(candidates[i])
+		qj := getDashboardQualityScores(candidates[j])
+		si, sj := 101, 101
+		if qi.CombinedScore != nil {
+			si = *qi.CombinedScore
+		}
+		if qj.CombinedScore != nil {
+			sj = *qj.CombinedScore
+		}
+		if si == sj {
+			return candidates[i].StartedAtMs > candidates[j].StartedAtMs
+		}
+		return si < sj
+	})
+	total := len(candidates)
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, total, nil
+}
+
+func dashboardBundleHasAnomaly(bundle apiSessionBundle, abnormalLevel int) bool {
+	if abnormalLevel > 0 {
+		return true
+	}
+	for _, rule := range bundle.Rules {
+		if !rule.Passed {
+			return true
+		}
+	}
+	chip := strings.TrimSpace(bundle.Chip)
+	if chip != "" && chip != "健康" {
+		return true
+	}
+	q := getDashboardQualityScores(bundle)
+	return q.CombinedScore != nil && dashboardScoreBand(*q.CombinedScore) != "green"
+}
+
 func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionBundle, error) {
 	if h == nil || h.db == nil {
 		return nil, nil
@@ -266,53 +361,21 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 	return bundles, nil
 }
 
-func (h *Handler) fetchDashboardPublicationCounts(ctx context.Context, cookie string, tr modellog.TimeRange, status string) (publishedCount int, unpublishedCount int, err error) {
+func (h *Handler) fetchDashboardTotalCount(ctx context.Context, cookie string, tr modellog.TimeRange) (int, error) {
 	if h == nil || h.upstream == nil {
-		return 0, 0, nil
+		return 0, nil
 	}
-	fetchTotal := func(onlyUnpublished bool) (int, error) {
-		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-			TimeRange: tr,
-			Page: modellog.Page{
-				PageNo:   1,
-				PageSize: 1,
-			},
-			OnlyUnpublishedArtifacts: onlyUnpublished,
-		})
-		if err != nil {
-			return 0, err
-		}
-		return int(resp.Total), nil
+	resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+		TimeRange: tr,
+		Page: modellog.Page{
+			PageNo:   1,
+			PageSize: 1,
+		},
+	})
+	if err != nil {
+		return 0, err
 	}
-
-	switch status {
-	case artifactStatusPublished:
-		publishedCount, err = fetchTotal(false)
-		return
-	case artifactStatusUnpublished:
-		unpublishedCount, err = fetchTotal(true)
-		return
-	default:
-		var wg sync.WaitGroup
-		var pubErr, unpubErr error
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			publishedCount, pubErr = fetchTotal(false)
-		}()
-		go func() {
-			defer wg.Done()
-			unpublishedCount, unpubErr = fetchTotal(true)
-		}()
-		wg.Wait()
-		if pubErr != nil {
-			return 0, 0, pubErr
-		}
-		if unpubErr != nil {
-			return 0, 0, unpubErr
-		}
-		return
-	}
+	return int(resp.Total), nil
 }
 
 type dashboardQualityScores struct {

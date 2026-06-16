@@ -245,7 +245,7 @@ func (a *Aggregator) forgetCookie() {
 	a.cookieMu.Unlock()
 }
 
-// nightlyCron 每天凌晨用内存缓存的最近 Cookie 跑昨天+今天的全量聚合，
+// nightlyCron 每天凌晨用内存缓存的最近 Cookie 跑昨天+今天的未发布 session 聚合，
 // 让大盘指标在用户上班前就已"秒出"。拿不到可用 Cookie 时跳过本轮，
 // 自动回退到"用户访问触发"补库（方案 C），不破坏 Cookie 不落盘的安全红线。
 func (a *Aggregator) nightlyCron() {
@@ -447,7 +447,7 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "forbidden")
 }
 
-// runAggregate 拉指定日期所有 session list -> 低并发拉 TOS JSONL -> 解析 -> 直接写 DB。
+// runAggregate 拉指定日期未发布 session list -> 低并发拉 TOS JSONL -> 解析 -> 直接写 DB。
 func (a *Aggregator) runAggregate(cookie, date string) {
 	startedAt := time.Now()
 	dateValue := parseAggregateDate(date)
@@ -470,7 +470,8 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 	resp, err := a.upstream.List(ctx, cookie, modellog.ListRequest{
 		TimeRange: tr,
 		// page_size <= 0：上游不分页，返回时间范围内全部 session（按接口契约）。
-		Page: modellog.Page{},
+		Page:                     modellog.Page{},
+		OnlyUnpublishedArtifacts: true,
 	})
 	if err != nil {
 		errAt := time.Now()
@@ -484,7 +485,7 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 		return
 	}
 	listTotal := len(resp.Data)
-	log.Printf("aggregator: %s list ok, total=%d", date, listTotal)
+	log.Printf("aggregator: %s unpublished list ok, total=%d", date, listTotal)
 
 	// 断点续补：跳过 DB 里当天已落库的 session，使上次因内存中止（paused）的补数
 	// 下次触发时只补剩余部分，不重复拉取已完成的 session。
