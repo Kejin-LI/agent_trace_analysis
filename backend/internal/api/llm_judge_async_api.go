@@ -183,27 +183,28 @@ func (h *Handler) checkRunningLLMJudge(sessionID string) (string, bool) {
 // markLLMJudgeRunning 写一行 running 状态;若已有同 session_id 的行就 update。
 func (h *Handler) markLLMJudgeRunning(sessionID string, req llmJudgeAsyncRequest) error {
 	now := time.Now()
-	row := model.StgSessionQualityEvaluation{
-		SessionID:      trimLen(sessionID, 128),
-		ArtifactID:     trimLen(req.ArtifactID, 128),
-		TraceID:        trimLen(req.TraceID, 128),
-		SessionTitle:   trimLen(req.SessionTitle, 1024),
-		SessionUser:    trimLen(req.SessionUser, 128),
-		SessionUserID:  trimLen(req.UserID, 128),
-		LLMEvalStatus:  "running",
-		LLMEvaluatedAt: &now,
-		LLMTriggeredBy: trimLen(firstReviewNonEmpty(req.SessionUser, req.UserID), 128),
-		LLMError:       "",
-		IsDeleted:      0,
-	}
-	return h.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "session_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"artifact_id", "trace_id", "session_title", "session_user", "session_user_id",
-			"llm_eval_status", "llm_evaluated_at", "llm_triggered_by", "llm_error",
-			"is_deleted", "updated_at",
-		}),
-	}).Create(&row).Error
+	values := h.filterExistingAssignments(map[string]interface{}{
+		"session_id":       trimLen(sessionID, 128),
+		"artifact_id":      trimLen(req.ArtifactID, 128),
+		"trace_id":         trimLen(req.TraceID, 128),
+		"session_title":    trimLen(req.SessionTitle, 1024),
+		"session_user":     trimLen(req.SessionUser, 128),
+		"session_user_id":  trimLen(req.UserID, 128),
+		"llm_eval_status":  "running",
+		"llm_evaluated_at": &now,
+		"llm_triggered_by": trimLen(firstReviewNonEmpty(req.SessionUser, req.UserID), 128),
+		"llm_error":        "",
+		"is_deleted":       0,
+	})
+	updateColumns := h.filterExistingColumns([]string{
+		"artifact_id", "trace_id", "session_title", "session_user", "session_user_id",
+		"llm_eval_status", "llm_evaluated_at", "llm_triggered_by", "llm_error",
+		"is_deleted", "updated_at",
+	})
+	return h.db.Model(&model.StgSessionQualityEvaluation{}).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "session_id"}},
+		DoUpdates: clause.AssignmentColumns(updateColumns),
+	}).Create(values).Error
 }
 
 // runLLMJudgeAsync goroutine 主体:跑 GPT,把结果或错误回写到 stg 表。
@@ -260,6 +261,7 @@ func (h *Handler) markLLMJudgeFailed(sessionID, msg string) {
 		"llm_error":        trimLen(msg, 1024),
 		"llm_evaluated_at": &now,
 	}
+	updates = h.filterExistingAssignments(updates)
 	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).
 		Where("session_id = ?", sessionID).
 		Updates(updates).Error; err != nil {
@@ -318,7 +320,9 @@ func (h *Handler) markLLMJudgeSucceeded(sessionID string, req llmJudgeAsyncReque
 
 	var version int
 	var old model.StgSessionQualityEvaluation
-	if err := h.db.Where("session_id = ? AND is_deleted = 0", sessionID).
+	if err := h.db.
+		Select(h.filterExistingColumns([]string{"id", "session_id", "llm_eval_version", "updated_at"})).
+		Where("session_id = ? AND is_deleted = 0", sessionID).
 		Order("updated_at DESC, id DESC").
 		First(&old).Error; err == nil {
 		version = old.LLMEvalVersion + 1
@@ -353,15 +357,7 @@ func (h *Handler) markLLMJudgeSucceeded(sessionID string, req llmJudgeAsyncReque
 		"llm_raw_result":               raw,
 		"llm_error":                    "",
 	}
-	// 过滤掉线上不存在的列,防止 schema 漂移导致整条 update 1054。
-	available := h.qualityEvaluationColumns()
-	if len(available) > 0 {
-		for k := range updates {
-			if _, ok := available[k]; !ok {
-				delete(updates, k)
-			}
-		}
-	}
+	updates = h.filterExistingAssignments(updates)
 	return h.db.Model(&model.StgSessionQualityEvaluation{}).
 		Where("session_id = ?", sessionID).
 		Updates(updates).Error
