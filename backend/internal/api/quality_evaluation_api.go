@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,45 @@ import (
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 )
+
+// stg_session_quality_evaluations 列存在性缓存。线上多个 RDS 实例存在 schema 漂移
+// (例如曾出现缺失 llm_efficiency_feel_score 的库),GORM 默认 SELECT * 会导致整条
+// 查询 1054 报错,详情页持久化结果消失。这里在启动后探测一次,后续 Select 仅保留实际存在的列。
+var (
+	qualityEvalColsOnce  sync.Once
+	qualityEvalColsCache map[string]struct{}
+)
+
+func (h *Handler) qualityEvaluationColumns() map[string]struct{} {
+	qualityEvalColsOnce.Do(func() {
+		qualityEvalColsCache = map[string]struct{}{}
+		if h == nil || h.db == nil {
+			return
+		}
+		types, err := h.db.Migrator().ColumnTypes(&model.StgSessionQualityEvaluation{})
+		if err != nil {
+			return
+		}
+		for _, t := range types {
+			qualityEvalColsCache[t.Name()] = struct{}{}
+		}
+	})
+	return qualityEvalColsCache
+}
+
+func (h *Handler) filterExistingColumns(cols []string) []string {
+	available := h.qualityEvaluationColumns()
+	if len(available) == 0 {
+		return cols
+	}
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if _, ok := available[c]; ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 type qualityEvaluationRequest struct {
 	SessionID                 string          `json:"session_id"`
@@ -64,6 +104,44 @@ type qualityEvaluationRequest struct {
 	CombinedScoreBasis        string          `json:"combined_score_basis"`
 }
 
+func (h *Handler) resolveQualityEvaluationSessionID(sessionID, artifactID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	artifactID = strings.TrimSpace(artifactID)
+	if h == nil || h.db == nil {
+		return sessionID
+	}
+	if sessionID != "" && (artifactID == "" || sessionID != artifactID) {
+		return sessionID
+	}
+	candidates := make([]string, 0, 2)
+	if sessionID != "" {
+		candidates = append(candidates, sessionID)
+	}
+	if artifactID != "" && artifactID != sessionID {
+		candidates = append(candidates, artifactID)
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	var agg model.APISessionAggregate
+	if err := h.db.
+		Select("session_id", "artifact_id", "updated_at").
+		Where("session_id IN ? OR artifact_id IN ?", candidates, candidates).
+		Order("updated_at DESC, id DESC").
+		First(&agg).Error; err == nil && strings.TrimSpace(agg.SessionID) != "" {
+		return strings.TrimSpace(agg.SessionID)
+	}
+	var src model.StgSessionSource
+	if err := h.db.
+		Select("session_id", "artifact_id", "source_updated_at", "id").
+		Where("session_id IN ? OR artifact_id IN ?", candidates, candidates).
+		Order("source_updated_at DESC, id DESC").
+		First(&src).Error; err == nil && strings.TrimSpace(src.SessionID) != "" {
+		return strings.TrimSpace(src.SessionID)
+	}
+	return sessionID
+}
+
 func (h *Handler) getQualityEvaluation(c *gin.Context) {
 	if h.db == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "database unavailable"})
@@ -75,7 +153,39 @@ func (h *Handler) getQualityEvaluation(c *gin.Context) {
 		return
 	}
 	var row model.StgSessionQualityEvaluation
-	err := h.db.Where("session_id = ? AND is_deleted = 0", sessionID).First(&row).Error
+	err := h.db.
+		Select(h.filterExistingColumns([]string{
+			"id",
+			"session_id",
+			"artifact_id",
+			"trace_id",
+			"rule_score",
+			"rule_grade",
+			"rule_eval_at",
+			"llm_score",
+			"llm_grade",
+			"llm_model",
+			"llm_eval_status",
+			"llm_eval_version",
+			"llm_evaluated_at",
+			"llm_sentiment", "llm_sentiment_score",
+			"llm_resolved", "llm_resolved_score",
+			"llm_intent_match", "llm_intent_match_score",
+			"llm_efficiency_feel", "llm_efficiency_feel_score",
+			"llm_repeat_loop", "llm_repeat_loop_score",
+			"llm_actionability", "llm_actionability_score",
+			"llm_hallucination_risk", "llm_hallucination_risk_score",
+			"llm_summary",
+			"llm_score_basis",
+			"llm_eval_result",
+			"combined_score",
+			"combined_grade",
+			"combined_score_basis",
+			"updated_at",
+		})).
+		Where("(session_id = ? OR artifact_id = ?) AND is_deleted = 0", sessionID, sessionID).
+		Order("updated_at DESC, id DESC").
+		First(&row).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "quality evaluation not found"})
@@ -98,6 +208,8 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 		return
 	}
 	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.ArtifactID = strings.TrimSpace(req.ArtifactID)
+	req.SessionID = h.resolveQualityEvaluationSessionID(req.SessionID, req.ArtifactID)
 	if req.SessionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id 为空"})
 		return
@@ -106,7 +218,10 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 	now := time.Now()
 	version := 1
 	var old model.StgSessionQualityEvaluation
-	if err := h.db.Where("session_id = ? AND is_deleted = 0", req.SessionID).First(&old).Error; err == nil {
+	if err := h.db.
+		Where("(session_id = ? OR artifact_id = ?) AND is_deleted = 0", req.SessionID, req.ArtifactID).
+		Order("updated_at DESC, id DESC").
+		First(&old).Error; err == nil {
 		version = old.LLMEvalVersion + 1
 	}
 	row := model.StgSessionQualityEvaluation{
@@ -197,23 +312,33 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 	if h == nil || h.db == nil || len(bundles) == 0 {
 		return bundles
 	}
-	ids := make([]string, 0, len(bundles))
+	sessionIDs := make([]string, 0, len(bundles))
+	artifactIDs := make([]string, 0, len(bundles))
 	for _, b := range bundles {
-		if b.SessionID != "" {
-			ids = append(ids, b.SessionID)
-		}
+		sessionIDs = appendNonEmptyUnique(sessionIDs, b.SessionID)
+		artifactIDs = appendNonEmptyUnique(artifactIDs, b.ArtifactID)
 	}
-	if len(ids) == 0 {
+	if len(sessionIDs) == 0 && len(artifactIDs) == 0 {
 		return bundles
 	}
 	var rows []model.StgSessionQualityEvaluation
-	q := h.db.Where("session_id IN ? AND is_deleted = 0", ids)
+	q := h.db.Where("is_deleted = 0")
+	switch {
+	case len(sessionIDs) > 0 && len(artifactIDs) > 0:
+		q = q.Where("(session_id IN ? OR artifact_id IN ?)", sessionIDs, artifactIDs)
+	case len(sessionIDs) > 0:
+		q = q.Where("session_id IN ?", sessionIDs)
+	default:
+		q = q.Where("artifact_id IN ?", artifactIDs)
+	}
 	if !includeFullResult {
-		q = q.Select([]string{
+		q = q.Select(h.filterExistingColumns([]string{
 			"session_id",
+			"artifact_id",
 			"rule_score",
 			"llm_score",
 			"llm_model",
+			"llm_eval_status",
 			"llm_eval_version",
 			"llm_evaluated_at",
 			"llm_sentiment_score",
@@ -224,21 +349,87 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 			"llm_actionability_score",
 			"llm_hallucination_risk_score",
 			"combined_score",
-		})
+			"updated_at",
+			"id",
+		}))
+	} else {
+		// 详情页全量模式:也用显式 Select,过滤掉线上缺失的列(schema 漂移容错),
+		// 否则 GORM 按 model 全字段拼 SELECT,缺一列即整条 1054,持久化结果丢失。
+		q = q.Select(h.filterExistingColumns([]string{
+			"id",
+			"session_id",
+			"artifact_id",
+			"trace_id",
+			"rule_score",
+			"rule_grade",
+			"rule_eval_at",
+			"llm_score",
+			"llm_grade",
+			"llm_model",
+			"llm_eval_status",
+			"llm_eval_version",
+			"llm_evaluated_at",
+			"llm_sentiment", "llm_sentiment_score",
+			"llm_resolved", "llm_resolved_score",
+			"llm_intent_match", "llm_intent_match_score",
+			"llm_efficiency_feel", "llm_efficiency_feel_score",
+			"llm_repeat_loop", "llm_repeat_loop_score",
+			"llm_actionability", "llm_actionability_score",
+			"llm_hallucination_risk", "llm_hallucination_risk_score",
+			"llm_summary",
+			"llm_score_basis",
+			"llm_eval_result",
+			"combined_score",
+			"combined_grade",
+			"combined_score_basis",
+			"updated_at",
+		}))
 	}
-	if err := q.Find(&rows).Error; err != nil {
+	if err := q.Order("updated_at DESC, id DESC").Find(&rows).Error; err != nil {
 		return bundles
 	}
 	bySession := make(map[string]model.StgSessionQualityEvaluation, len(rows))
+	byArtifact := make(map[string]model.StgSessionQualityEvaluation, len(rows))
 	for _, row := range rows {
-		bySession[row.SessionID] = row
+		if row.SessionID != "" {
+			if _, exists := bySession[row.SessionID]; !exists {
+				bySession[row.SessionID] = row
+			}
+		}
+		if row.ArtifactID != "" {
+			if _, exists := byArtifact[row.ArtifactID]; !exists {
+				byArtifact[row.ArtifactID] = row
+			}
+		}
 	}
 	for i := range bundles {
-		if row, ok := bySession[bundles[i].SessionID]; ok {
-			applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
+		switch {
+		case bundles[i].SessionID != "":
+			if row, ok := bySession[bundles[i].SessionID]; ok {
+				applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
+				continue
+			}
+		}
+		if bundles[i].ArtifactID != "" {
+			if row, ok := byArtifact[bundles[i].ArtifactID]; ok {
+				applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
+			}
 		}
 	}
 	return bundles
+}
+
+func appendNonEmptyUnique(values []string, raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == raw {
+			return values
+		}
+	}
+	return append(values, raw)
 }
 
 func (h *Handler) applyQualityEvaluation(bundle apiSessionBundle) apiSessionBundle {
@@ -266,6 +457,7 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 	b.LLMJudgeScore = row.LLMScore
 	b.CombinedScore = row.CombinedScore
 	b.LLMJudgeModel = row.LLMModel
+	b.LLMEvalStatus = row.LLMEvalStatus
 	b.LLMEvalVersion = row.LLMEvalVersion
 	b.LLMEvaluatedAt = timeToString(row.LLMEvaluatedAt)
 	b.LLMSentimentScore = row.LLMSentimentScore
@@ -283,6 +475,37 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 }
 
 func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
+	// llm_judge_result 优先用结构化的 llm_eval_result;
+	// 该字段缺失时(老数据 / schema 漂移 / 异步任务只回写 raw),
+	// fallback 到 llm_raw_result;再不行就用 6 维分项分 + summary 兜底拼一个最小对象,
+	// 保证前端永远不会因为读不到 result 对象而误显示"未评估"。
+	llmJudgeResult := rawJSONOrNil(row.LLMEvalResult)
+	if llmJudgeResult == nil {
+		llmJudgeResult = rawJSONOrNil(row.LLMRawResult)
+	}
+	if llmJudgeResult == nil && row.LLMScore != nil {
+		fallback := gin.H{
+			"score":                    row.LLMScore,
+			"reason":                   row.LLMSummary,
+			"score_basis":              row.LLMScoreBasis,
+			"resolved":                 row.LLMResolved,
+			"resolved_score":           row.LLMResolvedScore,
+			"intent_match":             row.LLMIntentMatch,
+			"intent_match_score":       row.LLMIntentMatchScore,
+			"efficiency_feel":          row.LLMEfficiencyFeel,
+			"efficiency_feel_score":    row.LLMEfficiencyFeelScore,
+			"sentiment":                row.LLMSentiment,
+			"sentiment_score":          row.LLMSentimentScore,
+			"actionability":            row.LLMActionability,
+			"actionability_score":      row.LLMActionabilityScore,
+			"hallucination_risk":       row.LLMHallucinationRisk,
+			"hallucination_risk_score": row.LLMHallucinationRiskScore,
+			"model_label":              row.LLMModel,
+		}
+		if b, err := json.Marshal(fallback); err == nil {
+			llmJudgeResult = json.RawMessage(b)
+		}
+	}
 	return gin.H{
 		"session_id":           row.SessionID,
 		"trace_id":             row.TraceID,
@@ -291,9 +514,10 @@ func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
 		"llm_score":            row.LLMScore,
 		"llm_judge_score":      row.LLMScore,
 		"llm_judge_model":      row.LLMModel,
+		"llm_eval_status":      row.LLMEvalStatus,
 		"llm_eval_version":     row.LLMEvalVersion,
 		"llm_evaluated_at":     timeToString(row.LLMEvaluatedAt),
-		"llm_judge_result":     rawJSONOrNil(row.LLMEvalResult),
+		"llm_judge_result":     llmJudgeResult,
 		"combined_score":       row.CombinedScore,
 		"combined_score_basis": row.CombinedScoreBasis,
 	}

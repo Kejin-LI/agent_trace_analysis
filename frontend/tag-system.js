@@ -66,29 +66,70 @@
     );
   }
 
+  // 当持久化总分=0 时,只有同时存在分项佐证或评测成功状态,才认定为"有效 0";
+  // 否则视为脏数据(如 schema 漂移导致的空记录),按未评估处理。
+  function hasLLMEvidence(session, llm) {
+    const status = String(session?.llm_eval_status || '').toLowerCase();
+    if (status === 'succeeded' || status === 'success') return true;
+    const dimScores = [
+      session?.llm_sentiment_score, session?.llm_resolved_score,
+      session?.llm_intent_match_score, session?.llm_efficiency_feel_score,
+      session?.llm_actionability_score, session?.llm_hallucination_risk_score,
+      llm?.sentiment_score, llm?.resolved_score, llm?.intent_match_score,
+      llm?.efficiency_feel_score, llm?.actionability_score, llm?.hallucination_risk_score,
+    ];
+    if (dimScores.some(v => clampScore(v) !== null)) return true;
+    if (llm && (llm.reason || llm.score_basis || llm.summary)) return true;
+    return false;
+  }
+
+  function hasRuleEvidence(session) {
+    if (Array.isArray(session?.rules) && session.rules.length > 0) return true;
+    if (session?.rule_eval_at) return true;
+    if (session?.rule_grade) return true;
+    return false;
+  }
+
+  function takeIfNonZeroOrEvidenced(value, hasEvidence) {
+    const n = clampScore(value);
+    if (n === null) return null;
+    if (n === 0 && !hasEvidence) return null;
+    return n;
+  }
+
   function getSessionQualityScores(session, fallbackRuleScore) {
     const llm = pickLLMResult(session);
-    const ruleScore = firstScore([
-      session?.rule_score,
-      session?.rule_eval_score,
-      session?.ruleEvalScore,
-      fallbackRuleScore,
+    const llmEvidence = hasLLMEvidence(session, llm);
+    const ruleEvidence = hasRuleEvidence(session);
+
+    const persistedRule = firstScore([
+      session?.rule_score, session?.rule_eval_score, session?.ruleEvalScore,
     ]);
-    const llmScore = firstScore([
-      session?.llm_score,
-      session?.llm_judge_score,
-      session?.llmJudgeScore,
-      session?.gpt55_score,
-      llm?.score,
-      llm?.total_score,
-      llm?.overall_score,
-      llm?.quality_score,
-    ]);
-    const storedCombined = firstScore([
-      session?.combined_score,
-      session?.quality_score,
-      session?.health_score,
-    ]);
+    // 持久化规则分=0 但无任何规则佐证时,回退到实时分(防脏数据覆盖)
+    const ruleScore = (persistedRule === 0 && !ruleEvidence)
+      ? clampScore(fallbackRuleScore)
+      : (persistedRule !== null ? persistedRule : clampScore(fallbackRuleScore));
+
+    const persistedLLM = [
+      session?.llm_score, session?.llm_judge_score, session?.llmJudgeScore,
+      session?.gpt55_score, llm?.score, llm?.total_score,
+      llm?.overall_score, llm?.quality_score,
+    ];
+    let llmScore = null;
+    for (const v of persistedLLM) {
+      const n = takeIfNonZeroOrEvidenced(v, llmEvidence);
+      if (n !== null) { llmScore = n; break; }
+    }
+
+    const persistedCombined = [
+      session?.combined_score, session?.quality_score, session?.health_score,
+    ];
+    let storedCombined = null;
+    for (const v of persistedCombined) {
+      const n = takeIfNonZeroOrEvidenced(v, llmEvidence || ruleEvidence);
+      if (n !== null) { storedCombined = n; break; }
+    }
+
     const combinedScore = storedCombined !== null
       ? storedCombined
       : (llmScore !== null && ruleScore !== null
@@ -149,6 +190,9 @@
       session?.gpt55_judge_result
     );
     if (full) return collectLLMTags(full);
+    // 无完整 result 时,需要至少有一项分项维度作为佐证才生成标签;
+    // 防止脏数据(总分存在、维度全空)被规则降为"幻觉风险高"等假标签。
+    if (!hasLLMEvidence(session, null)) return [];
     if (firstScore([session?.llm_score, session?.llm_judge_score, session?.llmJudgeScore]) === null) return [];
     return collectLLMTags({
       score: session?.llm_score ?? session?.llm_judge_score ?? session?.llmJudgeScore,

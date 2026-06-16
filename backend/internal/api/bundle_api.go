@@ -154,6 +154,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			return
 		}
 	}
+
 	bundles = filterBundlesByQueryRange(bundles, tr)
 	bundles = h.applyQualityEvaluations(bundles)
 
@@ -260,6 +261,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 			}{true, artifactStatusUnpublished},
 		)
 	}
+
 	var hit *modellog.Session
 	var hitStatus string
 	var lastErr error
