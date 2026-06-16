@@ -326,8 +326,8 @@
   .eval-band { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .eval-ev { color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
   .eval-ev-clamp {
-    width: 100%; max-height: 51px; overflow: hidden;
-    display: -webkit-box; line-clamp: 3; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    width: 100%; max-height: 84px; overflow: hidden;
+    display: -webkit-box; line-clamp: 5; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
   }
   .eval-ev-clamp:hover { color: var(--text-primary); }
   .eval-card {
@@ -879,6 +879,21 @@
     border-top: 1px dashed rgba(0,0,0,0.08);
     letter-spacing: 0.3px;
   }
+  .agent-step-prompt {
+    max-width: 100%;
+    width: fit-content;
+    margin: -3px auto 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-tertiary);
+    background: rgba(120,120,128,0.08);
+    border: 1px solid rgba(120,120,128,0.10);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .agent-turn-model {
     display: inline-flex;
     align-items: center;
@@ -1034,6 +1049,28 @@
   /* Spring animation */
   @keyframes slide-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
   .anim-in { animation: slide-in .3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .typing-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .typing-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.22;
+    transform: translateY(0);
+    animation: llmTypingDot 1.1s ease-in-out infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: .16s; }
+  .typing-dot:nth-child(3) { animation-delay: .32s; }
+  @keyframes llmTypingDot {
+    0%, 80%, 100% { opacity: 0.22; transform: translateY(0); }
+    40% { opacity: 1; transform: translateY(-1px); }
+  }
 
   details > summary { list-style: none; cursor: pointer; }
   details > summary::-webkit-details-marker { display: none; }
@@ -5511,8 +5548,8 @@
     baseGroups.forEach(grp => {
       const hasRealPrompt = !!String(grp.userPrompt || '').trim() && !grp.synthetic;
       const shouldAttachToPrevious = normalizedBaseGroups.length && !hasRealPrompt;
+      const prev = normalizedBaseGroups.length ? normalizedBaseGroups[normalizedBaseGroups.length - 1] : null;
       if (shouldAttachToPrevious) {
-        const prev = normalizedBaseGroups[normalizedBaseGroups.length - 1];
         prev.traces.push(...grp.traces);
         prev.internalPrompts = [...(prev.internalPrompts || []), ...(grp.synthetic ? [{ info: grp.synthetic, raw: grp.syntheticRaw }] : [])];
         if (!prev.clarifyAnswerReply && grp.clarifyAnswerReply) prev.clarifyAnswerReply = grp.clarifyAnswerReply;
@@ -6090,6 +6127,7 @@
           <div class="font-medium text-[--apple-red] mb-1">GPT-5.5 未接通</div>
           <div class="text-[--text-tertiary]">${escapeHTML(message || '调用 GPT-5.5 评测失败，未获取到结果。')}</div>
           <div class="text-[--text-tertiary] mt-1">综合健康度暂按规则评估计算，未混入任何兜底假数据。</div>
+          <div class="text-[--text-tertiary] mt-1">如持续异常，请联系 <a href="mailto:li.kejin@bytedance.com" class="text-[--apple-blue] hover:underline">li.kejin@bytedance.com</a></div>
         </div>`;
     }
     if (btn) btn.textContent = '重试评估';
@@ -6172,7 +6210,7 @@
       model_label: result?.model_label || result?.model || 'GPT-5.5',
     };
     return {
-      session_id: real.session_id || real.id || window.SESSION?.id || id,
+      session_id: real.session_id || '',
       trace_id: real.trace || real.traces?.[0]?.trace_id || '',
       artifact_id: real.artifact_id || '',
       session_title: real.title || window.SESSION?.title || '',
@@ -6225,6 +6263,11 @@
   }
 
   async function saveQualityEvaluation(result) {
+    const real = (window.SESSION && window.SESSION._real) || {};
+    const sessionId = String(real.session_id || '').trim();
+    if (!sessionId) {
+      throw new Error('缺少真实 session_id，已阻止写入 GPT 评测结果，避免误写为 artifact_id。');
+    }
     const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
     const url = buildUrl ? buildUrl('/api/quality-evaluations') : '/api/quality-evaluations';
     const resp = await fetch(url, {
@@ -6235,51 +6278,244 @@
     });
     const payload = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
-    if (payload?.llm_eval_version && window.SESSION?._real) {
-      window.SESSION._real.llm_eval_version = payload.llm_eval_version;
-      window.SESSION._real.llm_evaluated_at = payload.llm_evaluated_at || '';
+    if (window.SESSION?._real) {
+      if (payload?.llm_eval_version) window.SESSION._real.llm_eval_version = payload.llm_eval_version;
+      if (payload?.llm_evaluated_at) window.SESSION._real.llm_evaluated_at = payload.llm_evaluated_at || '';
+      if (payload?.llm_judge_model) window.SESSION._real.llm_judge_model = payload.llm_judge_model;
+      if (payload?.llm_score !== undefined) window.SESSION._real.llm_score = payload.llm_score;
+      if (payload?.llm_judge_score !== undefined) window.SESSION._real.llm_judge_score = payload.llm_judge_score;
+      if (payload?.combined_score !== undefined) window.SESSION._real.combined_score = payload.combined_score;
+      if (payload?.llm_judge_result) {
+        window.SESSION._real.llm_judge_result = cloneJudgeData(payload.llm_judge_result);
+      }
     }
     return payload;
   }
 
-  function renderPersistedLLMJudge(real) {
-    if (!real || window.__llmJudgeResult || !real.llm_judge_result) return;
+  let persistedLLMJudgeFetchKey = '';
+  let persistedLLMJudgeFetchPromise = null;
+
+  async function fetchPersistedQualityEvaluation(key) {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) return null;
+    const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const url = buildUrl
+      ? buildUrl(`/api/quality-evaluations/${encodeURIComponent(normalizedKey)}`)
+      : `/api/quality-evaluations/${encodeURIComponent(normalizedKey)}`;
+    const resp = await fetch(url, {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (resp.status === 404) return null;
+    const payload = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+    return payload;
+  }
+
+  function applyPersistedQualityEvaluation(real, payload) {
+    if (!real || !payload) return;
+    if (payload.llm_eval_version !== undefined) real.llm_eval_version = payload.llm_eval_version;
+    if (payload.llm_evaluated_at !== undefined) real.llm_evaluated_at = payload.llm_evaluated_at || '';
+    if (payload.llm_judge_model !== undefined) real.llm_judge_model = payload.llm_judge_model || '';
+    if (payload.llm_score !== undefined) real.llm_score = payload.llm_score;
+    if (payload.llm_judge_score !== undefined) real.llm_judge_score = payload.llm_judge_score;
+    if (payload.combined_score !== undefined) real.combined_score = payload.combined_score;
+    if (payload.llm_judge_result) real.llm_judge_result = cloneJudgeData(payload.llm_judge_result);
+  }
+
+  function renderPersistedLLMJudgeResult(real) {
+    if (!real || window.__llmJudgeResult || !real.llm_judge_result) return false;
     const result = {
       ...(real.llm_judge_result || {}),
       model_label: real.llm_judge_model || real.llm_judge_result.model_label || 'GPT-5.5',
     };
     window.__llmJudgeRaw = result;
     renderLLMJudgeResult(result);
+    return true;
+  }
+
+  function renderPersistedLLMJudge(real) {
+    if (!real || window.__llmJudgeResult) return;
+    if (renderPersistedLLMJudgeResult(real)) return;
+    const pageSessionId = new URLSearchParams(location.search).get('id') || '';
+    const key = [real.session_id, real.artifact_id, window.SESSION?.id, pageSessionId].find(v => String(v || '').trim());
+    if (!key) return;
+    if (persistedLLMJudgeFetchKey === key && persistedLLMJudgeFetchPromise) return;
+    persistedLLMJudgeFetchKey = key;
+    persistedLLMJudgeFetchPromise = (async () => {
+      try {
+        const payload = await fetchPersistedQualityEvaluation(key);
+        if (!payload || window.__llmJudgeResult) return;
+        const target = (window.SESSION && window.SESSION._real) || real;
+        // 后端返回 running 表示后台异步评估仍在进行,前端进入"评估中"+ 轮询恢复
+        if (String(payload.llm_eval_status || '').toLowerCase() === 'running') {
+          showLLMJudgeRunning();
+          startLLMJudgePolling(target.session_id || key);
+          return;
+        }
+        applyPersistedQualityEvaluation(target, payload);
+        renderPersistedLLMJudgeResult(target);
+      } catch (err) {
+        console.warn('回读持久化 GPT 评测结果失败', err);
+      } finally {
+        if (persistedLLMJudgeFetchKey === key) persistedLLMJudgeFetchPromise = null;
+      }
+    })();
+  }
+
+  // ===== 异步 GPT-5.5 评估:发起 + 轮询 =====
+  let llmJudgePollingTimer = null;
+  let llmJudgePollingSession = '';
+
+  function runningDotsHTML(label) {
+    return `${label}<span class="typing-dots" aria-hidden="true"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+  }
+
+  function showLLMJudgeRunning() {
+    const summaryEl = document.getElementById('llm-judge-summary');
+    const btn = document.getElementById('llm-judge-run-btn');
+    if (summaryEl) {
+      summaryEl.innerHTML = runningDotsHTML('评估中');
+      summaryEl.style.color = 'var(--apple-orange)';
+      summaryEl.title = 'GPT-5.5 正在评估中';
+    }
+    if (btn) {
+      btn.innerHTML = runningDotsHTML('评估中');
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'pointer-events-none');
+    }
+  }
+
+  function clearLLMJudgePolling() {
+    if (llmJudgePollingTimer) {
+      clearTimeout(llmJudgePollingTimer);
+      llmJudgePollingTimer = null;
+    }
+    llmJudgePollingSession = '';
+    const btn = document.getElementById('llm-judge-run-btn');
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'pointer-events-none');
+    }
+  }
+
+  // 校验响应确实是 JSON 接口返回，而非静态 HTML 兜底页。
+  // 线上若未部署对应路由，请求会落到 SPA 静态文件，返回 text/html + 200，
+  // 直接 resp.json() 会被吞成空对象，导致前端误以为后端已开跑（假的"评估中"）。
+  async function readJudgeJSON(resp) {
+    const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+    const text = await resp.text();
+    if (!ctype.includes('application/json')) {
+      const looksHTML = /^\s*<(?:!doctype|html)/i.test(text);
+      throw new Error(looksHTML ? 'JUDGE_ENDPOINT_NOT_READY' : `非预期响应（${ctype || '未知类型'}）`);
+    }
+    try { return text ? JSON.parse(text) : {}; }
+    catch { throw new Error('评估接口返回了无法解析的数据'); }
+  }
+
+  async function pollLLMJudgeOnce(sessionId) {
+    const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const url = buildUrl
+      ? buildUrl(`/api/llm-judge/status/${encodeURIComponent(sessionId)}`)
+      : `/api/llm-judge/status/${encodeURIComponent(sessionId)}`;
+    const resp = await fetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store' });
+    if (resp.status === 404) return {};
+    const payload = await readJudgeJSON(resp);
+    if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+    return payload || {};
+  }
+
+  function startLLMJudgePolling(sessionId) {
+    const sid = String(sessionId || '').trim();
+    if (!sid) return;
+    // 已经在轮询同一个 session,不重复启动
+    if (llmJudgePollingTimer && llmJudgePollingSession === sid) return;
+    if (llmJudgePollingTimer) clearTimeout(llmJudgePollingTimer);
+    llmJudgePollingSession = sid;
+    let attempt = 0;
+    const tick = async () => {
+      if (llmJudgePollingSession !== sid) return; // 已取消
+      attempt += 1;
+      try {
+        const payload = await pollLLMJudgeOnce(sid);
+        const status = String(payload.status || '').toLowerCase();
+        if (status === 'succeeded' && payload.result) {
+          const target = (window.SESSION && window.SESSION._real) || {};
+          applyPersistedQualityEvaluation(target, payload.result);
+          // 强制清除已渲染的"评估中"占位,重新走结果渲染分支
+          window.__llmJudgeResult = null;
+          renderPersistedLLMJudgeResult(target);
+          clearLLMJudgePolling();
+          showToast('GPT-5.5 评估完成');
+          return;
+        }
+        if (status === 'failed') {
+          clearLLMJudgePolling();
+          renderLLMJudgeError(payload.error || '评估失败');
+          return;
+        }
+      } catch (err) {
+        if (String(err && err.message) === 'JUDGE_ENDPOINT_NOT_READY') {
+          clearLLMJudgePolling();
+          renderLLMJudgeError('GPT-5.5 评估服务尚未就绪，请稍后再试');
+          return;
+        }
+        console.warn('轮询 GPT 评估状态失败', err);
+      }
+      // 退避策略:前 5 次每 2s,之后每 5s,最多轮 60 次(约 5 分钟)
+      if (attempt > 60) { clearLLMJudgePolling(); return; }
+      const delay = attempt <= 5 ? 2000 : 5000;
+      llmJudgePollingTimer = setTimeout(tick, delay);
+    };
+    llmJudgePollingTimer = setTimeout(tick, 1500);
   }
 
   window.runLLMJudge = async function() {
     const real = (window.SESSION && window.SESSION._real) || null;
-    const summaryEl = document.getElementById('llm-judge-summary');
     if (!real || !(real.traces || []).length) {
-      showToast('暂无完整会话数据，无法评估');
+      showToast('暂无完整会话数据,无法评估');
       return;
     }
-    if (summaryEl) {
-      summaryEl.textContent = '评估中';
-      summaryEl.style.color = 'var(--apple-orange)';
+    const sessionId = String(real.session_id || '').trim();
+    if (!sessionId) {
+      showToast('缺少 session_id,无法评估');
+      return;
     }
+    showLLMJudgeRunning();
     const input = buildLLMJudgeInput(real);
+    const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const url = buildUrl ? buildUrl('/api/llm-judge/async') : '/api/llm-judge/async';
     try {
-      const rawResult = await requestGPT55Judge(input);
-      window.__llmJudgeRaw = cloneJudgeData(rawResult);
-      const result = { ...(rawResult || {}) };
-      result.system_prompt = LLM_JUDGE_SYSTEM_PROMPT;
-      result.input = input;
-      renderLLMJudgeResult(result);
-      try {
-        await saveQualityEvaluation(window.__llmJudgeResult || result);
-      } catch (saveErr) {
-        console.warn('保存 LLM 评估结果失败', saveErr);
+      const resp = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          artifact_id: real.artifact_id || '',
+          trace_id: real.trace_id || (real.traces?.[0]?.trace_id || ''),
+          session_title: real.title || window.SESSION?.title || '',
+          session_user: real.user || real.user_name || '',
+          session_user_id: real.user_id || '',
+          system_prompt: LLM_JUDGE_SYSTEM_PROMPT,
+          input,
+        }),
+      });
+      const payload = await readJudgeJSON(resp);
+      if (!resp.ok && resp.status !== 202) {
+        throw new Error(payload.error || `HTTP ${resp.status}`);
       }
+      // 后台已开跑,前端进入轮询。无论是新触发还是命中去重,处理一致。
+      startLLMJudgePolling(sessionId);
     } catch (err) {
       const msg = String(err && err.message || err);
-      window.__llmJudgeRaw = { _error: msg };
-      renderLLMJudgeError(msg);
+      const friendly = msg === 'JUDGE_ENDPOINT_NOT_READY'
+        ? 'GPT-5.5 评估服务尚未就绪，请稍后再试'
+        : msg;
+      window.__llmJudgeRaw = { _error: friendly };
+      clearLLMJudgePolling();
+      renderLLMJudgeError(friendly);
     }
   };
 
@@ -6322,7 +6558,7 @@
     const sessionUser = real.user_name || real.user || real.username || '';
     const sessionUserID = real.user_id || '';
     return {
-      session_id: real.session_id || real.id || window.SESSION?.id || '',
+      session_id: real.session_id || '',
       trace_id: real.trace_id || firstTrace.trace_id || '',
       artifact_id: real.artifact_id || '',
       session_title: title || '',
@@ -7418,6 +7654,7 @@
       let totalLLMms = 0;
       const artifacts = [];
       const nextUserReply = normalizeClarifyReply(grp.clarifyReply);
+      const showStepPromptContext = (grp.traces || []).length > 1;
 
       grp.traces.forEach((t, ti) => {
         const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
@@ -7433,6 +7670,13 @@
           const sepStyle = (ti === 0 && isFirstSpanInTrace) ? ' style="margin-top:4px"' : '';
           const modelName = (sp.custom_tags || {}).model_name || 'LLM';
           parts.push(`<div class="agent-turn-sep" data-span-id="${escapeHTML(sp.span_id)}"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
+          if (showStepPromptContext) {
+            const stepPrompt = pickPromptForSpan(sp, t, { preferTracePrompt: true });
+            if (stepPrompt) {
+              const clippedPrompt = stepPrompt.length > 72 ? `${stepPrompt.slice(0, 72)}…` : stepPrompt;
+              parts.push(`<div class="agent-step-prompt" title="${escapeHTML(stepPrompt)}">回复问题：${escapeHTML(clippedPrompt)}</div>`);
+            }
+          }
           isFirstSpanInTrace = false;
 
           const { text, reasoning, tool_calls } = extractAssistantOutput(sp);

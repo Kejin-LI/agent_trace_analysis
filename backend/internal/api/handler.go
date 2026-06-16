@@ -189,6 +189,8 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.POST("/backfill-day", h.backfillDay)
 		g.POST("/ai-diagnose", h.diagnose)
 		g.POST("/llm-judge", h.llmJudgeEvaluate)
+		g.POST("/llm-judge/async", h.llmJudgeAsyncStart)
+		g.GET("/llm-judge/status/:session_id", h.llmJudgeAsyncStatus)
 		g.GET("/quality-evaluations/:session_id", h.getQualityEvaluation)
 		g.POST("/quality-evaluations", h.upsertQualityEvaluation)
 		g.POST("/manual-review", h.createManualReview)
@@ -304,6 +306,7 @@ type apiSessionBundle struct {
 	CombinedScore             *int                 `json:"combined_score,omitempty"`
 	LLMJudgeResult            json.RawMessage      `json:"llm_judge_result,omitempty"`
 	LLMJudgeModel             string               `json:"llm_judge_model,omitempty"`
+	LLMEvalStatus             string               `json:"llm_eval_status,omitempty"`
 	LLMEvalVersion            int                  `json:"llm_eval_version,omitempty"`
 	LLMEvaluatedAt            string               `json:"llm_evaluated_at,omitempty"`
 }

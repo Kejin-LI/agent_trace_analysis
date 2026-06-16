@@ -674,6 +674,75 @@
     </div>
   </section>
 
+  <!-- ===== Row 2.5: GPT-5.5 总论 ===== -->
+  <section class="glass rounded-2xl p-5 lift" id="llm-summary-card" style="display:none">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="text-[12px] text-[--text-tertiary]">GPT-5.5 总论 · <span class="kpi-rangelabel">最近 7 天</span></div>
+        <div class="text-[17px] font-semibold mt-0.5">语义体验综合洞察</div>
+      </div>
+      <div class="text-[10px] text-[--text-tertiary] num-mono"><span id="llm-summary-n">—</span> 已评估</div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-5">
+      <!-- 左 4:整体得分 + 最弱/最强维度 -->
+      <div class="col-span-4">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="quality-card">
+            <div class="text-[10.5px] text-[--text-tertiary]">GPT 均分</div>
+            <div class="num-mono text-[22px] font-semibold mt-1" id="llm-summary-avg">—</div>
+          </div>
+          <div class="quality-card">
+            <div class="text-[10.5px] text-[--text-tertiary]">覆盖率</div>
+            <div class="num-mono text-[22px] font-semibold mt-1" id="llm-summary-coverage">—</div>
+          </div>
+        </div>
+        <div class="mt-3 rounded-xl bg-black/[0.028] border border-black/[0.035] p-3 text-[11.5px] leading-relaxed">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[--text-tertiary]">最强维度</span>
+            <span class="num-mono font-semibold" id="llm-summary-best">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-[--text-tertiary]">最弱维度</span>
+            <span class="num-mono font-semibold" id="llm-summary-worst">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中 4:Top GPT 命中问题 -->
+      <div class="col-span-4">
+        <div class="pt-3 border-t border-black/5">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-[11px] text-[--text-secondary]">高频问题</div>
+            <div class="text-[10px] text-[--text-tertiary]">来源 GPT-5.5</div>
+          </div>
+          <ul class="space-y-1.5 text-[12px]" id="llm-summary-issues">
+            <li class="text-[--text-tertiary]">—</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 右 4:典型 case -->
+      <div class="col-span-4">
+        <div class="pt-3 border-t border-black/5">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-[11px] text-[--text-secondary] help">
+              典型 case
+              <div class="tip">
+                <div class="tip-title">📌 典型 case 抽样</div>
+                从已 GPT-5.5 评测的 session 里,按综合分倒数挑 2 条带评语的样本,点击直达详情。
+              </div>
+            </div>
+            <div class="text-[10px] text-[--text-tertiary]">需深度排查</div>
+          </div>
+          <div class="space-y-2 text-[11.5px]" id="llm-summary-cases">
+            <div class="text-[--text-tertiary]">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== Row 2: High-risk session list ===== -->
   <section class="glass rounded-2xl overflow-hidden">
     <div class="flex items-center justify-between px-6 py-4 border-b border-black/5">
@@ -1008,6 +1077,96 @@
         </div>`;
       }).join('');
     }
+
+    // 大盘 GPT-5.5 总论:与规则聚合保持同款思路,纯前端基于已加载的 session 数据 reduce 出来,
+    // 不二次调模型、零额外请求。
+    function renderLLMSummary(ctx) {
+      const card = document.getElementById('llm-summary-card');
+      if (!card) return;
+      const { llmCount, llmCoverage, avgLLMScore, avgLLMDims, topIssues, sessions, qualityScores } = ctx;
+      // 没有任何 GPT 评测时整张卡片直接隐藏,避免出现一排 "—"
+      if (!llmCount) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      const nEl = document.getElementById('llm-summary-n');
+      if (nEl) nEl.textContent = llmCount;
+      const avgEl = document.getElementById('llm-summary-avg');
+      if (avgEl) {
+        avgEl.textContent = Math.round(avgLLMScore);
+        avgEl.style.color = scoreColor(avgLLMScore);
+      }
+      const covEl = document.getElementById('llm-summary-coverage');
+      if (covEl) covEl.textContent = `${llmCoverage}%`;
+
+      // 最强 / 最弱维度
+      const dimEntries = LLM_DIMENSIONS
+        .map(d => ({ dim: d, value: avgLLMDims[d.key] }))
+        .filter(e => e.value !== null && e.value !== undefined);
+      const bestEl = document.getElementById('llm-summary-best');
+      const worstEl = document.getElementById('llm-summary-worst');
+      if (dimEntries.length) {
+        const sorted = dimEntries.slice().sort((a, b) => b.value - a.value);
+        const best = sorted[0];
+        const worst = sorted[sorted.length - 1];
+        if (bestEl) {
+          bestEl.innerHTML = `${escapeHtml(best.dim.label)} <span style="color:${scoreColor(best.value)}">${Math.round(best.value)}</span>`;
+        }
+        if (worstEl) {
+          worstEl.innerHTML = `${escapeHtml(worst.dim.label)} <span style="color:${scoreColor(worst.value)}">${Math.round(worst.value)}</span>`;
+        }
+      } else {
+        if (bestEl) bestEl.textContent = '—';
+        if (worstEl) worstEl.textContent = '—';
+      }
+
+      // 高频问题:仅取 source==='llm' 的标签,Top 5
+      const issuesEl = document.getElementById('llm-summary-issues');
+      if (issuesEl) {
+        const llmIssues = topIssues.filter(([, m]) => m.source === 'llm').slice(0, 5);
+        if (llmIssues.length) {
+          issuesEl.innerHTML = llmIssues.map(([label, m]) => {
+            const color = m.color || 'purple';
+            const pct = llmCount ? Math.round(m.count / llmCount * 100) : 0;
+            return `<li class="flex items-center justify-between gap-2">
+              <span class="inline-flex items-center gap-1.5 truncate" style="max-width:160px">
+                <span class="badge-dot" style="background:var(--apple-${color})"></span>
+                <span class="truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+              </span>
+              <span class="num-mono text-[--text-tertiary]">${m.count} · ${pct}%</span>
+            </li>`;
+          }).join('');
+        } else {
+          issuesEl.innerHTML = `<li class="text-[--text-tertiary]">已评测 session 均处于健康档位</li>`;
+        }
+      }
+
+      // 典型 case:从已 GPT 评测的 session 中按综合分倒数取 2 条
+      const casesEl = document.getElementById('llm-summary-cases');
+      if (casesEl) {
+        const candidates = sessions.map((s, i) => ({ s, q: qualityScores[i] }))
+          .filter(({ s, q }) => q && q.llmScore !== null && pickLLMResult(s));
+        candidates.sort((a, b) => (a.q.combinedScore ?? 999) - (b.q.combinedScore ?? 999));
+        const picks = candidates.slice(0, 2);
+        if (picks.length) {
+          casesEl.innerHTML = picks.map(({ s, q }) => {
+            const llm = pickLLMResult(s) || {};
+            const reason = llm.summary || llm.reason || llm.score_basis || '—';
+            const title = s.title || ('Session ' + displayId(s.id));
+            const sid = encodeURIComponent(displayId(s.id));
+            const score = q.combinedScore ?? '--';
+            return `<a href="./session-detail.html?id=${sid}" class="block rounded-lg bg-black/[0.025] hover:bg-black/[0.05] p-2 transition-colors">
+              <div class="flex items-center justify-between gap-2 mb-0.5">
+                <span class="truncate font-medium text-[--text-primary]" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+                <span class="num-mono text-[11px] flex-shrink-0" style="color:${scoreColor(score)}">${score}</span>
+              </div>
+              <div class="text-[11px] text-[--text-secondary] leading-snug" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(reason)}</div>
+            </a>`;
+          }).join('');
+        } else {
+          casesEl.innerHTML = `<div class="text-[--text-tertiary]">暂无可抽样的评测样本</div>`;
+        }
+      }
+    }
     function buildScoreTipHtml(q) {
       const llmText = q.llmScore === null ? '未评估' : `${q.llmScore} × 50%`;
       const sourceText = q.llmScore === null ? '规则评估 100%' : '规则 50% + GPT-5.5 50%';
@@ -1148,6 +1307,8 @@
       });
       renderRadar({ response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 });
       renderLLMMatrix({}, 0);
+      const summaryCard = document.getElementById('llm-summary-card');
+      if (summaryCard) summaryCard.style.display = 'none';
     }
 
     // ----- Cell tooltip portal（与 sessions.html 同款 +n hover 浮层） -----
@@ -1413,6 +1574,15 @@
       const llmNEl = document.getElementById('llm-evaluated-n');
       if (llmNEl) llmNEl.textContent = llmScores.length;
       renderLLMMatrix(avgLLMDims, llmScores.length);
+      renderLLMSummary({
+        llmCount: llmScores.length,
+        llmCoverage,
+        avgLLMScore,
+        avgLLMDims,
+        topIssues,
+        sessions: analyzed,
+        qualityScores,
+      });
       if (window.bindHelpTooltips) window.bindHelpTooltips(document);
       document.getElementById('kpi-p95').innerHTML = fmtDuration(percentile(durations, 0.95));
       document.getElementById('kpi-p50').textContent = fmtDuration(median(durations));
