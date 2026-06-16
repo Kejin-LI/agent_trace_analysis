@@ -3445,7 +3445,6 @@
         ? window.AgentTraceTags.collectRuleTagsFromRules(failedRules)
         : failedRules.map(r => ({ label: r.failed_label || r.name, color: scoreColor, detail: r.detail || '' }));
       if (typeof window.renderStatusFusionChips === 'function') window.renderStatusFusionChips();
-      renderPersistedLLMJudge(s._real);
 
       const descEl = document.getElementById('status-desc');
       if (descEl) {
@@ -3679,6 +3678,14 @@
         `;
         barsEl.querySelectorAll('.help').forEach(bindTooltip);
         if (typeof window.renderInitialJudgePrompt === 'function') window.renderInitialJudgePrompt();
+      }
+      // 评估卡 DOM 会在上面的 barsEl.innerHTML 中被整体重建。
+      // 若当前页内存中已存在 GPT 结果，优先把它重新灌回新 DOM；
+      // 否则再走持久化回读，避免第二次重绘后卡片被默认“未评估”覆盖。
+      if (window.__llmJudgeResult) {
+        renderLLMJudgeResult(window.__llmJudgeResult);
+      } else {
+        renderPersistedLLMJudge(s._real);
       }
 
       // 收集所有问题（规则维度 < 85 + KPI 非 good），统一渲染到「行动建议」
@@ -5882,7 +5889,11 @@
       return el ? finiteScore(el.textContent) : null;
     };
     const ruleScore = finiteScore(window.__ruleEvalScore ?? window.__ruleHealthScore ?? summaryScore('rule-eval-summary'));
-    const llmScore = finiteScore(window.__llmJudgeResult?.score ?? summaryScore('llm-judge-summary'));
+    const persistedJudgeResult = window.SESSION?._real?.llm_judge_result;
+    const activeJudgeResult = window.__llmJudgeResult || persistedJudgeResult || null;
+    const llmScore = activeJudgeResult
+      ? finiteScore(activeJudgeResult?.score ?? window.SESSION?._real?.llm_score ?? window.SESSION?._real?.llm_judge_score ?? summaryScore('llm-judge-summary'))
+      : null;
     const recipe = llmScore !== null
       ? [
           ['规则', ruleScore, 0.5],
@@ -6020,13 +6031,13 @@
       renderLLMJudgeError(String(err && err.message || err));
       return;
     }
-    window.__llmJudgeResult = result;
-    window.__llmJudgeInput = result.input || null;
     const summaryEl = document.getElementById('llm-judge-summary');
     const listEl = document.getElementById('llm-judge-list');
     const promptEl = document.getElementById('llm-judge-prompt');
     const btn = document.getElementById('llm-judge-run-btn');
     if (!summaryEl) return;
+    window.__llmJudgeResult = result;
+    window.__llmJudgeInput = result.input || null;
     const summaryState = result.overall === '无法判断' ? { color: 'var(--text-tertiary)' } : llmScoreBandState(result.score);
     const color = summaryState.color;
     summaryEl.textContent = result.score === null ? '--' : `${result.score}`;
