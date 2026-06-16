@@ -1372,7 +1372,7 @@ func extractUserPrompt(msgs []chatMessage) string {
 		if m.Role != "user" {
 			continue
 		}
-		t := stripQuestionAnswerResultPayload(stripInjectedContext(contentText(m.Content)))
+		t := extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(contentText(m.Content))))
 		if t != "" && !isSyntheticToolPrompt(t) {
 			return t
 		}
@@ -1407,6 +1407,50 @@ func stripQuestionAnswerResultPayload(text string) string {
 		return text
 	}
 	return strings.TrimSpace(text[:start] + " " + text[end:])
+}
+
+func extractBusinessWrappedOriginalQuery(text string) string {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return ""
+	}
+	lower := strings.ToLower(raw)
+	idx := strings.Index(lower, "用户原始查询")
+	if idx < 0 {
+		return raw
+	}
+	segment := strings.TrimSpace(raw[idx+len("用户原始查询"):])
+	segment = strings.TrimLeft(segment, "：: \n\t")
+	if segment == "" {
+		return raw
+	}
+	cut := len(segment)
+	for _, marker := range []string{
+		" batch_id:",
+		" batch_id：",
+		"\nbatch_id:",
+		"\nbatch_id：",
+		" 候选列表:",
+		" 候选列表：",
+		" 专家候选列表:",
+		" 专家候选列表：",
+		"\n候选列表:",
+		"\n候选列表：",
+		"\n专家候选列表:",
+		"\n专家候选列表：",
+	} {
+		if pos := strings.Index(segment, marker); pos >= 0 && pos < cut {
+			cut = pos
+		}
+	}
+	if cut < len(segment) {
+		segment = segment[:cut]
+	}
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return raw
+	}
+	return segment
 }
 
 func findQuestionAnswerResultPayload(text string) (int, int, bool) {
@@ -1697,7 +1741,7 @@ func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
 		}
 		// 先剥离 <system-reminder> 等框架注入块，再取真实用户输入。注入块常被拼在
 		// 真实提问之前塞进同一条 user 消息，不剥离会导致 prompt 显示成系统注入、多轮塌缩。
-		t := stripQuestionAnswerResultPayload(stripInjectedContext(neekoContentText(msgs[i].Content)))
+		t := extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(neekoContentText(msgs[i].Content))))
 		if t != "" && !isSyntheticToolPrompt(t) {
 			return t, model
 		}

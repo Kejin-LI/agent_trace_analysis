@@ -308,8 +308,8 @@
     </div>
   </section>
 
-  <!-- 概览 3 卡 · 全部基于真实 sessions.json -->
-  <section class="grid grid-cols-3 gap-4">
+  <!-- 概览 2 卡 · 全部基于真实 sessions.json -->
+  <section class="grid grid-cols-2 gap-4">
     <div class="glass rounded-2xl p-4">
       <div class="text-[11px] text-[--text-tertiary]">
         <span class="help">异常类型数
@@ -338,24 +338,6 @@
       <div class="flex items-end justify-between mt-1">
         <div class="text-[24px] font-semibold num-mono leading-none" id="ovw-affected">—</div>
         <div class="text-[11px] text-[--text-tertiary] num-mono">/ <span id="ovw-total">—</span> 个</div>
-      </div>
-    </div>
-    <div class="glass rounded-2xl p-4">
-      <div class="text-[11px] text-[--text-tertiary]">
-        <span class="help">平均健康度
-          <div class="help-tip">
-            <div class="tip-title">平均健康度分档</div>
-            当前窗口下所有 session 的健康度评分平均值。
-            <div class="tip-row mt-2"><span class="text-[--apple-green]">≥ 85</span><span>健康</span></div>
-            <div class="tip-row"><span class="text-[--apple-orange]">70–84</span><span>注意</span></div>
-            <div class="tip-row"><span class="text-[--apple-purple]">50–69</span><span>亚健康</span></div>
-            <div class="tip-row"><span class="text-[--apple-red]">&lt; 50</span><span>严重</span></div>
-          </div>
-        </span>
-      </div>
-      <div class="flex items-end justify-between mt-1">
-        <div class="text-[24px] font-semibold num-mono leading-none" id="ovw-avg-score">—</div>
-        <div class="text-[11px] text-[--text-tertiary] num-mono">/100</div>
       </div>
     </div>
   </section>
@@ -428,20 +410,22 @@ function buildAnomalies(s) {
     : rules.filter(r => r && r.passed === false).map(r => ({ label: r.failed_label || r.name, detail: r.detail || '', color: scoreBand(window.AgentTraceEfficiency.adjustedScore(s)) }));
 }
 
-/* 聚合：按 failed_label → { label, sessions[], avgScore } */
+/* 聚合：按 failed_label + source 拆开，避免规则标签与 GPT 标签被错误合并。 */
 function buildClusters(sessions) {
   const map = new Map();
   sessions.forEach(s => {
     const failed = buildAnomalies(s);
     failed.forEach(r => {
       const label = r.label || r.failed_label || r.name;
-      if (!map.has(label)) map.set(label, {
+      const source = r.source || 'rule';
+      const clusterKey = `${source}::${label}`;
+      if (!map.has(clusterKey)) map.set(clusterKey, {
         label,
         sessions: [],
-        source: r.source || 'rule',
-        color: r.color || (r.source === 'llm' ? 'purple' : 'blue'),
+        source,
+        color: r.color || (source === 'llm' ? 'purple' : 'blue'),
       });
-      map.get(label).sessions.push(s);
+      map.get(clusterKey).sessions.push(s);
     });
   });
   return [...map.values()].map(c => {
@@ -510,7 +494,7 @@ function renderCard(cluster, buckets) {
   const total = cluster.sessions.length;
   const rangeLabel = ({'24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天'})[STATE.range];
   const inWindow = series.reduce((a, b) => a + b, 0);
-  const previewIds = cluster.sessions.slice(0, 3).map(s => s.id);
+  const previewSessions = cluster.sessions.slice(0, 3);
 
   return `
     <div class="glass rounded-2xl p-5 lift" data-cluster="${escapeAttr(cluster.label)}">
@@ -538,7 +522,13 @@ function renderCard(cluster, buckets) {
       <div class="pt-3 border-t border-black/5">
         <div class="text-[10.5px] text-[--text-tertiary] mb-1.5">命中 Session</div>
         <div class="flex items-center gap-1.5 flex-wrap">
-          ${previewIds.map(id => `<a href="./session-detail?id=${encodeURIComponent(id)}" class="text-[11px] num-mono px-1.5 py-0.5 rounded bg-black/5 hover:bg-[--apple-blue] hover:text-white transition-colors">${escapeHtml(id)}</a>`).join('')}
+          ${previewSessions.map(s => {
+            const qs = new URLSearchParams({ id: s.id || s.session_id || '' });
+            if (s.artifact_publication_status) qs.set('artifact_status', s.artifact_publication_status);
+            const href = `./session-detail?${qs.toString()}`;
+            const text = s.id || s.session_id || '-';
+            return `<a href="${href}" class="text-[11px] num-mono px-1.5 py-0.5 rounded bg-black/5 hover:bg-[--apple-blue] hover:text-white transition-colors">${escapeHtml(text)}</a>`;
+          }).join('')}
           ${total > 3 ? `<span class="text-[10.5px] text-[--text-tertiary] num-mono">+${total - 3}</span>` : ''}
         </div>
       </div>
@@ -669,14 +659,6 @@ function render() {
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affected.length;
   document.getElementById('ovw-total').textContent = effective.length;
-  const avgScore = effective.length
-    ? effective.reduce((a, s) => a + (s.score ?? 0), 0) / effective.length
-    : 0;
-  const ovwAvg = document.getElementById('ovw-avg-score');
-  ovwAvg.textContent = Math.round(avgScore);
-  const avgBand = scoreBand(avgScore);
-  ovwAvg.style.color = `var(--apple-${avgBand})`;
-
   // 卡片
   if (!clusters.length) {
     grid.innerHTML = renderGlobalEmpty();

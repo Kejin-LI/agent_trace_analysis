@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Agent Trace 诊断平台 · Session</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="./efficiency-helper.js"></script>
-<script src="./tag-system.js"></script>
+<script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
+<script src="./tag-system.js?v=20260616-fix-score-cache"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -518,7 +518,7 @@
 
 </main>
 
-<script src="./db-api.js"></script>
+<script src="./db-api.js?v=20260616-fix-score-cache"></script>
 <script src="./range-picker.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
@@ -618,13 +618,14 @@
 
     function buildScoreTipHtml(q) {
       const llmText = q.llmScore === null ? '未评估' : `${q.llmScore} × 50%`;
-      const sourceText = q.llmScore === null ? '规则评估 100%' : '规则 50% + GPT-5.5 50%';
+      const ruleLabel = q.ruleSource === 'persisted' ? '规则评估' : '规则分';
+      const sourceText = q.llmScore === null ? `${ruleLabel} 100%` : `${ruleLabel} 50% + GPT-5.5 50%`;
       return `
         <div class="score-tip">
           <div class="score-tip-title">综合健康度如何计算</div>
           <div class="score-tip-sub">列表展示综合分，缺失 GPT-5.5 时自动降级为规则分。</div>
           <div class="score-tip-row"><span>综合分</span><span class="num-mono">${q.combinedScore ?? '--'}</span></div>
-          <div class="score-tip-row"><span>规则评估</span><span class="num-mono">${q.ruleScore ?? '--'}${q.llmScore === null ? ' × 100%' : ' × 50%'}</span></div>
+          <div class="score-tip-row"><span>${ruleLabel}</span><span class="num-mono">${q.ruleScore ?? '--'}${q.llmScore === null ? ' × 100%' : ' × 50%'}</span></div>
           <div class="score-tip-row"><span>GPT-5.5</span><span class="num-mono">${llmText}</span></div>
           <div class="score-tip-formula">${sourceText}；规则看执行规整、工具稳定、资源开销、调度编排、重复空转等客观信号，GPT-5.5 看问题解决、意图匹配、效率体感、用户情绪、可执行性、幻觉风险。</div>
           <div class="score-tip-levels"><span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span></div>
@@ -656,7 +657,10 @@
 
     function sessionQualityScore(s) {
       if (isPendingScoreSession(s)) return null;
-      const ruleScore = hasParsedRuleMetrics(s) ? window.AgentTraceEfficiency.adjustedScore(s) : null;
+      const aggregateScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Math.round(Number(s.score)))) : null;
+      const ruleScore = aggregateScore !== null
+        ? aggregateScore
+        : (hasParsedRuleMetrics(s) ? window.AgentTraceEfficiency.adjustedScore(s) : null);
       return window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore).combinedScore
         : ruleScore;
@@ -734,7 +738,10 @@
       const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
       const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="spinner"></span><span class="pending-dash">${label}</span></span>`;
 
-      const ruleScore = window.AgentTraceEfficiency.adjustedScore(s);
+      const aggregateScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Math.round(Number(s.score)))) : null;
+      const ruleScore = aggregateScore !== null
+        ? aggregateScore
+        : window.AgentTraceEfficiency.adjustedScore(s);
       const quality = window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
         : { ruleScore, llmScore: null, combinedScore: ruleScore };
@@ -762,10 +769,12 @@
           </div>`;
       }
 
-      const isUnpublished = s.artifact_publication_status === 'unpublished';
+      const pubStatus = s.artifact_publication_status || '';
+      const isPublished = pubStatus === 'published';
+      const isUnpublished = pubStatus === 'unpublished';
       const pubPill = isUnpublished
         ? '<span class="pub-pill is-unpublished">未发布</span>'
-        : '<span class="pub-pill is-published">已发布</span>';
+        : (isPublished ? '<span class="pub-pill is-published">已发布</span>' : '<span class="text-[--text-tertiary]">-</span>');
       const hasRealTraceSummary = turns > 0 || traceCount > 0 || ((s.traces || []).length > 0);
       const metaLine = isPending
         ? `${displayId(s.id)} · <span class="pending-dash">指标聚合中…</span>`
@@ -837,8 +846,7 @@
         }
         // 发布状态
         if (f.pub !== 'all') {
-          const pub = s.artifact_publication_status === 'unpublished' ? 'unpublished' : 'published';
-          if (pub !== f.pub) return false;
+          if ((s.artifact_publication_status || '') !== f.pub) return false;
         }
         // 关键字模糊搜索：session_id（含完整 id 精确命中）/ 标题 / 用户
         if (kw) {

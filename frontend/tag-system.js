@@ -40,6 +40,7 @@
   }
 
   function score(v) {
+    if (v === null || v === undefined || v === '') return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
@@ -75,10 +76,14 @@
   // 以及空的 reason/summary 当成证据：失败/脏的评测行也会带这些元数据，但分项分全为 NULL，
   // 若据此把总分 0 当成有效 GPT 分，会覆盖健康的规则分（线上大盘综合健康度恒为 0 的根因）。
   function hasLLMScoreEvidence(session, llm) {
-    const status = String(session?.llm_eval_status || '').toLowerCase();
-    if (status === 'succeeded' || status === 'success') return true;
     const nested = llm?.dimension_scores || llm?.scores || llm?.['分项分数'] || null;
     return (
+      clampScore(session?.llm_score) > 0 ||
+      clampScore(session?.llm_judge_score) > 0 ||
+      clampScore(llm?.score) > 0 ||
+      clampScore(llm?.total_score) > 0 ||
+      clampScore(llm?.overall_score) > 0 ||
+      clampScore(llm?.quality_score) > 0 ||
       hasScoreEvidence(llm?.sentiment_score) ||
       hasScoreEvidence(llm?.resolved_score) ||
       hasScoreEvidence(llm?.intent_match_score) ||
@@ -97,6 +102,31 @@
       hasScoreEvidence(session?.llm_efficiency_feel_score) ||
       hasScoreEvidence(session?.llm_actionability_score) ||
       hasScoreEvidence(session?.llm_hallucination_risk_score)
+    );
+  }
+
+  function hasSuccessfulLLMEvaluation(session, llm) {
+    const status = String(
+      session?.llm_eval_status ||
+      session?.llmEvalStatus ||
+      llm?.llm_eval_status ||
+      llm?.eval_status ||
+      ''
+    ).trim().toLowerCase();
+    if (status !== 'succeeded') return false;
+    if (hasLLMScoreEvidence(session, llm)) return true;
+    return Boolean(
+      llm && (
+        llm.reason ||
+        llm.score_basis ||
+        llm.resolved ||
+        llm.intent_match ||
+        llm.sentiment ||
+        llm.efficiency_feel ||
+        llm.actionability ||
+        llm.hallucination_risk ||
+        (Array.isArray(llm.tags) && llm.tags.length > 0)
+      )
     );
   }
 
@@ -138,6 +168,7 @@
     const ruleScore = (persistedRule === 0 && !ruleEvidence)
       ? clampScore(fallbackRuleScore)
       : (persistedRule !== null ? persistedRule : clampScore(fallbackRuleScore));
+    const ruleSource = persistedRule !== null ? 'persisted' : (ruleScore !== null ? 'aggregate' : null);
     const rawLLMScore = firstScore([
       session?.llm_score,
       session?.llm_judge_score,
@@ -164,7 +195,7 @@
     const basis = llmScore !== null
       ? `规则 ${ruleScore ?? '--'} × 50% + GPT-5.5 ${llmScore} × 50%`
       : `规则 ${ruleScore ?? '--'} × 100%；GPT-5.5 未评估`;
-    return { ruleScore, llmScore, combinedScore, source, basis };
+    return { ruleScore, llmScore, combinedScore, source, basis, ruleSource };
   }
 
   function collectRuleTagsFromRules(rules) {
@@ -214,7 +245,11 @@
       session?.llmJudgeResult ||
       session?.gpt55_judge_result
     );
-    if (full) return collectLLMTags(full);
+    if (full) {
+      if (!hasSuccessfulLLMEvaluation(session, full)) return [];
+      return collectLLMTags(full);
+    }
+    if (!hasSuccessfulLLMEvaluation(session, null)) return [];
     const llmScore = sanitizeLLMScore(
       session,
       firstScore([session?.llm_score, session?.llm_judge_score, session?.llmJudgeScore]),

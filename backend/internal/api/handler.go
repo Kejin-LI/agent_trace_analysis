@@ -184,6 +184,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		}
 		g.GET("/session-bundles", h.listSessionBundles)
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
+		g.GET("/dashboard-summary", h.getDashboardSummary)
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
@@ -1184,7 +1185,7 @@ func messageContentToText(raw interface{}) string {
 }
 
 func cleanUserPrompt(raw string) string {
-	stripped := stripQuestionAnswerResultPayload(stripInjectedContext(raw))
+	stripped := extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(raw)))
 	prompt := normalizePromptText(stripped)
 	if prompt == "" || isControlLikePrompt(prompt) || isSyntheticToolPrompt(stripped) {
 		return ""
@@ -1216,6 +1217,50 @@ func stripQuestionAnswerResultPayload(raw string) string {
 		return raw
 	}
 	return strings.TrimSpace(raw[:start] + " " + raw[end:])
+}
+
+func extractBusinessWrappedOriginalQuery(raw string) string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	idx := strings.Index(lower, "用户原始查询")
+	if idx < 0 {
+		return text
+	}
+	segment := strings.TrimSpace(text[idx+len("用户原始查询"):])
+	segment = strings.TrimLeft(segment, "：: \n\t")
+	if segment == "" {
+		return text
+	}
+	cut := len(segment)
+	for _, marker := range []string{
+		" batch_id:",
+		" batch_id：",
+		"\nbatch_id:",
+		"\nbatch_id：",
+		" 候选列表:",
+		" 候选列表：",
+		" 专家候选列表:",
+		" 专家候选列表：",
+		"\n候选列表:",
+		"\n候选列表：",
+		"\n专家候选列表:",
+		"\n专家候选列表：",
+	} {
+		if pos := strings.Index(segment, marker); pos >= 0 && pos < cut {
+			cut = pos
+		}
+	}
+	if cut < len(segment) {
+		segment = segment[:cut]
+	}
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return text
+	}
+	return segment
 }
 
 func findQuestionAnswerResultPayload(raw string) (int, int, bool) {
