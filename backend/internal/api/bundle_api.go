@@ -59,7 +59,6 @@ func isUpstreamAuthMissing(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "sid is empty") || strings.Contains(msg, "unauthorized")
 }
-
 // listSessionBundlesAPI 走上游接口实时拉 session 列表（不落库）。
 //
 // 请求参数：

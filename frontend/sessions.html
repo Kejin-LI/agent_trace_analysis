@@ -682,6 +682,11 @@
       },
       sort: 'time-desc',
       page: 1,
+      datasetVersion: 0,
+      filteredCacheKey: '',
+      filteredCacheList: [],
+      stats: { total: 0, anomaly: 0, healthy: 0 },
+      anomalyCounts: new Map(),
     };
 
     // 时间范围对应的毫秒数：与后端请求保持一致，均以当前系统时间为基准。
@@ -711,6 +716,10 @@
       const d = await window.AgentTraceDB.loadSessions(currentRangeQuery());
       if (seq !== loadSeq) return;
       state.all = d.sessions || [];
+      state.datasetVersion++;
+      state.filteredCacheKey = '';
+      state.filteredCacheList = [];
+      precomputeSessionMeta();
       const capHintEl = document.getElementById('cap-hint');
       if (capHintEl) capHintEl.classList.toggle('hidden', state.all.length < 2000);
       buildDynamicDropdowns();
@@ -723,12 +732,70 @@
       if (gl) hideGlobalLoader();
     }
 
+    function getSessionMeta(s) {
+      if (s && s.__sessionMeta) return s.__sessionMeta;
+      const isPending = isPendingScoreSession(s);
+      const aggregateScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Math.round(Number(s.score)))) : null;
+      const ruleScore = aggregateScore !== null
+        ? aggregateScore
+        : (hasParsedRuleMetrics(s) ? window.AgentTraceEfficiency.adjustedScore(s) : null);
+      const quality = window.AgentTraceTags?.getSessionQualityScores
+        ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
+        : { ruleScore, llmScore: null, combinedScore: ruleScore };
+      const score = isPending ? null : (quality.combinedScore ?? ruleScore);
+      const anomaly = isPending ? null : buildAnomalies(s);
+      const searchText = [
+        s.session_id || '',
+        s.id || '',
+        s.artifact_id || '',
+        s.trace || '',
+        s.title || '',
+        s.user || '',
+      ].join(' ').toLowerCase();
+      const meta = {
+        isPending,
+        aggregateScore,
+        ruleScore,
+        quality,
+        score,
+        anomaly,
+        scoreBand: score === null ? null : scoreBand(score),
+        isHealthy: score !== null && score >= 85,
+        searchText,
+      };
+      s.__sessionMeta = meta;
+      return meta;
+    }
+
+    function precomputeSessionMeta() {
+      let anomaly = 0;
+      let healthy = 0;
+      let total = 0;
+      const anomalyCounts = new Map();
+      state.all.forEach(s => {
+        total++;
+        const meta = getSessionMeta(s);
+        if (meta.score !== null) {
+          if (meta.isHealthy) healthy++;
+          else anomaly++;
+        }
+        if (meta.anomaly) {
+          meta.anomaly.list.forEach(it => {
+            anomalyCounts.set(it.label, (anomalyCounts.get(it.label) || 0) + 1);
+          });
+        }
+      });
+      state.stats = { total, anomaly, healthy };
+      state.anomalyCounts = anomalyCounts;
+    }
+
     // ----- 渲染单行 -----
     function renderRow(s) {
+      const meta = getSessionMeta(s);
       // 指标未聚合判定：列表项来自上游 light bundle 时无任何已解析指标。
       // 注意 duration_ms 不能作为判据——上游 light bundle 已带时长，但仍没有雷达/规则/质量分，
       // 如果把它当成已聚合，会把缺失分数误渲染成 0。
-      const isPending = isPendingScoreSession(s);
+      const isPending = meta.isPending;
       const traceCount = Number(s.trace_count || 0);
       const turns = Number(s.turns || 0);
       const durationMs = Number(s.duration_ms || 0);
@@ -737,19 +804,12 @@
       const isTurnsCalculating = !isPending && turns <= 0 && hasPartialMetrics;
       const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
       const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="spinner"></span><span class="pending-dash">${label}</span></span>`;
-
-      const aggregateScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Math.round(Number(s.score)))) : null;
-      const ruleScore = aggregateScore !== null
-        ? aggregateScore
-        : window.AgentTraceEfficiency.adjustedScore(s);
-      const quality = window.AgentTraceTags?.getSessionQualityScores
-        ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
-        : { ruleScore, llmScore: null, combinedScore: ruleScore };
-      const score = quality.combinedScore ?? ruleScore;
-      const scoreColor = scoreBand(score);
+      const quality = meta.quality;
+      const score = meta.score;
+      const scoreColor = meta.scoreBand;
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const userInitial = (s.user || 'A').charAt(0).toUpperCase();
-      const ano = isPending ? null : buildAnomalies(s);
+      const ano = meta.anomaly;
 
       const pendingPill = '<span class="pending-pill"><span class="pending-dot"></span>聚合中</span>';
 
@@ -821,16 +881,32 @@
     }
 
     // ----- 派生：筛选 + 排序 -----
+    function getFilterCacheKey() {
+      const f = state.filter;
+      return [
+        state.datasetVersion,
+        state.sort,
+        f.status,
+        f.anomalyType,
+        f.score,
+        f.pub,
+        (f.keyword || '').trim().toLowerCase(),
+      ].join('|');
+    }
+
     function applyFilter() {
+      const cacheKey = getFilterCacheKey();
+      if (state.filteredCacheKey === cacheKey) return state.filteredCacheList;
       const f = state.filter;
       const kw = f.keyword.trim().toLowerCase();
 
       let arr = state.all.filter(s => {
-        const ano = buildAnomalies(s);
-        const score = sessionQualityScore(s);
+        const meta = getSessionMeta(s);
+        const ano = meta.anomaly;
+        const score = meta.score;
         // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
         // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
-        const isHealthy = score !== null && score >= 85;
+        const isHealthy = meta.isHealthy;
         const isPendingScore = score === null;
         // 状态分段
         if (f.status === 'anomaly' && (isHealthy || isPendingScore)) return false;
@@ -842,36 +918,28 @@
         }
         // 健康度档位
         if (f.score !== 'all') {
-          if (score === null || scoreBand(score) !== f.score) return false;
+          if (meta.scoreBand !== f.score) return false;
         }
         // 发布状态
         if (f.pub !== 'all') {
           if ((s.artifact_publication_status || '') !== f.pub) return false;
         }
         // 关键字模糊搜索：真实 session_id / 展示ID / artifact_id / trace_id / 标题 / 用户
-        if (kw) {
-          const hay = [
-            s.session_id || '',
-            s.id || '',
-            s.artifact_id || '',
-            s.trace || '',
-            s.title || '',
-            s.user || '',
-          ].join(' ').toLowerCase();
-          if (!hay.includes(kw)) return false;
-        }
+        if (kw && !meta.searchText.includes(kw)) return false;
         return true;
       });
 
       // 排序
       const cmps = {
-        'score-desc': (a, b) => (sessionQualityScore(b) ?? 0) - (sessionQualityScore(a) ?? 0),
-        'score-asc':  (a, b) => (sessionQualityScore(a) ?? 0) - (sessionQualityScore(b) ?? 0),
+        'score-desc': (a, b) => ((getSessionMeta(b).score) ?? 0) - ((getSessionMeta(a).score) ?? 0),
+        'score-asc':  (a, b) => ((getSessionMeta(a).score) ?? 0) - ((getSessionMeta(b).score) ?? 0),
         'time-desc':  (a, b) => (b.started_at_ms ?? 0) - (a.started_at_ms ?? 0),
         'time-asc':   (a, b) => (a.started_at_ms ?? 0) - (b.started_at_ms ?? 0),
         'duration-desc': (a, b) => (b.duration_ms ?? 0) - (a.duration_ms ?? 0),
       };
       arr.sort(cmps[state.sort] || cmps['score-desc']);
+      state.filteredCacheKey = cacheKey;
+      state.filteredCacheList = arr;
       return arr;
     }
 
@@ -901,9 +969,6 @@
       } else {
         if (tbody) {
           tbody.innerHTML = slice.map(renderRow).join('');
-          tbody.querySelectorAll('tr[data-href]').forEach(tr => {
-            tr.addEventListener('click', () => window.location.href = tr.dataset.href);
-          });
         }
       }
 
@@ -947,12 +1012,6 @@
       });
       html += arrow('next', state.page + 1, state.page >= pages);
       pgPages.innerHTML = html;
-      pgPages.querySelectorAll('button[data-page]').forEach(b => {
-        b.addEventListener('click', () => {
-          const p = parseInt(b.dataset.page, 10);
-          if (!isNaN(p)) { state.page = p; renderAll(); }
-        });
-      });
     }
 
     // ----- Cell tooltip portal -----
@@ -988,14 +1047,7 @@
 
     // ----- 状态分段 count -----
     function refreshStatusCount() {
-      let anomaly = 0, healthy = 0, total = 0;
-      // 时间窗口已由后端查询统一过滤；这里只做健康/异常分段统计，避免前端二次误筛 started_at_ms=0 的数据。
-      state.all.forEach(s => {
-        total++;
-        const score = sessionQualityScore(s);
-        if (score === null) return;
-        if (score >= 85) healthy++; else anomaly++;
-      });
+      const { total, anomaly, healthy } = state.stats;
       statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();
       statusSeg.querySelector('[data-count="anomaly"]').textContent = anomaly.toLocaleString();
       statusSeg.querySelector('[data-count="healthy"]').textContent = healthy.toLocaleString();
@@ -1003,18 +1055,8 @@
 
     // ----- 动态填充：异常类型 -----
     function buildDynamicDropdowns() {
-      const anomalySet = new Map();
-      state.all.forEach(s => {
-        (s.rules || []).forEach(r => {
-          if (r && r.passed === false) {
-            const lbl = r.failed_label || r.name;
-            anomalySet.set(lbl, (anomalySet.get(lbl) || 0) + 1);
-          }
-        });
-      });
-
       const ddAnomalyAll = `<div class="dd-item selected" data-value="all"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>全部</div>`;
-      const ddAnomalyItems = [...anomalySet.entries()]
+      const ddAnomalyItems = [...state.anomalyCounts.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([k, v]) => `<div class="dd-item" data-value="${escapeHtml(k)}"><svg class="dd-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>${escapeHtml(k)}<span class="dd-count">${v}</span></div>`)
         .join('');
@@ -1099,6 +1141,19 @@
     // 点击空白关下拉
     document.addEventListener('click', () => {
       document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open'));
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr[data-href]');
+      if (tr && tbody.contains(tr)) window.location.href = tr.dataset.href;
+    });
+    pgPages.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-page]');
+      if (!btn || btn.disabled) return;
+      const p = parseInt(btn.dataset.page, 10);
+      if (!isNaN(p)) {
+        state.page = p;
+        renderAll();
+      }
     });
 
     // ----- 时间范围切换：由共享组件 range-picker.js 接管，挂载在脚本末尾 -----

@@ -712,7 +712,7 @@
       if (topIssueEl) {
         topIssueEl.innerHTML = usingCache
           ? ' 正在基于最近缓存刷新最新统计，请以即将更新的数字为准。'
-          : ` 当前正在切换到${window.escapeHtml(label)}并重新统计，请稍候。`;
+          : ` 当前正在切换到${escapeHtml(label)}并重新统计，请稍候。`;
       }
       setCapHintMessage(usingCache
         ? `当前先展示最近一次缓存结果，正在刷新 ${label} 的最新头部统计和明细列表。`
@@ -748,7 +748,7 @@
         const pendingHint = pendingCount > 0
           ? `另有 <span class="num-mono">${pendingCount}</span> 个 session 指标待分析（暂未纳入健康统计）。`
           : '';
-        topIssueEl.innerHTML = ` 头部统计已切到${window.escapeHtml(label)}的最新结果，明细列表仍在加载中。${pendingHint}`;
+        topIssueEl.innerHTML = ` 头部统计已切到${escapeHtml(label)}的最新结果，明细列表仍在加载中。${pendingHint}`;
       }
       setCapHintMessage(usingCache
         ? `已先展示缓存中的 ${label} 数据，并已拿到最新头部真汇总；下方明细列表仍在刷新中。`
@@ -853,6 +853,7 @@
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
     const tbody = document.getElementById('risk-tbody');
+    let tooltipReady = false;
     if (!tbody) return;
     const loaderEl = document.getElementById('global-loader');
     function hideGlobalLoader() {
@@ -1099,6 +1100,22 @@
       return getQualityScores(s).combinedScore;
     }
 
+    function getSessionMeta(s) {
+      if (s && s.__dashboardMeta) return s.__dashboardMeta;
+      const quality = getQualityScores(s);
+      const score = quality.combinedScore;
+      const anomaly = buildAnomalies(s);
+      const meta = {
+        isPending: isPendingSession(s),
+        quality,
+        score,
+        anomaly,
+        scoreBand: score === null || score === undefined ? null : scoreBand(score),
+      };
+      s.__dashboardMeta = meta;
+      return meta;
+    }
+
     function renderEmpty(msg) {
       tbody.innerHTML = `<tr>
         <td colspan="8" class="px-6 py-16 text-center">
@@ -1136,6 +1153,8 @@
 
     // ----- Cell tooltip portal（与 sessions.html 同款 +n hover 浮层） -----
     function setupCellTooltip() {
+      if (tooltipReady) return;
+      tooltipReady = true;
       const portal = document.getElementById('cell-tip-portal') || (() => {
         const el = document.createElement('div');
         el.id = 'cell-tip-portal';
@@ -1166,12 +1185,13 @@
     }
 
     function renderRow(s) {
-      const isPending = isPendingSession(s);
-      const quality = getQualityScores(s);
-      const score = quality.combinedScore ?? adjustedScore(s);
-      const color = scoreBand(score);
+      const meta = getSessionMeta(s);
+      const isPending = meta.isPending;
+      const quality = meta.quality;
+      const score = meta.score ?? adjustedScore(s);
+      const color = meta.scoreBand || scoreBand(score);
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
-      const ano = buildAnomalies(s);
+      const ano = meta.anomaly;
       const traceCount = Number(s.trace_count || 0);
       const turnsRaw = Number(s.turns || 0);
       const turnsN = traceCount > 0 ? traceCount : turnsRaw;
@@ -1230,6 +1250,11 @@
         </td>
       </tr>`;
     }
+    tbody.addEventListener('click', e => {
+      if (e.target.closest('a')) return;
+      const tr = e.target.closest('tr[data-href]');
+      if (tr && tbody.contains(tr)) window.location.href = tr.dataset.href;
+    });
 
     // ===== 雷达坐标（顺时针 5 维：北→东北→东南→西南→西北）=====
     const RADAR_AXES = [
@@ -1297,74 +1322,114 @@
       // 仅对已聚合指标的 session 做健康/异常统计；
       // 未聚合的空骨架（light bundle，指标尚未算出）单独计为「待分析」，
       // 不能算进健康档，否则会被误判为满分导致异常数恒为 0。
-      const analyzed = sessions.filter(s => !isPendingSession(s));
-      const samplePendingCount = sampledTotal - analyzed.length;
-      const sampleAnalyzedTotal = analyzed.length;
-
-      const qualityScores = analyzed.map(getQualityScores);
-      const allQualityScores = sessions.map(getQualityScores);
-      const scores = qualityScores.map(q => q.combinedScore).filter(v => v !== null && v !== undefined);
-      const ruleScores = qualityScores.map(q => q.ruleScore).filter(v => v !== null && v !== undefined);
-      const llmScores = allQualityScores.map(q => q.llmScore).filter(v => v !== null && v !== undefined);
-      const publishedCount = sessions.filter(s => s.artifact_publication_status === 'published').length;
-      const knownPublicationTotal = sessions.filter(s => s.artifact_publication_status === 'published' || s.artifact_publication_status === 'unpublished').length;
-      const samplePublishedRate = knownPublicationTotal ? Math.round(publishedCount / knownPublicationTotal * 100) : null;
-      const durations = analyzed.map(s => s.duration_ms || 0);
-      const totalTokens = analyzed.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
-      const sampleAvgScore = avg(scores);
-      const avgRuleScore = avg(ruleScores);
-      const avgLLMScore = avg(llmScores);
-      const llmCoverage = sampledTotal ? Math.round(llmScores.length / sampledTotal * 100) : 0;
-
-      // 分档计数
       const band = { green: 0, orange: 0, purple: 0, red: 0 };
-      scores.forEach(sc => band[scoreBand(sc)]++);
-      const sampleAnomalyCount = sampleAnalyzedTotal - band.green;
-
-      // 异常聚合：按融合标签体系统计，兼容规则侧与 GPT-5.5 语义侧标签。
       const issueMap = new Map();
-      analyzed.forEach(s => {
-        const ano = buildAnomalies(s);
-        if (!ano) return;
-        ano.list.forEach(it => {
-          const prev = issueMap.get(it.label) || { count: 0, source: it.source || 'rule', color: it.color || 'blue' };
-          prev.count += 1;
-          issueMap.set(it.label, prev);
-        });
-      });
-      const topIssues = [...issueMap.entries()].sort((a, b) => b[1].count - a[1].count);
-
-      // 雷达 5 维平均
       const avgRadar = { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 };
       const radarCount = { response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 };
-      analyzed.forEach(s => {
-        if (!s.radar) return;
-        const r = adjustedRadar(s);
-        Object.keys(avgRadar).forEach(k => {
-          if (typeof r[k] === 'number' && !Number.isNaN(r[k])) {
-            avgRadar[k] += r[k];
-            radarCount[k]++;
-          }
-        });
-      });
-      Object.keys(avgRadar).forEach(k => {
-        avgRadar[k] = radarCount[k] ? (avgRadar[k] / radarCount[k]) : null;
-      });
-
-      // GPT-5.5 6 维平均：仅统计已完成 LLM 评估且有对应分项的 session。
       const avgLLMDims = {};
       const llmDimCount = {};
       LLM_DIMENSIONS.forEach(dim => { avgLLMDims[dim.key] = 0; llmDimCount[dim.key] = 0; });
-      sessions.forEach(s => {
-        const llm = pickLLMResult(s);
-        if (!llm) return;
-        LLM_DIMENSIONS.forEach(dim => {
-          const v = llmDimensionScore(llm, dim);
-          if (v !== null) {
-            avgLLMDims[dim.key] += v;
-            llmDimCount[dim.key] += 1;
+
+      let samplePendingCount = 0;
+      let sampleAnalyzedTotal = 0;
+      let publishedCount = 0;
+      let knownPublicationTotal = 0;
+      let totalTokens = 0;
+      let llmScoreCount = 0;
+      let llmScoreSum = 0;
+      let combinedScoreCount = 0;
+      let combinedScoreSum = 0;
+      let ruleScoreCount = 0;
+      let ruleScoreSum = 0;
+      const durations = [];
+      const recentSessions = [];
+
+      const insertRecentSession = (session, scoreValue) => {
+        const item = { session, score: scoreValue ?? 0 };
+        let inserted = false;
+        for (let i = 0; i < recentSessions.length; i++) {
+          if (item.score < recentSessions[i].score) {
+            recentSessions.splice(i, 0, item);
+            inserted = true;
+            break;
           }
-        });
+        }
+        if (!inserted) recentSessions.push(item);
+        if (recentSessions.length > 10) recentSessions.length = 10;
+      };
+
+      sessions.forEach(s => {
+        const sessionMeta = getSessionMeta(s);
+        const quality = sessionMeta.quality;
+        const score = sessionMeta.score;
+        insertRecentSession(s, score);
+
+        const pubStatus = s.artifact_publication_status;
+        if (pubStatus === 'published') publishedCount++;
+        if (pubStatus === 'published' || pubStatus === 'unpublished') knownPublicationTotal++;
+
+        if (quality.llmScore !== null && quality.llmScore !== undefined) {
+          llmScoreCount++;
+          llmScoreSum += quality.llmScore;
+        }
+
+        const llm = pickLLMResult(s);
+        if (llm) {
+          LLM_DIMENSIONS.forEach(dim => {
+            const v = llmDimensionScore(llm, dim);
+            if (v !== null) {
+              avgLLMDims[dim.key] += v;
+              llmDimCount[dim.key] += 1;
+            }
+          });
+        }
+
+        if (sessionMeta.isPending) {
+          samplePendingCount++;
+          return;
+        }
+
+        sampleAnalyzedTotal++;
+        durations.push(s.duration_ms || 0);
+        totalTokens += (s.input_tokens || 0) + (s.output_tokens || 0);
+
+        if (score !== null && score !== undefined) {
+          combinedScoreCount++;
+          combinedScoreSum += score;
+          band[sessionMeta.scoreBand]++;
+        }
+        if (quality.ruleScore !== null && quality.ruleScore !== undefined) {
+          ruleScoreCount++;
+          ruleScoreSum += quality.ruleScore;
+        }
+        if (sessionMeta.anomaly) {
+          sessionMeta.anomaly.list.forEach(it => {
+            const prev = issueMap.get(it.label) || { count: 0, source: it.source || 'rule', color: it.color || 'blue' };
+            prev.count += 1;
+            issueMap.set(it.label, prev);
+          });
+        }
+        if (s.radar) {
+          const r = adjustedRadar(s);
+          Object.keys(avgRadar).forEach(k => {
+            if (typeof r[k] === 'number' && !Number.isNaN(r[k])) {
+              avgRadar[k] += r[k];
+              radarCount[k]++;
+            }
+          });
+        }
+      });
+
+      const samplePublishedRate = knownPublicationTotal ? Math.round(publishedCount / knownPublicationTotal * 100) : null;
+      const sampleAvgScore = combinedScoreCount ? (combinedScoreSum / combinedScoreCount) : null;
+      const avgRuleScore = ruleScoreCount ? (ruleScoreSum / ruleScoreCount) : null;
+      const avgLLMScore = llmScoreCount ? (llmScoreSum / llmScoreCount) : null;
+      const llmCoverage = sampledTotal ? Math.round(llmScoreCount / sampledTotal * 100) : 0;
+      const sampleAnomalyCount = sampleAnalyzedTotal - band.green;
+      const topIssues = [...issueMap.entries()].sort((a, b) => b[1].count - a[1].count);
+
+      Object.keys(avgRadar).forEach(k => {
+        avgRadar[k] = radarCount[k] ? (avgRadar[k] / radarCount[k]) : null;
       });
       LLM_DIMENSIONS.forEach(dim => {
         avgLLMDims[dim.key] = llmDimCount[dim.key] ? (avgLLMDims[dim.key] / llmDimCount[dim.key]) : null;
@@ -1417,8 +1482,8 @@
       if (h1) h1.title = h1.innerText;
 
       // ===== 雷达 =====
-      document.getElementById('radar-total').textContent = ruleScores.length ? Math.round(avgRuleScore) : '—';
-      document.getElementById('radar-total').style.color = ruleScores.length ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
+      document.getElementById('radar-total').textContent = ruleScoreCount ? Math.round(avgRuleScore) : '—';
+      document.getElementById('radar-total').style.color = ruleScoreCount ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
       document.getElementById('radar-n').textContent = analyzedTotal;
       renderRadar(displayRadar);
 
@@ -1432,19 +1497,19 @@
       }
       const ruleEl = document.getElementById('kpi-rule-score');
       if (ruleEl) {
-        ruleEl.textContent = ruleScores.length ? Math.round(avgRuleScore) : '—';
-        ruleEl.style.color = ruleScores.length ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
+        ruleEl.textContent = ruleScoreCount ? Math.round(avgRuleScore) : '—';
+        ruleEl.style.color = ruleScoreCount ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
       }
       const llmEl = document.getElementById('kpi-llm-score');
       if (llmEl) {
-        llmEl.textContent = llmScores.length ? Math.round(avgLLMScore) : '—';
-        llmEl.style.color = llmScores.length ? scoreColor(avgLLMScore) : 'var(--text-tertiary)';
+        llmEl.textContent = llmScoreCount ? Math.round(avgLLMScore) : '—';
+        llmEl.style.color = llmScoreCount ? scoreColor(avgLLMScore) : 'var(--text-tertiary)';
       }
       const coverageEl = document.getElementById('kpi-llm-coverage');
       if (coverageEl) coverageEl.textContent = total ? `${llmCoverage}%` : '—';
       const llmNEl = document.getElementById('llm-evaluated-n');
-      if (llmNEl) llmNEl.textContent = llmScores.length;
-      renderLLMMatrix(avgLLMDims, llmScores.length);
+      if (llmNEl) llmNEl.textContent = llmScoreCount;
+      renderLLMMatrix(avgLLMDims, llmScoreCount);
       if (window.bindHelpTooltips) window.bindHelpTooltips(document);
       const kpiP95El = document.getElementById('kpi-p95');
       if (kpiP95El) kpiP95El.innerHTML = fmtDuration(percentile(durations, 0.95));
@@ -1473,14 +1538,7 @@
       }
 
       // ===== 最近 Session 表 =====
-      const recentSessions = sessions.slice().sort((a, b) => (sessionQualityScore(a) ?? 0) - (sessionQualityScore(b) ?? 0)).slice(0, 10);
-      tbody.innerHTML = recentSessions.map(renderRow).join('');
-      tbody.querySelectorAll('tr[data-href]').forEach(tr => {
-        tr.addEventListener('click', e => {
-          if (e.target.closest('a')) return;
-          window.location.href = tr.dataset.href;
-        });
-      });
+      tbody.innerHTML = recentSessions.map(item => renderRow(item.session)).join('');
       setupCellTooltip();
       document.getElementById('risk-pg-info').textContent = `显示 1 – ${recentSessions.length}，共 ${total} 条`;
     };
