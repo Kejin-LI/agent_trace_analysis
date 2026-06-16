@@ -414,11 +414,11 @@
     <div class="flex items-center gap-2"></div>
   </section>
 
-  <!-- ===== Row 1: Rule Radar ===== -->
+  <!-- ===== Row 1: Rule Radar + LLM Evaluation ===== -->
   <section class="grid grid-cols-12 gap-5">
 
     <!-- Radar -->
-    <div class="glass rounded-2xl p-6 col-span-12 lift flex flex-col">
+    <div class="glass rounded-2xl p-6 col-span-6 lift flex flex-col">
       <div class="flex items-center justify-between mb-2 min-h-[46px]">
         <div>
           <div class="text-[12px] text-[--text-tertiary]">规则评估雷达 · 5 维</div>
@@ -501,75 +501,50 @@
       </div>
     </div>
 
-  </section>
-
-  <!-- ===== Row 2.5: GPT-5.5 总论 ===== -->
-  <section class="glass rounded-2xl p-5 lift" id="llm-summary-card" style="display:none">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <div class="text-[12px] text-[--text-tertiary]">GPT-5.5 总论 · <span class="kpi-rangelabel">最近 7 天</span></div>
-        <div class="text-[17px] font-semibold mt-0.5">语义体验综合洞察</div>
+    <!-- GPT 语义质量 -->
+    <div class="col-span-6 glass rounded-2xl p-6 lift flex flex-col">
+      <div class="flex items-center justify-between mb-2 min-h-[46px]">
+        <div>
+          <div class="text-[12px] text-[--text-tertiary]">GPT-5.5 评估雷达 · 6 维</div>
+          <div class="text-[20px] font-semibold mt-0.5">GPT均分 <span class="num-mono text-[--apple-purple]" id="kpi-llm-score">—</span></div>
+        </div>
+        <div class="text-[11px] text-[--text-tertiary]">
+          <span class="num-mono" id="llm-evaluated-n">—</span> 已评估（<span class="num-mono text-[--apple-purple]" id="kpi-llm-coverage">—</span> 覆盖率）
+        </div>
       </div>
-      <div class="text-[10px] text-[--text-tertiary] num-mono"><span id="llm-summary-n">—</span> 已评估</div>
+
+      <div class="relative h-[240px]">
+        <svg viewBox="0 0 240 240" class="w-full h-[240px]">
+          <g transform="translate(120,120)">
+            <polygon class="radar-grid" points="0,-100 87,-50 87,50 0,100 -87,50 -87,-50"/>
+            <polygon class="radar-grid" points="0,-75 65,-38 65,38 0,75 -65,38 -65,-38"/>
+            <polygon class="radar-grid" points="0,-50 43,-25 43,25 0,50 -43,25 -43,-25"/>
+            <polygon class="radar-grid" points="0,-25 22,-13 22,13 0,25 -22,13 -22,-13"/>
+            <line class="radar-axis" x1="0" y1="0" x2="0" y2="-100"/>
+            <line class="radar-axis" x1="0" y1="0" x2="87" y2="-50"/>
+            <line class="radar-axis" x1="0" y1="0" x2="87" y2="50"/>
+            <line class="radar-axis" x1="0" y1="0" x2="0" y2="100"/>
+            <line class="radar-axis" x1="0" y1="0" x2="-87" y2="50"/>
+            <line class="radar-axis" x1="0" y1="0" x2="-87" y2="-50"/>
+            <polygon class="llm-radar-area" id="llm-radar-area" points="0,0 0,0 0,0 0,0 0,0 0,0"/>
+            <circle id="llm-radar-d-resolved" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <circle id="llm-radar-d-intent_match" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <circle id="llm-radar-d-efficiency_feel" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <circle id="llm-radar-d-sentiment" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <circle id="llm-radar-d-actionability" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <circle id="llm-radar-d-hallucination_risk" cx="0" cy="0" r="3" fill="#BF5AF2"/>
+            <text x="0" y="-110" text-anchor="middle" font-size="10.5" fill="#6E6E73">解决 <tspan id="llm-radar-l-resolved" class="num-mono">—</tspan></text>
+            <text x="98" y="-52" font-size="10.5" fill="#6E6E73">意图 <tspan id="llm-radar-l-intent_match" class="num-mono">—</tspan></text>
+            <text x="98" y="57" font-size="10.5" fill="#6E6E73">效率 <tspan id="llm-radar-l-efficiency_feel" class="num-mono">—</tspan></text>
+            <text x="0" y="116" text-anchor="middle" font-size="10.5" fill="#6E6E73">情绪 <tspan id="llm-radar-l-sentiment" class="num-mono">—</tspan></text>
+            <text x="-98" y="57" text-anchor="end" font-size="10.5" fill="#6E6E73">可执行 <tspan id="llm-radar-l-actionability" class="num-mono">—</tspan></text>
+            <text x="-98" y="-52" text-anchor="end" font-size="10.5" fill="#6E6E73">幻觉 <tspan id="llm-radar-l-hallucination_risk" class="num-mono">—</tspan></text>
+          </g>
+        </svg>
+      </div>
+      <div class="grid grid-cols-6 gap-2 mt-3 text-[11px] min-h-[36px]" id="llm-dim-grid"></div>
     </div>
 
-    <div class="grid grid-cols-12 gap-5">
-      <!-- 左 4:整体得分 + 最弱/最强维度 -->
-      <div class="col-span-4">
-        <div class="grid grid-cols-2 gap-2">
-          <div class="quality-card">
-            <div class="text-[10.5px] text-[--text-tertiary]">GPT 均分</div>
-            <div class="num-mono text-[22px] font-semibold mt-1" id="llm-summary-avg">—</div>
-          </div>
-          <div class="quality-card">
-            <div class="text-[10.5px] text-[--text-tertiary]">覆盖率</div>
-            <div class="num-mono text-[22px] font-semibold mt-1" id="llm-summary-coverage">—</div>
-          </div>
-        </div>
-        <div class="mt-3 rounded-xl bg-black/[0.028] border border-black/[0.035] p-3 text-[11.5px] leading-relaxed">
-          <div class="flex items-center justify-between mb-1.5">
-            <span class="text-[--text-tertiary]">最强维度</span>
-            <span class="num-mono font-semibold" id="llm-summary-best">—</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-[--text-tertiary]">最弱维度</span>
-            <span class="num-mono font-semibold" id="llm-summary-worst">—</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 中 4:Top GPT 命中问题 -->
-      <div class="col-span-4">
-        <div class="pt-3 border-t border-black/5">
-          <div class="flex items-center justify-between mb-2">
-            <div class="text-[11px] text-[--text-secondary]">高频问题</div>
-            <div class="text-[10px] text-[--text-tertiary]">来源 GPT-5.5</div>
-          </div>
-          <ul class="space-y-1.5 text-[12px]" id="llm-summary-issues">
-            <li class="text-[--text-tertiary]">—</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- 右 4:典型 case -->
-      <div class="col-span-4">
-        <div class="pt-3 border-t border-black/5">
-          <div class="flex items-center justify-between mb-2">
-            <div class="text-[11px] text-[--text-secondary] help">
-              典型 case
-              <div class="tip">
-                <div class="tip-title">📌 典型 case 抽样</div>
-                从已 GPT-5.5 评测的 session 里,按综合分倒数挑 2 条带评语的样本,点击直达详情。
-              </div>
-            </div>
-            <div class="text-[10px] text-[--text-tertiary]">需深度排查</div>
-          </div>
-          <div class="space-y-2 text-[11.5px]" id="llm-summary-cases">
-            <div class="text-[--text-tertiary]">—</div>
-          </div>
-        </div>
-      </div>
-    </div>
   </section>
 
   <!-- ===== Row 2: High-risk session list ===== -->
@@ -683,6 +658,7 @@
     };
     let applySeq = 0;
     let appliedRangeKey = '';
+    const rangeCache = new Map();
 
     function currentRangeQuery(range) {
       const customFrom = parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null;
@@ -694,20 +670,23 @@
           customFrom,
           customTo,
           key: `custom:${customFrom}:${customTo}`,
+          cacheKey: `custom:${customFrom}:${customTo}`,
         };
       }
       const winMs = RANGE_MS[range] || RANGE_MS['7d'];
       const end = Date.now();
+      const minuteBucket = Math.floor(end / 60000);
       return {
         query: { startTime: fmtQueryTime(end - winMs), endTime: fmtQueryTime(end) },
         customFrom,
         customTo,
         key: `${range}:${Math.floor(end / 1000)}`,
+        cacheKey: `${range}:${minuteBucket}`,
       };
     }
 
     async function apply(range) {
-      const { query, customFrom, customTo, key } = currentRangeQuery(range);
+      const { query, customFrom, customTo, key, cacheKey } = currentRangeQuery(range);
       const label = (range === 'custom' && customFrom && customTo)
         ? fmtCustom(customFrom, customTo)
         : RANGE_LABEL[range];
@@ -719,16 +698,37 @@
 
       if (!window.renderDashboard) return;
       if (appliedRangeKey === key && Array.isArray(window.dashboardData)) {
-        window.renderDashboard(window.dashboardData);
+        window.renderDashboard(window.dashboardData, window.dashboardMeta || {});
+        return;
+      }
+      const cached = rangeCache.get(cacheKey);
+      if (cached) {
+        window.dashboardData = cached.sessions;
+        window.dashboardMeta = cached.meta;
+        appliedRangeKey = key;
+        window.renderDashboard(window.dashboardData, window.dashboardMeta);
         return;
       }
 
       const seq = ++applySeq;
+      const summaryPromise = window.AgentTraceDB.loadDashboardSummary
+        ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
+        : Promise.resolve(null);
       const payload = await window.AgentTraceDB.loadSessions(query);
       if (seq !== applySeq) return;
       window.dashboardData = (payload.sessions || []).slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
+      window.dashboardMeta = {
+        total: Number(payload.total || 0) || window.dashboardData.length,
+        sampleCount: window.dashboardData.length,
+      };
+      rangeCache.set(cacheKey, { sessions: window.dashboardData, meta: window.dashboardMeta });
       appliedRangeKey = key;
-      window.renderDashboard(window.dashboardData);
+      window.renderDashboard(window.dashboardData, window.dashboardMeta);
+      const summary = await summaryPromise;
+      if (seq !== applySeq || !summary) return;
+      window.dashboardMeta = Object.assign({}, window.dashboardMeta, { summary });
+      rangeCache.set(cacheKey, { sessions: window.dashboardData, meta: window.dashboardMeta });
+      window.renderDashboard(window.dashboardData, window.dashboardMeta);
     }
 
     window.applyRange = apply;
@@ -773,9 +773,9 @@
   })();
 </script>
 
-<script src="./efficiency-helper.js"></script>
-<script src="./tag-system.js"></script>
-<script src="./db-api.js"></script>
+<script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
+<script src="./tag-system.js?v=20260616-fix-score-cache"></script>
+<script src="./db-api.js?v=20260616-fix-score-cache"></script>
 <script>
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
@@ -907,104 +907,16 @@
       }).join('');
     }
 
-    // 大盘 GPT-5.5 总论:与规则聚合保持同款思路,纯前端基于已加载的 session 数据 reduce 出来,
-    // 不二次调模型、零额外请求。
-    function renderLLMSummary(ctx) {
-      const card = document.getElementById('llm-summary-card');
-      if (!card) return;
-      const { llmCount, llmCoverage, avgLLMScore, avgLLMDims, topIssues, sessions, qualityScores } = ctx;
-      // 没有任何 GPT 评测时整张卡片直接隐藏,避免出现一排 "—"
-      if (!llmCount) { card.style.display = 'none'; return; }
-      card.style.display = '';
-
-      const nEl = document.getElementById('llm-summary-n');
-      if (nEl) nEl.textContent = llmCount;
-      const avgEl = document.getElementById('llm-summary-avg');
-      if (avgEl) {
-        avgEl.textContent = Math.round(avgLLMScore);
-        avgEl.style.color = scoreColor(avgLLMScore);
-      }
-      const covEl = document.getElementById('llm-summary-coverage');
-      if (covEl) covEl.textContent = `${llmCoverage}%`;
-
-      // 最强 / 最弱维度
-      const dimEntries = LLM_DIMENSIONS
-        .map(d => ({ dim: d, value: avgLLMDims[d.key] }))
-        .filter(e => e.value !== null && e.value !== undefined);
-      const bestEl = document.getElementById('llm-summary-best');
-      const worstEl = document.getElementById('llm-summary-worst');
-      if (dimEntries.length) {
-        const sorted = dimEntries.slice().sort((a, b) => b.value - a.value);
-        const best = sorted[0];
-        const worst = sorted[sorted.length - 1];
-        if (bestEl) {
-          bestEl.innerHTML = `${escapeHtml(best.dim.label)} <span style="color:${scoreColor(best.value)}">${Math.round(best.value)}</span>`;
-        }
-        if (worstEl) {
-          worstEl.innerHTML = `${escapeHtml(worst.dim.label)} <span style="color:${scoreColor(worst.value)}">${Math.round(worst.value)}</span>`;
-        }
-      } else {
-        if (bestEl) bestEl.textContent = '—';
-        if (worstEl) worstEl.textContent = '—';
-      }
-
-      // 高频问题:仅取 source==='llm' 的标签,Top 5
-      const issuesEl = document.getElementById('llm-summary-issues');
-      if (issuesEl) {
-        const llmIssues = topIssues.filter(([, m]) => m.source === 'llm').slice(0, 5);
-        if (llmIssues.length) {
-          issuesEl.innerHTML = llmIssues.map(([label, m]) => {
-            const color = m.color || 'purple';
-            const pct = llmCount ? Math.round(m.count / llmCount * 100) : 0;
-            return `<li class="flex items-center justify-between gap-2">
-              <span class="inline-flex items-center gap-1.5 truncate" style="max-width:160px">
-                <span class="badge-dot" style="background:var(--apple-${color})"></span>
-                <span class="truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-              </span>
-              <span class="num-mono text-[--text-tertiary]">${m.count} · ${pct}%</span>
-            </li>`;
-          }).join('');
-        } else {
-          issuesEl.innerHTML = `<li class="text-[--text-tertiary]">已评测 session 均处于健康档位</li>`;
-        }
-      }
-
-      // 典型 case:从已 GPT 评测的 session 中按综合分倒数取 2 条
-      const casesEl = document.getElementById('llm-summary-cases');
-      if (casesEl) {
-        const candidates = sessions.map((s, i) => ({ s, q: qualityScores[i] }))
-          .filter(({ s, q }) => q && q.llmScore !== null && pickLLMResult(s));
-        candidates.sort((a, b) => (a.q.combinedScore ?? 999) - (b.q.combinedScore ?? 999));
-        const picks = candidates.slice(0, 2);
-        if (picks.length) {
-          casesEl.innerHTML = picks.map(({ s, q }) => {
-            const llm = pickLLMResult(s) || {};
-            const reason = llm.summary || llm.reason || llm.score_basis || '—';
-            const title = s.title || ('Session ' + displayId(s.id));
-            const sid = encodeURIComponent(displayId(s.id));
-            const score = q.combinedScore ?? '--';
-            return `<a href="./session-detail.html?id=${sid}" class="block rounded-lg bg-black/[0.025] hover:bg-black/[0.05] p-2 transition-colors">
-              <div class="flex items-center justify-between gap-2 mb-0.5">
-                <span class="truncate font-medium text-[--text-primary]" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
-                <span class="num-mono text-[11px] flex-shrink-0" style="color:${scoreColor(score)}">${score}</span>
-              </div>
-              <div class="text-[11px] text-[--text-secondary] leading-snug" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(reason)}</div>
-            </a>`;
-          }).join('');
-        } else {
-          casesEl.innerHTML = `<div class="text-[--text-tertiary]">暂无可抽样的评测样本</div>`;
-        }
-      }
-    }
     function buildScoreTipHtml(q) {
       const llmText = q.llmScore === null ? '未评估' : `${q.llmScore} × 50%`;
-      const sourceText = q.llmScore === null ? '规则评估 100%' : '规则 50% + GPT-5.5 50%';
+      const ruleLabel = q.ruleSource === 'persisted' ? '规则评估' : '规则分';
+      const sourceText = q.llmScore === null ? `${ruleLabel} 100%` : `${ruleLabel} 50% + GPT-5.5 50%`;
       return `
         <div class="score-tip">
           <div class="score-tip-title">综合健康度如何计算</div>
           <div class="score-tip-sub">列表展示综合分，缺失 GPT-5.5 时自动降级为规则分。</div>
           <div class="score-tip-row"><span>综合分</span><span class="num-mono">${q.combinedScore ?? '--'}</span></div>
-          <div class="score-tip-row"><span>规则评估</span><span class="num-mono">${q.ruleScore ?? '--'}${q.llmScore === null ? ' × 100%' : ' × 50%'}</span></div>
+          <div class="score-tip-row"><span>${ruleLabel}</span><span class="num-mono">${q.ruleScore ?? '--'}${q.llmScore === null ? ' × 100%' : ' × 50%'}</span></div>
           <div class="score-tip-row"><span>GPT-5.5</span><span class="num-mono">${llmText}</span></div>
           <div class="score-tip-formula">${sourceText}；规则看耗时、工具、Token、编排等客观执行信号，GPT-5.5 看解决度、意图匹配、情绪、重复空转、幻觉风险。</div>
           <div class="score-tip-levels"><span style="color:#30D158">≥85 健康</span> · <span style="color:#FF9F0A">70-84 注意</span> · <span style="color:#AF52DE">50-69 亚健康</span> · <span style="color:#FF453A">&lt;50 严重</span></div>
@@ -1097,8 +1009,14 @@
     const adjustedRadar = efficiencyHelper.adjustedRadar;
     const adjustedScore = efficiencyHelper.adjustedScore;
 
+    function realRuleScore(s) {
+      const aggregateScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Math.round(Number(s.score)))) : null;
+      if (aggregateScore !== null) return aggregateScore;
+      return hasParsedRuleMetrics(s) ? adjustedScore(s) : null;
+    }
+
     function getQualityScores(s) {
-      const ruleScore = hasParsedRuleMetrics(s) ? adjustedScore(s) : null;
+      const ruleScore = realRuleScore(s);
       return window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
         : { ruleScore, llmScore: null, combinedScore: ruleScore };
@@ -1141,8 +1059,6 @@
       });
       renderRadar({ response: 0, stability: 0, thinking: 0, resource: 0, orchestration: 0 });
       renderLLMMatrix({}, 0);
-      const summaryCard = document.getElementById('llm-summary-card');
-      if (summaryCard) summaryCard.style.display = 'none';
     }
 
     // ----- Cell tooltip portal（与 sessions.html 同款 +n hover 浮层） -----
@@ -1208,10 +1124,12 @@
           </div>`;
       }
 
-      const isUnpublished = s.artifact_publication_status === 'unpublished';
+      const pubStatus = s.artifact_publication_status || '';
+      const isPublished = pubStatus === 'published';
+      const isUnpublished = pubStatus === 'unpublished';
       const pubPill = isUnpublished
         ? '<span class="pub-pill is-unpublished">未发布</span>'
-        : '<span class="pub-pill is-published">已发布</span>';
+        : (isPublished ? '<span class="pub-pill is-published">已发布</span>' : '<span class="text-[--text-tertiary]">-</span>');
       const detailHref = `./session-detail?id=${encodeURIComponent(s.id)}` +
         (isUnpublished ? `&artifact_status=unpublished` : '');
       return `<tr class="hover:bg-white/40 cursor-pointer transition-colors" data-href="${detailHref}">
@@ -1285,38 +1203,50 @@
       document.getElementById('radar-area').setAttribute('points', pts.join(' '));
     }
 
-    window.renderDashboard = function(sessions) {
-      const total = sessions.length;
+    window.renderDashboard = function(sessions, meta = {}) {
+      const sampledTotal = sessions.length;
+      const summary = meta.summary || null;
+      const total = Number(summary?.total || meta.total || 0) || sampledTotal;
       const capHintEl = document.getElementById('cap-hint');
-      if (capHintEl) capHintEl.classList.toggle('hidden', total < 2000);
-      if (!total) { renderEmpty('此时间范围内暂无 session 数据'); return; }
+      if (capHintEl) {
+        const partial = sampledTotal > 0 && total > sampledTotal;
+        const usingBackendSummary = !!summary;
+        capHintEl.classList.toggle('hidden', !(partial || usingBackendSummary));
+        if (partial || usingBackendSummary) {
+          capHintEl.textContent = usingBackendSummary
+            ? `头部健康度、异常数、发布率与规则雷达已切到后端真汇总；下方列表仍展示已拉取的 ${sampledTotal} / ${total} 个 session。`
+            : `当前仅分析已拉取的 ${sampledTotal} / ${total} 个 session，头部总量按接口总数展示；异常/发布率/雷达仍基于已拉取样本计算。切小时间范围可获得完整统计。`;
+        }
+      }
+      if (!sampledTotal) { renderEmpty('此时间范围内暂无 session 数据'); return; }
 
       // ===== 聚合 =====
       // 仅对已聚合指标的 session 做健康/异常统计；
       // 未聚合的空骨架（light bundle，指标尚未算出）单独计为「待分析」，
       // 不能算进健康档，否则会被误判为满分导致异常数恒为 0。
       const analyzed = sessions.filter(s => !isPendingSession(s));
-      const pendingCount = total - analyzed.length;
-      const analyzedTotal = analyzed.length;
+      const samplePendingCount = sampledTotal - analyzed.length;
+      const sampleAnalyzedTotal = analyzed.length;
 
       const qualityScores = analyzed.map(getQualityScores);
       const allQualityScores = sessions.map(getQualityScores);
       const scores = qualityScores.map(q => q.combinedScore).filter(v => v !== null && v !== undefined);
       const ruleScores = qualityScores.map(q => q.ruleScore).filter(v => v !== null && v !== undefined);
       const llmScores = allQualityScores.map(q => q.llmScore).filter(v => v !== null && v !== undefined);
-      const publishedCount = sessions.filter(s => s.artifact_publication_status !== 'unpublished').length;
-      const publishedRate = total ? Math.round(publishedCount / total * 100) : 0;
+      const publishedCount = sessions.filter(s => s.artifact_publication_status === 'published').length;
+      const knownPublicationTotal = sessions.filter(s => s.artifact_publication_status === 'published' || s.artifact_publication_status === 'unpublished').length;
+      const samplePublishedRate = knownPublicationTotal ? Math.round(publishedCount / knownPublicationTotal * 100) : null;
       const durations = analyzed.map(s => s.duration_ms || 0);
       const totalTokens = analyzed.reduce((sum, s) => sum + (s.input_tokens || 0) + (s.output_tokens || 0), 0);
-      const avgScore = avg(scores);
+      const sampleAvgScore = avg(scores);
       const avgRuleScore = avg(ruleScores);
       const avgLLMScore = avg(llmScores);
-      const llmCoverage = total ? Math.round(llmScores.length / total * 100) : 0;
+      const llmCoverage = sampledTotal ? Math.round(llmScores.length / sampledTotal * 100) : 0;
 
       // 分档计数
       const band = { green: 0, orange: 0, purple: 0, red: 0 };
       scores.forEach(sc => band[scoreBand(sc)]++);
-      const anomalyCount = analyzedTotal - band.green;
+      const sampleAnomalyCount = sampleAnalyzedTotal - band.green;
 
       // 异常聚合：按融合标签体系统计，兼容规则侧与 GPT-5.5 语义侧标签。
       const issueMap = new Map();
@@ -1367,12 +1297,31 @@
         avgLLMDims[dim.key] = llmDimCount[dim.key] ? (avgLLMDims[dim.key] / llmDimCount[dim.key]) : null;
       });
 
+      const pendingCount = Number(summary?.pending_count ?? samplePendingCount);
+      const analyzedTotal = Number(summary?.analyzed_count ?? sampleAnalyzedTotal);
+      const anomalyCount = Number(summary?.anomaly_count ?? sampleAnomalyCount);
+      const rawPublishedRate = summary?.published_rate;
+      const publishedRate = rawPublishedRate !== undefined && rawPublishedRate !== null
+        ? Number(rawPublishedRate)
+        : samplePublishedRate;
+      const avgScore = summary?.avg_score ?? sampleAvgScore;
+      const displayRadar = summary?.radar
+        ? {
+            response: summary.radar.response ?? avgRadar.response,
+            stability: summary.radar.stability ?? avgRadar.stability,
+            thinking: summary.radar.thinking ?? avgRadar.thinking,
+            resource: summary.radar.resource ?? avgRadar.resource,
+            orchestration: summary.radar.orchestration ?? avgRadar.orchestration,
+          }
+        : avgRadar;
+      const hasDisplayAvgScore = avgScore !== null && avgScore !== undefined && analyzedTotal > 0;
+
       // ===== H1 标题 =====
       const issueCountEl = document.getElementById('hdr-issue-count');
       if (issueCountEl) issueCountEl.textContent = `${anomalyCount} 个`;
-      document.getElementById('hdr-avg-score').textContent = analyzedTotal ? Math.round(avgScore) : '—';
+      document.getElementById('hdr-avg-score').textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       document.getElementById('hdr-total').textContent = total;
-      document.getElementById('hdr-published-rate').textContent = total ? `${publishedRate}%` : '—';
+      document.getElementById('hdr-published-rate').textContent = total && publishedRate !== null && Number.isFinite(publishedRate) ? `${publishedRate}%` : '—';
       document.getElementById('hdr-anomaly').textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {
@@ -1398,15 +1347,15 @@
       document.getElementById('radar-total').textContent = ruleScores.length ? Math.round(avgRuleScore) : '—';
       document.getElementById('radar-total').style.color = ruleScores.length ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
       document.getElementById('radar-n').textContent = analyzedTotal;
-      renderRadar(avgRadar);
+      renderRadar(displayRadar);
 
       // ===== 核心指标 =====
       const kpiTotalEl = document.getElementById('kpi-total');
       if (kpiTotalEl) kpiTotalEl.textContent = total;
       const combinedEl = document.getElementById('kpi-combined-score');
       if (combinedEl) {
-        combinedEl.textContent = scores.length ? Math.round(avgScore) : '—';
-        combinedEl.style.color = scores.length ? scoreColor(avgScore) : 'var(--text-tertiary)';
+        combinedEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
+        combinedEl.style.color = hasDisplayAvgScore ? scoreColor(avgScore) : 'var(--text-tertiary)';
       }
       const ruleEl = document.getElementById('kpi-rule-score');
       if (ruleEl) {
@@ -1423,15 +1372,6 @@
       const llmNEl = document.getElementById('llm-evaluated-n');
       if (llmNEl) llmNEl.textContent = llmScores.length;
       renderLLMMatrix(avgLLMDims, llmScores.length);
-      renderLLMSummary({
-        llmCount: llmScores.length,
-        llmCoverage,
-        avgLLMScore,
-        avgLLMDims,
-        topIssues,
-        sessions: analyzed,
-        qualityScores,
-      });
       if (window.bindHelpTooltips) window.bindHelpTooltips(document);
       const kpiP95El = document.getElementById('kpi-p95');
       if (kpiP95El) kpiP95El.innerHTML = fmtDuration(percentile(durations, 0.95));

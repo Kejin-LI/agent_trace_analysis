@@ -127,7 +127,7 @@
   }
 
   function stripSyntheticPromptPayload(text) {
-    const raw = stripQuestionAnswerResultPayload(text);
+    const raw = stripBusinessWrappedPrompt(stripQuestionAnswerResultPayload(text));
     const lower = raw.toLowerCase();
     if (lower.includes('/root/neeko-workspace/delivery/')
       && lower.includes('process only entries with sheetrow')
@@ -140,6 +140,36 @@
       return '';
     }
     return raw;
+  }
+
+  function stripBusinessWrappedPrompt(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const idx = raw.indexOf('用户原始查询');
+    if (idx < 0) return raw;
+    let segment = raw.slice(idx + '用户原始查询'.length).trim();
+    segment = segment.replace(/^[:：\s]+/, '');
+    if (!segment) return raw;
+    let cut = segment.length;
+    [
+      ' batch_id:',
+      ' batch_id：',
+      '\nbatch_id:',
+      '\nbatch_id：',
+      ' 候选列表:',
+      ' 候选列表：',
+      ' 专家候选列表:',
+      ' 专家候选列表：',
+      '\n候选列表:',
+      '\n候选列表：',
+      '\n专家候选列表:',
+      '\n专家候选列表：'
+    ].forEach(marker => {
+      const pos = segment.indexOf(marker);
+      if (pos >= 0 && pos < cut) cut = pos;
+    });
+    segment = segment.slice(0, cut).trim();
+    return segment || raw;
   }
 
   function normalizeTrace(trace) {
@@ -182,6 +212,12 @@
     };
   }
 
+  function normalizeArtifactPublicationStatus(value) {
+    const status = String(value || '').trim().toLowerCase();
+    if (status === 'published' || status === 'unpublished') return status;
+    return '';
+  }
+
   function normalizeSession(raw) {
     const traces = (raw.traces || []).map(normalizeTrace);
     const allSpans = traces.flatMap(t => t.spans || []);
@@ -193,12 +229,13 @@
     const startedAtMs = Number(raw.started_at_ms || 0) || (traces[0] ? Number(traces[0].started_at_ms || 0) : 0);
     const helper = window.AgentTraceEfficiency;
     const llmJudgeResult = raw.llm_judge_result || raw.llmJudgeResult || raw.llm_judge || raw.gpt55_judge_result || null;
+    const persistedScore = Number.isFinite(Number(raw.score)) ? Math.max(0, Math.min(100, Math.round(Number(raw.score)))) : null;
 
     const session = {
       id: raw.id || raw.session_id,
       session_id: raw.session_id || raw.id,
       artifact_id: raw.artifact_id || '',
-      artifact_publication_status: raw.artifact_publication_status || 'published',
+      artifact_publication_status: normalizeArtifactPublicationStatus(raw.artifact_publication_status),
       title: stripSyntheticPromptPayload(raw.title) || (raw.session_id ? ('Session ' + raw.session_id) : 'Session'),
       user: raw.user || raw.user_id || 'anonymous',
       user_id: raw.user_id || raw.user || '',
@@ -220,6 +257,7 @@
       llm_score: raw.llm_score ?? raw.llmScore ?? raw.llm_judge_score ?? raw.llmJudgeScore ?? null,
       llm_judge_score: raw.llm_judge_score ?? raw.llmJudgeScore ?? raw.llm_score ?? raw.llmScore ?? null,
       llm_judge_model: raw.llm_judge_model || raw.llmJudgeModel || '',
+      llm_eval_status: raw.llm_eval_status || raw.llmEvalStatus || '',
       llm_eval_version: raw.llm_eval_version || raw.llmEvalVersion || 0,
       llm_evaluated_at: raw.llm_evaluated_at || raw.llmEvaluatedAt || '',
       llm_sentiment_score: raw.llm_sentiment_score ?? raw.llmSentimentScore ?? null,
@@ -232,7 +270,11 @@
       combined_score: raw.combined_score ?? raw.combinedScore ?? null,
     };
 
-    if (helper && session.radar) {
+    if (persistedScore !== null) {
+      session.score = persistedScore;
+      session.color = raw.color || scoreBand(session.score);
+      if (helper && session.radar) session.derived_rule_score = helper.adjustedScore(session);
+    } else if (helper && session.radar) {
       session.score = helper.adjustedScore(session);
       session.color = helper.scoreColor(session.score);
     } else {
@@ -249,12 +291,22 @@
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
     if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
     const payload = await fetchJSON('/api/session-bundles?' + params.toString());
+    const sessions = (payload?.data || []).map(normalizeSession);
     return {
-      sessions: (payload.data || []).map(normalizeSession),
-      limit: payload.limit || 0,
-      offset: payload.offset || 0,
+      sessions,
+      total: Number(payload?.total || 0) || sessions.length,
+      limit: payload?.limit || 0,
+      offset: payload?.offset || 0,
       apiBase: resolvedBase,
     };
+  }
+
+  async function loadDashboardSummary(opts) {
+    const params = new URLSearchParams();
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
+    return await fetchJSON('/api/dashboard-summary' + (params.toString() ? '?' + params.toString() : ''));
   }
 
   async function loadSession(sessionId, opts) {
@@ -271,6 +323,7 @@
 
   window.AgentTraceDB = {
     loadSessions,
+    loadDashboardSummary,
     loadSession,
     getApiBase: function () { return resolvedBase || candidateBases()[0] || ''; },
     // buildUrl 把 "/api/x" 解析成与 fetchJSON 完全一致的最终 URL（含网关前缀），

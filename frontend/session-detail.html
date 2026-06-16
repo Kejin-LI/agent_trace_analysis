@@ -287,12 +287,6 @@
     min-height: 18px; font-size: 11.5px; color: var(--text-tertiary);
     display: flex; align-items: center; gap: 7px; margin-bottom: 10px;
   }
-  .diag-spinner {
-    width: 13px; height: 13px; border-radius: 50%;
-    border: 2px solid rgba(0,113,227,0.25); border-top-color: var(--apple-blue);
-    animation: diagspin .7s linear infinite;
-  }
-  @keyframes diagspin { to { transform: rotate(360deg); } }
   .diag-quickchips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
   .evidence-round {
     flex-shrink: 0; margin-top: 1px; padding: 1px 8px; border-radius: 999px;
@@ -2998,9 +2992,9 @@
   })();
 </script>
 
-<script src="./efficiency-helper.js?v=3"></script>
-<script src="./tag-system.js"></script>
-<script src="./db-api.js"></script>
+<script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
+<script src="./tag-system.js?v=20260616-fix-score-cache"></script>
+<script src="./db-api.js?v=20260616-fix-score-cache"></script>
 <script>
   // 根据列表页传入的 ?id= 切换详情页头部展示
   // 数据源优先级：① fetch ./data/sessions.json (真实 fornax 数据) → ② 回退到内置 mock
@@ -3209,6 +3203,13 @@
         : emptyAdvice('完成 GPT-5.5 评测后，将展示问题解决、意图匹配、效率体感、用户情绪、可执行性和幻觉风险建议。');
     };
 
+    function normalizeDisplayTraceId(traceId) {
+      const value = String(traceId || '').trim();
+      if (!value) return '-';
+      if (/^round-\d+$/i.test(value)) return '-';
+      return value;
+    }
+
     function renderSession(real, stage) {
     let s;
     if (real) {
@@ -3216,13 +3217,14 @@
       const r = real;
       const cleanedTitle = cleanUserPrompt(r.title, { dropGeneratedRoundTitle: false });
       const titleIsSynthetic = detectSyntheticPromptKind(stripInjectedContext(r.title));
+      const traceDisplay = normalizeDisplayTraceId(r.trace || (r.traces && r.traces[0] ? r.traces[0].trace_id : ''));
       s = {
         title: cleanedTitle || (titleIsSynthetic ? '' : r.title) || ('Session ' + id),
         score: r.score ?? 0,
         color: r.color || 'green',
         chip: r.chip || '健康',
         user: r.user || 'anonymous',
-        trace: r.trace || (r.traces && r.traces[0] ? r.traces[0].trace_id : ''),
+        trace: traceDisplay,
         // 真实数据扩展
         _real: r
       };
@@ -3271,7 +3273,7 @@
     const setText0 = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     setText0('info-session-id', idDisplay);
     const traceEl = document.getElementById('info-trace-id');
-    if (traceEl) { traceEl.textContent = s.trace || '--'; traceEl.title = s.trace || ''; }
+    if (traceEl) { traceEl.textContent = s.trace || '-'; traceEl.title = s.trace === '-' ? '' : s.trace; }
     setText0('info-user', s.user || '--');
 
     // 健康度卡片 + 5 维问题标签（仅真实数据）
@@ -4746,8 +4748,38 @@
     return cleaned.trim();
   }
 
+  function extractBusinessWrappedOriginalQuery(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const idx = raw.indexOf('用户原始查询');
+    if (idx < 0) return raw;
+    let segment = raw.slice(idx + '用户原始查询'.length).trim();
+    segment = segment.replace(/^[:：\s]+/, '');
+    if (!segment) return raw;
+    let cut = segment.length;
+    [
+      ' batch_id:',
+      ' batch_id：',
+      '\nbatch_id:',
+      '\nbatch_id：',
+      ' 候选列表:',
+      ' 候选列表：',
+      ' 专家候选列表:',
+      ' 专家候选列表：',
+      '\n候选列表:',
+      '\n候选列表：',
+      '\n专家候选列表:',
+      '\n专家候选列表：'
+    ].forEach(marker => {
+      const pos = segment.indexOf(marker);
+      if (pos >= 0 && pos < cut) cut = pos;
+    });
+    segment = segment.slice(0, cut).trim();
+    return segment || raw;
+  }
+
   function cleanUserPrompt(text, { dropGeneratedRoundTitle = true } = {}) {
-    const prompt = normalizePromptText(stripQuestionAnswerResultPayload(stripInjectedContext(text)));
+    const prompt = normalizePromptText(extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(text))));
     if (!prompt
       || (dropGeneratedRoundTitle && isGeneratedRoundTitle(prompt))
       || isControlLikePrompt(prompt)
@@ -8277,7 +8309,7 @@
   }
 
   function setStatus(text, spinning) {
-    statusEl.innerHTML = text ? `${spinning ? '<span class="diag-spinner"></span>' : ''}${esc(text)}` : '';
+    statusEl.innerHTML = text ? esc(text) : '';
   }
 
   async function streamRequest(payload, onDelta) {

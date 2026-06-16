@@ -191,6 +191,28 @@ func TestParseSkipsPureQuestionAnswerResultPrompt(t *testing.T) {
 	}
 }
 
+func TestParseExtractsBusinessWrappedOriginalQuery(t *testing.T) {
+	raw := `[
+  {"type":"REQUEST_BODY","timestamp":"2026-06-04T03:12:00.000Z","data":{
+    "model":"gpt","messages":[
+      {"role":"user","content":"用户原始查询：有海外经验 batch_id: eq_20260615_d75817_b001 专家候选列表: [{\"basic_info\":{\"name\":\"张三\"}}]"}
+    ]}},
+  {"type":"STREAM_RESPONSE","timestamp":"2026-06-04T03:12:06.000Z","data":{
+    "durationMs":1000,
+    "allChunks":[{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5},"output":[]}}]}}
+]`
+	pr, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pr.Rounds) != 1 {
+		t.Fatalf("rounds = %d, want 1", len(pr.Rounds))
+	}
+	if pr.Rounds[0].UserPrompt != "有海外经验" {
+		t.Errorf("user prompt = %q, want stripped business wrapper", pr.Rounds[0].UserPrompt)
+	}
+}
+
 func TestParseSkipsEvalTaskInstructionPrompt(t *testing.T) {
 	raw := `[
   {"type":"REQUEST_BODY","timestamp":"2026-06-04T03:12:00.000Z","data":{

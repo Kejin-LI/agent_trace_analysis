@@ -270,11 +270,37 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
 	}
 
+	reportedTotal := len(bundles)
+	switch status {
+	case artifactStatusPublished:
+		if pubResp != nil && int(pubResp.Total) > reportedTotal {
+			reportedTotal = int(pubResp.Total)
+		}
+	case artifactStatusUnpublished:
+		if unpubResp != nil && int(unpubResp.Total) > reportedTotal {
+			reportedTotal = int(unpubResp.Total)
+		}
+	default:
+		totalPublished := 0
+		totalUnpublished := 0
+		if pubResp != nil {
+			totalPublished = int(pubResp.Total)
+		}
+		if unpubResp != nil {
+			totalUnpublished = int(unpubResp.Total)
+		}
+		if totalPublished+totalUnpublished > reportedTotal {
+			// published / unpublished 理论上互斥；若上游短暂重复，宁可轻微高估 total，
+			// 也不要把"仅当前页条数"误报成整个时间窗的总量。
+			reportedTotal = totalPublished + totalUnpublished
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"data":   bundles,
 		"limit":  limit,
 		"offset": offset,
-		"total":  len(bundles),
+		"total":  reportedTotal,
 	})
 }
 
@@ -299,7 +325,8 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	key := c.Param("session_id")
 	tr := timeRangeFromQuery(c)
 	cookie := c.GetHeader("Cookie")
-	cachedBundle, hasCached, err := h.getCachedSessionBundle(key)
+	status := normalizeArtifactStatus(c.Query("artifact_status"))
+	cachedBundle, hasCached, err := h.getCachedSessionBundle(key, status)
 	if err != nil {
 		log.Printf("session detail cached lookup failed key=%s err=%v", key, err)
 	}
@@ -340,7 +367,6 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 
 	// 按发布状态决定上游扫描顺序：显式 artifact_status 优先；缺省时先已发布再未发布兜底，
 	// 这样未发布 trace 详情页在不带参数时也能命中。
-	status := normalizeArtifactStatus(c.Query("artifact_status"))
 	var attempts []struct {
 		onlyUnpublished bool
 		label           string
@@ -449,6 +475,11 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		bundle = mergeBundleWithCachedBundle(bundle, cachedBundle)
 		bundle.ArtifactPublicationStatus = hitStatus
 	}
+	if realTraceID, err := h.lookupRealTraceID(bundle.SessionID, bundle.ArtifactID); err != nil {
+		log.Printf("session detail real trace lookup failed session=%s artifact=%s err=%v", bundle.SessionID, bundle.ArtifactID, err)
+	} else if realTraceID != "" {
+		bundle.Trace = realTraceID
+	}
 	// 写库异步化：详情解析完立即返回，写 DB 缓存放后台，不让用户为落库白等。
 	if h.aggregator != nil {
 		go func(src model.StgSessionSource, bundle apiSessionBundle) {
@@ -552,7 +583,7 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 	return bundles, total, true, nil
 }
 
-func (h *Handler) getCachedSessionBundle(key string) (apiSessionBundle, bool, error) {
+func (h *Handler) getCachedSessionBundle(key, statusHint string) (apiSessionBundle, bool, error) {
 	if h == nil || h.db == nil || key == "" {
 		return apiSessionBundle{}, false, nil
 	}
@@ -567,7 +598,46 @@ func (h *Handler) getCachedSessionBundle(key string) (apiSessionBundle, bool, er
 		}
 		return apiSessionBundle{}, false, err
 	}
-	return buildDetailBundleFromAggregateRow(row), true, nil
+	bundle := buildDetailBundleFromAggregateRow(row)
+	if bundle.ArtifactPublicationStatus == "" &&
+		(statusHint == artifactStatusPublished || statusHint == artifactStatusUnpublished) {
+		bundle.ArtifactPublicationStatus = statusHint
+	}
+	if realTraceID, err := h.lookupRealTraceID(row.SessionID, row.ArtifactID); err != nil {
+		log.Printf("session detail cached real trace lookup failed session=%s artifact=%s err=%v", row.SessionID, row.ArtifactID, err)
+	} else if realTraceID != "" {
+		bundle.Trace = realTraceID
+	}
+	return bundle, true, nil
+}
+
+func (h *Handler) lookupRealTraceID(sessionID, artifactID string) (string, error) {
+	if h == nil || h.db == nil {
+		return "", nil
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	artifactID = strings.TrimSpace(artifactID)
+	if sessionID == "" && artifactID == "" {
+		return "", nil
+	}
+	var row model.StgArtifactTrace
+	q := h.db.Model(&model.StgArtifactTrace{})
+	switch {
+	case sessionID != "" && artifactID != "":
+		q = q.Where("session_id = ? OR artifact_id = ?", sessionID, artifactID)
+	case sessionID != "":
+		q = q.Where("session_id = ?", sessionID)
+	default:
+		q = q.Where("artifact_id = ?", artifactID)
+	}
+	err := q.Order("started_at_ms ASC, id ASC").First(&row).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(row.TraceID), nil
 }
 
 func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle {
@@ -587,25 +657,26 @@ func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle
 		HasLoop:          row.HasLoop,
 	}
 	return apiSessionBundle{
-		ID:           pickFirstNonEmpty(row.SessionID, row.ArtifactID),
-		SessionID:    row.SessionID,
-		ArtifactID:   row.ArtifactID,
-		User:         row.UserName,
-		UserID:       row.UserID,
-		Title:        pickFirstNonEmpty(row.Title, "Session "+pickFirstNonEmpty(row.SessionID, row.ArtifactID)),
-		Trace:        row.TraceID,
-		StartedAtMs:  row.StartedAtMs,
-		StartedAt:    msToString(row.StartedAtMs),
-		DurationMs:   row.DurationMs,
-		InputTokens:  row.InputTokens,
-		OutputTokens: row.OutputTokens,
-		ToolCalls:    row.ToolCalls,
-		Turns:        row.Turns,
-		TraceCount:   row.TraceCount,
-		Score:        row.Score,
-		Color:        "green",
-		Chip:         row.Chip,
-		Features:     features,
+		ID:                        pickFirstNonEmpty(row.SessionID, row.ArtifactID),
+		SessionID:                 row.SessionID,
+		ArtifactID:                row.ArtifactID,
+		ArtifactPublicationStatus: artifactStatusPublished,
+		User:                      row.UserName,
+		UserID:                    row.UserID,
+		Title:                     pickFirstNonEmpty(row.Title, "Session "+pickFirstNonEmpty(row.SessionID, row.ArtifactID)),
+		Trace:                     row.TraceID,
+		StartedAtMs:               row.StartedAtMs,
+		StartedAt:                 msToString(row.StartedAtMs),
+		DurationMs:                row.DurationMs,
+		InputTokens:               row.InputTokens,
+		OutputTokens:              row.OutputTokens,
+		ToolCalls:                 row.ToolCalls,
+		Turns:                     row.Turns,
+		TraceCount:                row.TraceCount,
+		Score:                     row.Score,
+		Color:                     "green",
+		Chip:                      row.Chip,
+		Features:                  features,
 		Radar: apiRadar{
 			Response:      row.ResponseScore,
 			Stability:     row.StabilityScore,
@@ -643,6 +714,9 @@ func mergeBundleWithCachedBundle(bundle, cached apiSessionBundle) apiSessionBund
 	}
 	if bundle.ArtifactID == "" {
 		bundle.ArtifactID = cached.ArtifactID
+	}
+	if bundle.ArtifactPublicationStatus == "" {
+		bundle.ArtifactPublicationStatus = cached.ArtifactPublicationStatus
 	}
 	if bundle.User == "" {
 		bundle.User = cached.User
