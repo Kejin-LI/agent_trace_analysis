@@ -1,0 +1,22 @@
+backend/internal/api/dashboard_summary_api.go
+  s_8ff8204db49bde::t_f8d0006785e5f8 347-350
+  s_8ff8204db49bde::t_ac9397c8df43fb 1-346,351-444
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e723d3302e9e14209207dac3ed7e5196c7d073e1",
+  "prompts": {},
+  "sessions": {
+    "s_8ff8204db49bde": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a313e3cd6a8dad3dc40d40c",
+        "model": "gpt-5.4__dev"
+      },
+      "human_author": "li.kejin <li.kejin@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
