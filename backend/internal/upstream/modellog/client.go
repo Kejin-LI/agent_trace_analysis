@@ -96,9 +96,13 @@ type Page struct {
 }
 
 // ListRequest 上游接口请求体。
+//
+// OnlyUnpublishedArtifacts 为 true 时只查询未发布过的产物关联的 model_log；
+// 缺省（false）时接口只查询已发布的 template 产物。
 type ListRequest struct {
-	TimeRange TimeRange `json:"time_range"`
-	Page      Page      `json:"page"`
+	TimeRange                TimeRange `json:"time_range"`
+	Page                     Page      `json:"page"`
+	OnlyUnpublishedArtifacts bool      `json:"only_unpublished_artifacts,omitempty"`
 }
 
 // File 单个 TOS JSONL 文件描述。

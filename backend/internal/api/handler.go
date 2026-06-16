@@ -270,6 +270,7 @@ type apiSessionBundle struct {
 	ID                        string               `json:"id"`
 	SessionID                 string               `json:"session_id"`
 	ArtifactID                string               `json:"artifact_id"`
+	ArtifactPublicationStatus string               `json:"artifact_publication_status,omitempty"`
 	User                      string               `json:"user"`
 	UserID                    string               `json:"user_id"`
 	Title                     string               `json:"title"`

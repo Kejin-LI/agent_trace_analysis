@@ -3107,6 +3107,7 @@
 
     const params = new URLSearchParams(location.search);
     const id = params.get('id');
+    const artifactStatus = params.get('artifact_status') || '';
     if (!id) { hideGlobalLoader(); return; }
     // 仅用于展示：去掉 URL 透传进来的 .json 后缀（数据查找/请求仍用原始 id）。
     const idDisplay = String(id).replace(/\.json$/i, '');
@@ -4037,7 +4038,7 @@
     // ===== 两段式加载：先 meta_only 拿指标骨架"秒出"，再异步拉完整 traces 渲染对话流 =====
     (async function () {
       // 第一段：DB 指标骨架（命中即秒出头部/分数/卡片；未命中返回 null）
-      const meta = await loadRealData(id, { metaOnly: true });
+      const meta = await loadRealData(id, { metaOnly: true, artifactStatus });
       let metaRendered = false;
       if (meta) {
         renderSession(meta, 'meta');
@@ -4045,7 +4046,7 @@
         hideGlobalLoader(); // 指标已出，先把遮罩去掉，对话流稍后填充
       }
       // 第二段：完整 bundle（含对话流）
-      const real = await loadRealData(id);
+      const real = await loadRealData(id, { artifactStatus });
       if (real) {
         renderSession(real, 'full');
       } else if (!metaRendered && FALLBACK_MOCK[id]) {

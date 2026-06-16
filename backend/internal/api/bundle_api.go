@@ -17,12 +17,33 @@ import (
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
+// 产物发布状态：用于列表/详情区分已发布与未发布的 template 产物。
+const (
+	artifactStatusPublished   = "published"
+	artifactStatusUnpublished = "unpublished"
+	artifactStatusAll         = "all"
+)
+
+// normalizeArtifactStatus 解析 query 参数 artifact_status，缺省/非法值回落到 all。
+func normalizeArtifactStatus(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case artifactStatusPublished:
+		return artifactStatusPublished
+	case artifactStatusUnpublished:
+		return artifactStatusUnpublished
+	default:
+		return artifactStatusAll
+	}
+}
+
 // listSessionBundlesAPI 走上游接口实时拉 session 列表（不落库）。
 //
 // 请求参数：
 //   - limit / offset：分页（offset / limit 换算成 page_no / page_size）
 //   - start_time / end_time：可选时间窗，格式 "YYYY-MM-DD HH:mm:ss"；缺省最近 7 天
 //   - user_id / user_name / session_id / artifact_id：本地二次过滤（上游接口当前不支持服务端过滤）
+//   - artifact_status：published / unpublished / all（默认 all）。控制查询已发布、未发布或两者合并；
+//     合并时按 session_id+artifact_id 去重，冲突保留 published。每条结果带 artifact_publication_status。
 //
 // 列表项不实时拉 JSONL，仅返回元信息概览。当 aggregator 已对涉及日期完成预聚合时，
 // 会把缓存指标 join 到 bundle 上（chip / token / 雷达指标全部填充）；缺失的日期
@@ -47,59 +68,91 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	uname := c.Query("user_name")
 	sid := c.Query("session_id")
 	aid := c.Query("artifact_id")
+	status := normalizeArtifactStatus(c.Query("artifact_status"))
 
-	if bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); err != nil {
-		fail(c, fmt.Errorf("db list session bundles: %w", err))
-		return
-	} else if ok {
-		bundles = filterBundlesByQueryRange(bundles, tr)
-		bundles = h.applyQualityEvaluations(bundles)
-		total = int64(len(bundles))
-		if h.aggregator != nil {
-			h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
+	// 仅 published 模式可走 DB 快路径：历史聚合表数据均为已发布口径，
+	// unpublished / all 模式 DB 里没有未发布数据，必须实时回上游。
+	if status == artifactStatusPublished {
+		if bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset); err != nil {
+			fail(c, fmt.Errorf("db list session bundles: %w", err))
+			return
+		} else if ok {
+			bundles = filterBundlesByQueryRange(bundles, tr)
+			bundles = h.applyQualityEvaluations(bundles)
+			tagBundlesPublication(bundles, artifactStatusPublished)
+			total = int64(len(bundles))
+			if h.aggregator != nil {
+				h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"data":   bundles,
+				"limit":  limit,
+				"offset": offset,
+				"total":  total,
+			})
+			return
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"data":   bundles,
-			"limit":  limit,
-			"offset": offset,
-			"total":  total,
-		})
-		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-		TimeRange: tr,
-		Page:      modellog.Page{PageNo: pageNo, PageSize: pageSize},
-	})
-	if err != nil {
-		fail(c, fmt.Errorf("upstream list: %w", err))
-		return
+	bundles := make([]apiSessionBundle, 0)
+	seen := make(map[string]bool)
+	fetch := func(onlyUnpublished bool, statusLabel string) error {
+		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+			TimeRange:                tr,
+			Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
+			OnlyUnpublishedArtifacts: onlyUnpublished,
+		})
+		if err != nil {
+			return err
+		}
+		for _, s := range resp.Data {
+			if uid != "" && s.UserID != uid {
+				continue
+			}
+			if uname != "" && s.UserName != uname {
+				continue
+			}
+			if sid != "" && s.SessionID != sid {
+				continue
+			}
+			if aid != "" && s.ArtifactID != aid {
+				continue
+			}
+			key := pickFirstNonEmpty(s.SessionID, s.ArtifactID)
+			if key != "" && seen[key] {
+				continue
+			}
+			b := lightBundleFromAPI(s)
+			b.ArtifactPublicationStatus = statusLabel
+			if h.aggregator != nil {
+				if m, ok := h.aggregator.Get(s.SessionID); ok {
+					b = applyCachedMetricsToBundle(b, m)
+					b.ArtifactPublicationStatus = statusLabel
+				}
+			}
+			if key != "" {
+				seen[key] = true
+			}
+			bundles = append(bundles, b)
+		}
+		return nil
 	}
 
-	bundles := make([]apiSessionBundle, 0, len(resp.Data))
-	for _, s := range resp.Data {
-		if uid != "" && s.UserID != uid {
-			continue
+	// 顺序：先已发布再未发布，保证去重时优先保留 published 口径。
+	if status == artifactStatusPublished || status == artifactStatusAll {
+		if err := fetch(false, artifactStatusPublished); err != nil {
+			fail(c, fmt.Errorf("upstream list published: %w", err))
+			return
 		}
-		if uname != "" && s.UserName != uname {
-			continue
+	}
+	if status == artifactStatusUnpublished || status == artifactStatusAll {
+		if err := fetch(true, artifactStatusUnpublished); err != nil {
+			fail(c, fmt.Errorf("upstream list unpublished: %w", err))
+			return
 		}
-		if sid != "" && s.SessionID != sid {
-			continue
-		}
-		if aid != "" && s.ArtifactID != aid {
-			continue
-		}
-		b := lightBundleFromAPI(s)
-		if h.aggregator != nil {
-			if m, ok := h.aggregator.Get(s.SessionID); ok {
-				b = applyCachedMetricsToBundle(b, m)
-			}
-		}
-		bundles = append(bundles, b)
 	}
 	bundles = filterBundlesByQueryRange(bundles, tr)
 	bundles = h.applyQualityEvaluations(bundles)
@@ -115,6 +168,13 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		"offset": offset,
 		"total":  len(bundles),
 	})
+}
+
+// tagBundlesPublication 给一批 bundle 统一打上发布状态标识（就地修改）。
+func tagBundlesPublication(bundles []apiSessionBundle, status string) {
+	for i := range bundles {
+		bundles[i].ArtifactPublicationStatus = status
+	}
 }
 
 // getSessionBundleAPI 详情页：按 session_id / artifact_id 命中上游某条记录，
@@ -170,26 +230,68 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		}
 	}
 
-	resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-		TimeRange: detailTR,
-		Page:      modellog.Page{PageNo: 1, PageSize: 500},
-	})
-	if err != nil {
+	// 按发布状态决定上游扫描顺序：显式 artifact_status 优先；缺省时先已发布再未发布兜底，
+	// 这样未发布 trace 详情页在不带参数时也能命中。
+	status := normalizeArtifactStatus(c.Query("artifact_status"))
+	var attempts []struct {
+		onlyUnpublished bool
+		label           string
+	}
+	switch status {
+	case artifactStatusPublished:
+		attempts = append(attempts, struct {
+			onlyUnpublished bool
+			label           string
+		}{false, artifactStatusPublished})
+	case artifactStatusUnpublished:
+		attempts = append(attempts, struct {
+			onlyUnpublished bool
+			label           string
+		}{true, artifactStatusUnpublished})
+	default:
+		attempts = append(attempts,
+			struct {
+				onlyUnpublished bool
+				label           string
+			}{false, artifactStatusPublished},
+			struct {
+				onlyUnpublished bool
+				label           string
+			}{true, artifactStatusUnpublished},
+		)
+	}
+	var hit *modellog.Session
+	var hitStatus string
+	var lastErr error
+	for _, attempt := range attempts {
+		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+			TimeRange:                detailTR,
+			Page:                     modellog.Page{PageNo: 1, PageSize: 500},
+			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
+		})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for i := range resp.Data {
+			s := &resp.Data[i]
+			if s.SessionID == key || s.ArtifactID == key {
+				hit = s
+				hitStatus = attempt.label
+				break
+			}
+		}
+		if hit != nil {
+			break
+		}
+	}
+	if hit == nil && lastErr != nil {
 		if hasCached {
 			c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 			return
 		}
-		fail(c, fmt.Errorf("upstream list: %w", err))
+		fail(c, fmt.Errorf("upstream list: %w", lastErr))
 		return
-	}
-
-	var hit *modellog.Session
-	for i := range resp.Data {
-		s := &resp.Data[i]
-		if s.SessionID == key || s.ArtifactID == key {
-			hit = s
-			break
-		}
 	}
 	if hit == nil {
 		if hasCached {
@@ -222,8 +324,10 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	}
 	src := sessionToStgSource(*hit)
 	bundle := buildBundleFromTOS(src, pr)
+	bundle.ArtifactPublicationStatus = hitStatus
 	if hasCached {
 		bundle = mergeBundleWithCachedBundle(bundle, cachedBundle)
+		bundle.ArtifactPublicationStatus = hitStatus
 	}
 	// 写库异步化：详情解析完立即返回，写 DB 缓存放后台，不让用户为落库白等。
 	if h.aggregator != nil {

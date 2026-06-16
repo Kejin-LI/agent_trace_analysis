@@ -198,6 +198,7 @@
       id: raw.id || raw.session_id,
       session_id: raw.session_id || raw.id,
       artifact_id: raw.artifact_id || '',
+      artifact_publication_status: raw.artifact_publication_status || 'published',
       title: stripSyntheticPromptPayload(raw.title) || (raw.session_id ? ('Session ' + raw.session_id) : 'Session'),
       user: raw.user || raw.user_id || 'anonymous',
       user_id: raw.user_id || raw.user || '',
@@ -246,6 +247,7 @@
     const params = new URLSearchParams({ limit: '2000' });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
     const payload = await fetchJSON('/api/session-bundles?' + params.toString());
     return {
       sessions: (payload.data || []).map(normalizeSession),
@@ -257,7 +259,11 @@
 
   async function loadSession(sessionId, opts) {
     const metaOnly = opts && opts.metaOnly;
-    const url = '/api/session-bundles/' + encodeURIComponent(sessionId) + (metaOnly ? '?meta_only=1' : '');
+    const params = new URLSearchParams();
+    if (metaOnly) params.set('meta_only', '1');
+    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
+    const qs = params.toString();
+    const url = '/api/session-bundles/' + encodeURIComponent(sessionId) + (qs ? '?' + qs : '');
     const payload = await fetchJSON(url);
     if (!payload) return null; // 204：DB 暂无缓存，等完整加载
     return normalizeSession(payload);
