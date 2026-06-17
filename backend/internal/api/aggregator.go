@@ -23,9 +23,17 @@ import (
 )
 
 type aggregateJob struct {
-	cookie string
-	date   string
+	cookie           string
+	date             string
+	includePublished bool
 }
+
+type aggregatePriority int
+
+const (
+	aggregatePriorityLow aggregatePriority = iota
+	aggregatePriorityHigh
+)
 
 // Aggregator 按"自然日"维度异步聚合 session 指标，结果写入 DB。
 //
@@ -38,7 +46,8 @@ type Aggregator struct {
 	upstream *modellog.Client
 	fetcher  *tracelog.Fetcher
 
-	jobs chan aggregateJob
+	highJobs chan aggregateJob
+	lowJobs  chan aggregateJob
 
 	flightMu sync.Mutex
 	flight   map[string]bool // date -> queued or running
@@ -60,9 +69,16 @@ type Aggregator struct {
 // startupGrace 启动保护期：进程启动后该时间窗内不接受访问触发的自动聚合。
 const startupGrace = 2 * time.Minute
 
-// accessTriggeredMaxDays 限制单次访问触发最多补多少个最近未完成日期。
-// 保持小窗口可显著提升列表命中率，同时不把补库范围放大到整个查询窗口，避免 OOM 风险。
-const accessTriggeredMaxDays = 3
+// 访问触发补库按“最近 7 天高优、最近 30 天低优”分层：
+// - 高优：覆盖 24h / 7d 常用窗口，优先让首页和列表尽快变热；
+// - 低优：把 30d 剩余日期在后台慢慢补齐。
+// 仍保持单 worker + 单天 2 并发 + 内存闸门，避免扩大 OOM 风险。
+const (
+	accessTriggeredHighPriorityDays = 7
+	accessTriggeredLowPriorityDays  = 30
+	highPriorityQueueSize           = 8
+	lowPriorityQueueSize            = 24
+)
 
 // staleRunningTimeout 判定 running 状态为"陈旧"（残留自被杀实例）的阈值。
 const staleRunningTimeout = 15 * time.Minute
@@ -184,7 +200,8 @@ func NewAggregator(db *gorm.DB, client *modellog.Client, fetcher *tracelog.Fetch
 		db:        db,
 		upstream:  client,
 		fetcher:   fetcher,
-		jobs:      make(chan aggregateJob, 8),
+		highJobs:  make(chan aggregateJob, highPriorityQueueSize),
+		lowJobs:   make(chan aggregateJob, lowPriorityQueueSize),
 		flight:    make(map[string]bool),
 		startedAt: time.Now(),
 	}
@@ -245,7 +262,7 @@ func (a *Aggregator) forgetCookie() {
 	a.cookieMu.Unlock()
 }
 
-// nightlyCron 每天凌晨用内存缓存的最近 Cookie 跑昨天+今天的未发布 session 聚合，
+// nightlyCron 每天凌晨用内存缓存的最近 Cookie 跑昨天+今天的 session 聚合，
 // 让大盘指标在用户上班前就已"秒出"。拿不到可用 Cookie 时跳过本轮，
 // 自动回退到"用户访问触发"补库（方案 C），不破坏 Cookie 不落盘的安全红线。
 func (a *Aggregator) nightlyCron() {
@@ -284,10 +301,9 @@ func (a *Aggregator) nightlyCron() {
 			if !a.acquireDateFlight(date) {
 				continue
 			}
-			select {
-			case a.jobs <- aggregateJob{cookie: cookie, date: date}:
-				log.Printf("aggregator: nightly cron enqueued date=%s", date)
-			default:
+			if a.enqueueJob(aggregateJob{cookie: cookie, date: date, includePublished: true}, aggregatePriorityHigh) {
+				log.Printf("aggregator: nightly cron enqueued high-priority date=%s", date)
+			} else {
 				log.Printf("aggregator: nightly cron queue full, skip date=%s", date)
 				a.releaseDateFlight(date)
 			}
@@ -357,7 +373,7 @@ func (a *Aggregator) Get(sessionID string) (cachedMetrics, bool) {
 	return aggregateRowToCachedMetrics(row), true
 }
 
-// EnsureDays 异步保证 dates 列表中最近少量未完成日期进入补库队列；已完成或正在跑的日期跳过。
+// EnsureDays 异步保证 dates 列表中最近未完成日期进入补库队列；已完成或正在跑的日期跳过。
 // cookie 仅用于本次触发的上游调用，仅在内存中传递，不持久化。
 func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	if a == nil || a.db == nil || cookie == "" {
@@ -375,34 +391,118 @@ func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	if len(candidates) == 0 {
 		return
 	}
-	queued := make([]string, 0, accessTriggeredMaxDays)
+	highQueued := make([]string, 0, accessTriggeredHighPriorityDays)
+	lowQueued := make([]string, 0, accessTriggeredLowPriorityDays-accessTriggeredHighPriorityDays)
 	for _, date := range candidates {
-		if len(queued) >= accessTriggeredMaxDays {
-			break
-		}
 		if a.isDateCompleted(date) {
+			continue
+		}
+		priority, ok := aggregatePriorityForDate(date)
+		if !ok {
+			continue
+		}
+		if priority == aggregatePriorityHigh && len(highQueued) >= accessTriggeredHighPriorityDays {
+			continue
+		}
+		if priority == aggregatePriorityLow && len(lowQueued) >= (accessTriggeredLowPriorityDays-accessTriggeredHighPriorityDays) {
 			continue
 		}
 		if !a.acquireDateFlight(date) {
 			continue
 		}
-		select {
-		case a.jobs <- aggregateJob{cookie: cookie, date: date}:
-			queued = append(queued, date)
-		default:
-			log.Printf("aggregator: queue full, skip date=%s", date)
-			a.releaseDateFlight(date)
+		if a.enqueueJob(aggregateJob{cookie: cookie, date: date, includePublished: true}, priority) {
+			if priority == aggregatePriorityHigh {
+				highQueued = append(highQueued, date)
+			} else {
+				lowQueued = append(lowQueued, date)
+			}
+			continue
+		}
+		log.Printf("aggregator: queue full, skip date=%s priority=%s", date, aggregatePriorityLabel(priority))
+		a.releaseDateFlight(date)
+		if priority == aggregatePriorityHigh {
 			break
 		}
 	}
-	if len(queued) > 0 {
-		log.Printf("aggregator: ensure queued dates=%v requested=%v", queued, candidates)
+	if len(highQueued) > 0 || len(lowQueued) > 0 {
+		log.Printf("aggregator: ensure queued high=%v low=%v requested=%v", highQueued, lowQueued, candidates)
 	}
 }
 
+func (a *Aggregator) enqueueJob(job aggregateJob, priority aggregatePriority) bool {
+	if a == nil {
+		return false
+	}
+	switch priority {
+	case aggregatePriorityHigh:
+		select {
+		case a.highJobs <- job:
+			return true
+		default:
+			return false
+		}
+	default:
+		select {
+		case a.lowJobs <- job:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+func (a *Aggregator) nextJob() (aggregateJob, bool) {
+	if a == nil {
+		return aggregateJob{}, false
+	}
+	select {
+	case job, ok := <-a.highJobs:
+		return job, ok
+	default:
+	}
+	select {
+	case job, ok := <-a.highJobs:
+		return job, ok
+	case job, ok := <-a.lowJobs:
+		return job, ok
+	}
+}
+
+func aggregatePriorityForDate(date string) (aggregatePriority, bool) {
+	target, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(date), time.Local)
+	if err != nil {
+		return aggregatePriorityLow, false
+	}
+	today := startOfLocalDay(time.Now())
+	target = startOfLocalDay(target)
+	if target.After(today) {
+		return aggregatePriorityLow, false
+	}
+	ageDays := int(today.Sub(target).Hours() / 24)
+	switch {
+	case ageDays < accessTriggeredHighPriorityDays:
+		return aggregatePriorityHigh, true
+	case ageDays < accessTriggeredLowPriorityDays:
+		return aggregatePriorityLow, true
+	default:
+		return aggregatePriorityLow, false
+	}
+}
+
+func aggregatePriorityLabel(priority aggregatePriority) string {
+	if priority == aggregatePriorityHigh {
+		return "high"
+	}
+	return "low"
+}
+
 func (a *Aggregator) worker() {
-	for job := range a.jobs {
-		a.runAggregate(job.cookie, job.date)
+	for {
+		job, ok := a.nextJob()
+		if !ok {
+			return
+		}
+		a.runAggregate(job.cookie, job.date, job.includePublished)
 		a.releaseDateFlight(job.date)
 	}
 }
@@ -447,8 +547,61 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "forbidden")
 }
 
-// runAggregate 拉指定日期未发布 session list -> 低并发拉 TOS JSONL -> 解析 -> 直接写 DB。
-func (a *Aggregator) runAggregate(cookie, date string) {
+func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, tr modellog.TimeRange, includePublished bool) ([]modellog.Session, error) {
+	requests := []struct {
+		onlyUnpublished bool
+		label           string
+	}{
+		{onlyUnpublished: true, label: "unpublished"},
+	}
+	if includePublished {
+		requests = append(requests, struct {
+			onlyUnpublished bool
+			label           string
+		}{onlyUnpublished: false, label: "published"})
+	}
+
+	sessions := make([]modellog.Session, 0)
+	seen := make(map[string]struct{})
+	for _, req := range requests {
+		resp, err := a.upstream.List(ctx, cookie, modellog.ListRequest{
+			TimeRange: tr,
+			// page_size <= 0：上游不分页，返回时间范围内全部 session（按接口契约）。
+			Page:                     modellog.Page{},
+			OnlyUnpublishedArtifacts: req.onlyUnpublished,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("upstream list %s: %w", req.label, err)
+		}
+		if resp == nil {
+			continue
+		}
+		for _, s := range resp.Data {
+			key := aggregateSessionKey(s)
+			if key != "" {
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+			}
+			sessions = append(sessions, s)
+		}
+	}
+	return sessions, nil
+}
+
+func aggregateSessionKey(s modellog.Session) string {
+	if sessionID := strings.TrimSpace(s.SessionID); sessionID != "" {
+		return "session:" + sessionID
+	}
+	if artifactID := strings.TrimSpace(s.ArtifactID); artifactID != "" {
+		return "artifact:" + artifactID
+	}
+	return ""
+}
+
+// runAggregate 拉指定日期 session list -> 低并发拉 TOS JSONL -> 解析 -> 直接写 DB。
+func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 	startedAt := time.Now()
 	dateValue := parseAggregateDate(date)
 	defer func() {
@@ -467,12 +620,7 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	resp, err := a.upstream.List(ctx, cookie, modellog.ListRequest{
-		TimeRange: tr,
-		// page_size <= 0：上游不分页，返回时间范围内全部 session（按接口契约）。
-		Page:                     modellog.Page{},
-		OnlyUnpublishedArtifacts: true,
-	})
+	sessions, err := a.listAggregateSessions(ctx, cookie, tr, includePublished)
 	if err != nil {
 		errAt := time.Now()
 		a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, err.Error(), &startedAt, nil, &errAt, 0, 2)
@@ -484,8 +632,12 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 		}
 		return
 	}
-	listTotal := len(resp.Data)
-	log.Printf("aggregator: %s unpublished list ok, total=%d", date, listTotal)
+	listTotal := len(sessions)
+	mode := "unpublished"
+	if includePublished {
+		mode = "unpublished+published"
+	}
+	log.Printf("aggregator: %s %s list ok, total=%d", date, mode, listTotal)
 
 	// 断点续补：跳过 DB 里当天已落库的 session，使上次因内存中止（paused）的补数
 	// 下次触发时只补剩余部分，不重复拉取已完成的 session。
@@ -501,8 +653,8 @@ func (a *Aggregator) runAggregate(cookie, date string) {
 	var wg sync.WaitGroup
 	aborted := false
 
-	for i := range resp.Data {
-		s := resp.Data[i]
+	for i := range sessions {
+		s := sessions[i]
 		if len(s.FileList) == 0 || s.FileList[0].URL == "" || s.SessionID == "" {
 			continue
 		}

@@ -261,7 +261,7 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 		SessionID:                 trimLen(req.SessionID, 128),
 		TraceID:                   trimLen(req.TraceID, 128),
 		ArtifactID:                trimLen(req.ArtifactID, 128),
-		SessionTitle:              trimLen(req.SessionTitle, 1024),
+		SessionTitle:              safeSessionTitleForDB(req.SessionTitle, 1024),
 		SessionUser:               trimLen(req.SessionUser, 128),
 		SessionUserID:             trimLen(req.SessionUserID, 128),
 		SessionStartedAt:          req.SessionStartedAt,

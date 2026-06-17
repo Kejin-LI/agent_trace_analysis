@@ -557,7 +557,7 @@
       const rulesRaw = s.rules || [];
       // 仅当 session 带了对话明细（traces/spans）时才用前端逻辑重算校准；
       // 列表概览接口不返回明细，此时直接信任后端 rules，避免把每个 session 误判为「轨迹异常」。
-      const hasTraceDetail = (s.traces || []).some(t => (t.spans || []).length > 0);
+      const hasTraceDetail = hasFullTraceDetail(s);
       const thinkingMetric = window.AgentTraceEfficiency.computeThinkingMetric(s);
       const turnsN = thinkingMetric.turnsN || ((typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0));
       const rules = rulesRaw.map(r => {
@@ -576,7 +576,9 @@
         }
         return r;
       });
-      const score = window.AgentTraceEfficiency.adjustedScore(s);
+      const score = hasTraceDetail
+        ? window.AgentTraceEfficiency.adjustedScore(s)
+        : (validAggregateScore(s) ?? clampScoreValue(s.rule_score) ?? 0);
       const tags = window.AgentTraceTags
         ? window.AgentTraceTags.mergeTags(
             window.AgentTraceTags.collectRuleTagsFromRules(rules).concat(window.AgentTraceTags.collectLLMTagsFromSession(s))
@@ -644,10 +646,19 @@
         .some(key => typeof radar[key] === 'number' && !Number.isNaN(radar[key]) && radar[key] > 0);
     }
 
-    function validAggregateScore(s) {
-      const raw = Number(s?.score);
+    function hasFullTraceDetail(s) {
+      return (s?.traces || []).some(t => (t.spans || []).length > 0);
+    }
+
+    function clampScoreValue(v) {
+      const raw = Number(v);
       if (!Number.isFinite(raw)) return null;
-      const score = Math.max(0, Math.min(100, Math.round(raw)));
+      return Math.max(0, Math.min(100, Math.round(raw)));
+    }
+
+    function validAggregateScore(s) {
+      const score = clampScoreValue(s?.score);
+      if (score === null) return null;
       if (score === 0 && !hasRuleScoreEvidence(s)) return null;
       return score;
     }
@@ -659,9 +670,9 @@
     function sessionQualityScore(s) {
       if (isPendingScoreSession(s)) return null;
       const aggregateScore = validAggregateScore(s);
-      const ruleScore = aggregateScore !== null
-        ? aggregateScore
-        : (hasParsedRuleMetrics(s) ? window.AgentTraceEfficiency.adjustedScore(s) : null);
+      const ruleScore = hasFullTraceDetail(s)
+        ? window.AgentTraceEfficiency.adjustedScore(s)
+        : aggregateScore;
       return window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore).combinedScore
         : ruleScore;
@@ -695,6 +706,7 @@
     let loadSeq = 0;
     const SESSIONS_CACHE_TTL_MS = 2 * 60 * 1000;
     const SESSIONS_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v1:';
+    const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
     const sessionsRangeCache = new Map();
 
     function readSessionsCache(key) {
@@ -718,6 +730,70 @@
       } catch {
         // 列表数据较大时可能超过浏览器容量，内存缓存仍可加速当前页面切换。
       }
+    }
+
+    function readPendingSessionQualityUpdate() {
+      try {
+        const raw = sessionStorage.getItem(PENDING_SESSION_QUALITY_UPDATE_KEY);
+        if (!raw) return null;
+        const patch = JSON.parse(raw);
+        if (!patch || (!patch.session_id && !patch.artifact_id)) return null;
+        return patch;
+      } catch {
+        return null;
+      }
+    }
+
+    function clearPendingSessionQualityUpdate() {
+      try {
+        sessionStorage.removeItem(PENDING_SESSION_QUALITY_UPDATE_KEY);
+      } catch {}
+    }
+
+    function sessionMatchesQualityPatch(s, patch) {
+      if (!s || !patch) return false;
+      if (patch.session_id && (s.session_id === patch.session_id || s.id === patch.session_id)) return true;
+      if (patch.artifact_id && s.artifact_id === patch.artifact_id) return true;
+      return false;
+    }
+
+    function applyQualityPatchToSession(session, patch) {
+      if (!session || !patch) return;
+      const fields = [
+        'rule_score',
+        'llm_score',
+        'llm_judge_score',
+        'llm_judge_model',
+        'llm_eval_status',
+        'llm_eval_version',
+        'llm_evaluated_at',
+        'combined_score',
+      ];
+      fields.forEach(key => {
+        if (patch[key] !== undefined) session[key] = patch[key];
+      });
+      if (patch.llm_judge_result !== undefined) {
+        session.llm_judge_result = patch.llm_judge_result;
+      }
+      delete session.__sessionMeta;
+    }
+
+    function applyPendingSessionQualityUpdate() {
+      const patch = readPendingSessionQualityUpdate();
+      if (!patch || !Array.isArray(state.all) || !state.all.length) return false;
+      let updated = false;
+      state.all.forEach(session => {
+        if (!sessionMatchesQualityPatch(session, patch)) return;
+        applyQualityPatchToSession(session, patch);
+        updated = true;
+      });
+      if (updated) {
+        state.datasetVersion++;
+        state.filteredCacheKey = '';
+        state.filteredCacheList = [];
+        clearPendingSessionQualityUpdate();
+      }
+      return updated;
     }
 
     function fmtQueryTime(ms) {
@@ -770,6 +846,7 @@
 
     function applySessionsPayload(d) {
       state.all = d.sessions || [];
+      applyPendingSessionQualityUpdate();
       state.datasetVersion++;
       state.filteredCacheKey = '';
       state.filteredCacheList = [];
@@ -814,9 +891,9 @@
       if (s && s.__sessionMeta) return s.__sessionMeta;
       const isPending = isPendingScoreSession(s);
       const aggregateScore = validAggregateScore(s);
-      const ruleScore = aggregateScore !== null
-        ? aggregateScore
-        : (hasParsedRuleMetrics(s) ? window.AgentTraceEfficiency.adjustedScore(s) : null);
+      const ruleScore = hasFullTraceDetail(s)
+        ? window.AgentTraceEfficiency.adjustedScore(s)
+        : aggregateScore;
       const quality = window.AgentTraceTags?.getSessionQualityScores
         ? window.AgentTraceTags.getSessionQualityScores(s, ruleScore)
         : { ruleScore, llmScore: null, combinedScore: ruleScore };
@@ -1219,6 +1296,11 @@
         state.page = p;
         renderAll();
       }
+    });
+    window.addEventListener('pageshow', () => {
+      if (!applyPendingSessionQualityUpdate()) return;
+      precomputeSessionMeta();
+      renderAll();
     });
 
     // ----- 时间范围切换：由共享组件 range-picker.js 接管，挂载在脚本末尾 -----

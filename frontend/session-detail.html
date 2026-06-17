@@ -6337,6 +6337,8 @@
         window.SESSION._real.llm_judge_result = cloneJudgeData(payload.llm_judge_result);
       }
     }
+    clearSessionsRangeCache();
+    publishPendingSessionQualityUpdate(payload);
     return payload;
   }
 
@@ -6382,6 +6384,45 @@
     if (payload.llm_judge_score !== undefined) real.llm_judge_score = payload.llm_judge_score;
     if (payload.combined_score !== undefined) real.combined_score = payload.combined_score;
     if (payload.llm_judge_result) real.llm_judge_result = cloneJudgeData(payload.llm_judge_result);
+  }
+
+  const SESSIONS_RANGE_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v1:';
+  const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
+
+  function clearSessionsRangeCache() {
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const key = sessionStorage.key(i) || '';
+        if (key.startsWith(SESSIONS_RANGE_CACHE_PREFIX)) {
+          sessionStorage.removeItem(key);
+        }
+      }
+    } catch {}
+  }
+
+  function publishPendingSessionQualityUpdate(payload) {
+    const real = (window.SESSION && window.SESSION._real) || {};
+    const sessionId = String(payload?.session_id || real.session_id || '').trim();
+    const artifactId = String(payload?.artifact_id || real.artifact_id || '').trim();
+    if (!sessionId && !artifactId) return;
+    const patch = {
+      session_id: sessionId,
+      artifact_id: artifactId,
+      rule_score: payload?.rule_score,
+      llm_score: payload?.llm_score,
+      llm_judge_score: payload?.llm_judge_score,
+      llm_judge_model: payload?.llm_judge_model,
+      llm_eval_status: payload?.llm_eval_status,
+      llm_eval_version: payload?.llm_eval_version,
+      llm_evaluated_at: payload?.llm_evaluated_at,
+      llm_judge_result: payload?.llm_judge_result ?? null,
+      combined_score: payload?.combined_score,
+      combined_score_basis: payload?.combined_score_basis || '',
+      updated_at: Date.now(),
+    };
+    try {
+      sessionStorage.setItem(PENDING_SESSION_QUALITY_UPDATE_KEY, JSON.stringify(patch));
+    } catch {}
   }
 
   function renderPersistedLLMJudgeResult(real) {
@@ -6511,6 +6552,8 @@
         if (status === 'succeeded' && payload.result) {
           const target = (window.SESSION && window.SESSION._real) || {};
           applyPersistedQualityEvaluation(target, payload.result);
+          clearSessionsRangeCache();
+          publishPendingSessionQualityUpdate(payload.result);
           // 强制清除已渲染的"评估中"占位,重新走结果渲染分支
           window.__llmJudgeResult = null;
           renderPersistedLLMJudgeResult(target);

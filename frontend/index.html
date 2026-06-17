@@ -563,9 +563,9 @@
           <col style="width:8%" />
           <col style="width:36%" />
           <col style="width:14%" />
-          <col style="width:9%" />
-          <col style="width:8%" />
-          <col style="width:16%" />
+          <col style="width:10%" />
+          <col style="width:10%" />
+          <col style="width:13%" />
           <col style="width:9%" />
         </colgroup>
         <thead class="bg-white/30">
@@ -588,12 +588,12 @@
             </th>
             <th class="text-left font-medium py-3">Session</th>
             <th class="text-left font-medium py-3">异常</th>
-            <th class="text-right font-medium py-3 num-mono">耗时</th>
-            <th class="text-right font-medium py-3 num-mono">
-              <span class="help">步数
+            <th class="text-right font-medium py-3 pr-3 num-mono">耗时</th>
+            <th class="text-right font-medium py-3 pl-3 num-mono">
+              <span class="help">对话轮数
                 <div class="tip">
-                  <div class="tip-title">⚡ Step（执行步数）</div>
-                  1 Step = 1 LLMCall。步数本身不评判好坏，仅作为描述性指标展示。
+                  <div class="tip-title">对话轮数</div>
+                  1 轮 = 1 个用户 Prompt + 1 个模型完整回复。这里只看用户与大模型的对话轮次，不看中间工具调用步数。
                 </div>
               </span>
             </th>
@@ -728,6 +728,29 @@
       if (pgInfo) pgInfo.textContent = `正在切换到${label}`;
     }
 
+    function renderRuleRadarScope(total, analyzedTotal, pendingCount) {
+      const container = document.getElementById('radar-compare');
+      const nEl = document.getElementById('radar-n');
+      const totalN = Number(total || 0) || 0;
+      const analyzedN = Number(analyzedTotal || 0) || 0;
+      const pendingN = Number(pendingCount || 0) || 0;
+      if (nEl) nEl.textContent = totalN || (pendingN > 0 ? '计算中...' : '—');
+      if (!container) return;
+      if (!totalN && pendingN > 0) {
+        container.innerHTML = '规则指标聚合中';
+        return;
+      }
+      if (!totalN) {
+        container.innerHTML = '基于 <span class="num-mono" id="radar-n">—</span> 个 session 平均';
+        return;
+      }
+      if (pendingN > 0 && analyzedN < totalN) {
+        container.innerHTML = `基于全量 <span class="num-mono" id="radar-n">${totalN}</span> 个 session 范围，已分析 <span class="num-mono">${analyzedN}</span> 个`;
+        return;
+      }
+      container.innerHTML = `基于全量 <span class="num-mono" id="radar-n">${totalN}</span> 个 session 分析`;
+    }
+
     function renderSummaryPreview(summary, opts = {}) {
       if (!summary) return;
       const label = opts.label || '';
@@ -751,6 +774,36 @@
           ? `另有 <span class="num-mono">${pendingCount}</span> 个 session 指标待分析（暂未纳入健康统计）。`
           : '';
         topIssueEl.innerHTML = ` 头部统计已切到${escapeHtml(label)}的最新结果，明细列表仍在加载中。${pendingHint}`;
+      }
+      const displayRadar = summary?.radar
+        ? {
+            response: summary.radar.response ?? null,
+            stability: summary.radar.stability ?? null,
+            thinking: summary.radar.thinking ?? null,
+            resource: summary.radar.resource ?? null,
+            orchestration: summary.radar.orchestration ?? null,
+          }
+        : { response: null, stability: null, thinking: null, resource: null, orchestration: null };
+      const radarVals = Object.values(displayRadar).filter(v => typeof v === 'number' && !Number.isNaN(v));
+      const radarAvg = radarVals.length ? radarVals.reduce((sum, v) => sum + v, 0) / radarVals.length : null;
+      const radarTotalEl = document.getElementById('radar-total');
+      if (radarTotalEl) {
+        radarTotalEl.textContent = radarAvg == null ? (pendingCount > 0 ? '计算中...' : '—') : Math.round(radarAvg);
+        radarTotalEl.style.color = radarAvg == null ? 'var(--text-tertiary)' : scoreColor(radarAvg);
+      }
+      renderRuleRadarScope(total, analyzedTotal, pendingCount);
+      renderRadar(displayRadar, { pendingCount });
+      const kpiTotalEl = document.getElementById('kpi-total');
+      if (kpiTotalEl) kpiTotalEl.textContent = total || (pendingCount > 0 ? '计算中...' : '—');
+      const combinedEl = document.getElementById('kpi-combined-score');
+      if (combinedEl) {
+        combinedEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : (pendingCount > 0 ? '计算中...' : '—');
+        combinedEl.style.color = hasDisplayAvgScore ? scoreColor(avgScore) : 'var(--text-tertiary)';
+      }
+      const ruleEl = document.getElementById('kpi-rule-score');
+      if (ruleEl) {
+        ruleEl.textContent = radarAvg == null ? (pendingCount > 0 ? '计算中...' : '—') : Math.round(radarAvg);
+        ruleEl.style.color = radarAvg == null ? 'var(--text-tertiary)' : scoreColor(radarAvg);
       }
     }
 
@@ -1078,10 +1131,19 @@
         .some(key => typeof radar[key] === 'number' && !Number.isNaN(radar[key]) && radar[key] > 0);
     }
 
-    function validAggregateScore(s) {
-      const raw = Number(s?.score);
+    function hasFullTraceDetail(s) {
+      return (s?.traces || []).some(t => (t.spans || []).length > 0);
+    }
+
+    function clampScoreValue(v) {
+      const raw = Number(v);
       if (!Number.isFinite(raw)) return null;
-      const score = Math.max(0, Math.min(100, Math.round(raw)));
+      return Math.max(0, Math.min(100, Math.round(raw)));
+    }
+
+    function validAggregateScore(s) {
+      const score = clampScoreValue(s?.score);
+      if (score === null) return null;
       if (score === 0 && !hasRuleScoreEvidence(s)) return null;
       return score;
     }
@@ -1096,7 +1158,7 @@
       const rulesRaw = s.rules || [];
       // 仅当 session 带了对话明细（traces/spans）时才用前端逻辑重算校准；
       // 大盘列表概览接口不返回明细，此时直接信任后端 rules，避免把每个 session 误判为「轨迹异常」。
-      const hasTraceDetail = (s.traces || []).some(t => (t.spans || []).length > 0);
+      const hasTraceDetail = hasFullTraceDetail(s);
       const thinkingMetric = efficiencyHelper.computeThinkingMetric(s);
       const turnsN = thinkingMetric.turnsN || ((typeof s.trace_count === 'number' && s.trace_count > 0) ? s.trace_count : (s.turns || 0));
       const rules = rulesRaw.map(r => {
@@ -1115,7 +1177,9 @@
         }
         return r;
       });
-      const score = adjustedScore(s);
+      const score = hasTraceDetail
+        ? adjustedScore(s)
+        : (validAggregateScore(s) ?? clampScoreValue(s.rule_score) ?? 0);
       const tags = window.AgentTraceTags
         ? window.AgentTraceTags.mergeTags(
             window.AgentTraceTags.collectRuleTagsFromRules(rules).concat(window.AgentTraceTags.collectLLMTagsFromSession(s))
@@ -1156,7 +1220,7 @@
 
     function realRuleScore(s) {
       const aggregateScore = validAggregateScore(s);
-      if (s?.radar && hasParsedRuleMetrics(s)) return adjustedScore(s);
+      if (hasFullTraceDetail(s) && s?.radar && hasParsedRuleMetrics(s)) return adjustedScore(s);
       return aggregateScore !== null ? aggregateScore : null;
     }
 
@@ -1296,17 +1360,14 @@
       const color = hasDisplayScore ? (meta.scoreBand || scoreBand(score)) : 'tertiary';
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const ano = meta.anomaly;
-      const traceCount = Number(s.trace_count || 0);
-      const turnsRaw = Number(s.turns || 0);
-      const turnsN = traceCount > 0 ? traceCount : turnsRaw;
+      const roundCount = Number(s.trace_count || 0);
       const durationMs = Number(s.duration_ms || 0);
-      const hasTraceSkeleton = traceCount > 0 || !!s.trace || ((s.traces || []).length > 0);
+      const hasTraceSkeleton = roundCount > 0 || !!s.trace || ((s.traces || []).length > 0);
       const hasPartialMetrics = hasTraceSkeleton || !!s.started_at_ms || !isPending;
-      const isTurnsCalculating = !isPending && turnsRaw <= 0 && hasPartialMetrics;
+      const isRoundsCalculating = !isPending && roundCount <= 0 && hasPartialMetrics;
       const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
       const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="pending-dash">${label}</span></span>`;
       const calculatingHtml = metricPendingHtml('计算中...');
-      const turnsClass = (turnsN >= 3 && turnsN <= 9) ? '' : 'text-[--apple-orange]';
 
       const pendingPill = '<span class="pending-pill"><span class="pending-dot"></span>聚合中</span>';
       let chipsHtml = '<span class="text-[--text-tertiary]">—</span>';
@@ -1342,8 +1403,8 @@
           </div>
         </td>
         <td class="py-3.5">${chipsHtml}</td>
-        <td class="py-3.5 text-right num-mono">${(isPending || isDurationCalculating) ? calculatingHtml : fmtDuration(durationMs)}</td>
-        <td class="py-3.5 text-right num-mono ${turnsClass}">${(isPending || isTurnsCalculating) ? calculatingHtml : turnsN}</td>
+        <td class="py-3.5 pr-3 text-right num-mono">${(isPending || isDurationCalculating) ? calculatingHtml : fmtDuration(durationMs)}</td>
+        <td class="py-3.5 pl-3 text-right num-mono">${(isPending || isRoundsCalculating) ? calculatingHtml : roundCount}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
           <a href="${detailHref}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">
@@ -1374,23 +1435,25 @@
       orchestration: 'dim-orch',
     };
 
-    function renderRadar(avgRadar) {
+    function renderRadar(avgRadar, opts = {}) {
+      const pendingCount = Number(opts.pendingCount || 0) || 0;
       const R = 100;
       const pts = RADAR_AXES.map(ax => {
         const raw = avgRadar[ax.key];
         const hasValue = typeof raw === 'number' && !Number.isNaN(raw);
+        const pendingText = pendingCount > 0 ? '计算中...' : '—';
         const v = hasValue ? Math.max(0, Math.min(100, raw)) : null;
         const r = v == null ? 0 : (v / 100) * R;
         const rad = (ax.angle * Math.PI) / 180;
         const x = +(Math.cos(rad) * r).toFixed(1);
         const y = +(Math.sin(rad) * r).toFixed(1);
         const labelEl = document.getElementById(ax.label);
-        if (labelEl) labelEl.textContent = v == null ? '—' : Math.round(v);
+        if (labelEl) labelEl.textContent = v == null ? pendingText : Math.round(v);
         const dotEl = document.getElementById(ax.dot);
         if (dotEl) { dotEl.setAttribute('cx', x); dotEl.setAttribute('cy', y); }
         const txtEl = document.getElementById(DIM_TEXT_IDS[ax.key]);
         if (txtEl) {
-          txtEl.textContent = v == null ? '—' : Math.round(v);
+          txtEl.textContent = v == null ? pendingText : Math.round(v);
           if (v == null) {
             txtEl.style.color = 'var(--text-tertiary)';
           } else {
@@ -1512,7 +1575,8 @@
       const sampleAvgScore = combinedScoreCount ? (combinedScoreSum / combinedScoreCount) : null;
       const avgRuleScore = ruleScoreCount ? (ruleScoreSum / ruleScoreCount) : null;
       const avgLLMScore = llmScoreCount ? (llmScoreSum / llmScoreCount) : null;
-      const llmCoverage = sampledTotal ? Math.round(llmScoreCount / sampledTotal * 100) : 0;
+      const llmEvaluatedCount = Number(summary?.llm_evaluated_count ?? llmScoreCount ?? 0);
+      const llmCoverage = total ? Math.round(llmEvaluatedCount / total * 100) : 0;
       const sampleAnomalyCount = sampleAnalyzedTotal - band.green;
       const topIssues = [...issueMap.entries()].sort((a, b) => b[1].count - a[1].count);
 
@@ -1568,8 +1632,8 @@
       // ===== 雷达 =====
       document.getElementById('radar-total').textContent = ruleScoreCount ? Math.round(avgRuleScore) : '—';
       document.getElementById('radar-total').style.color = ruleScoreCount ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
-      document.getElementById('radar-n').textContent = analyzedTotal;
-      renderRadar(displayRadar);
+      renderRuleRadarScope(total, analyzedTotal, pendingCount);
+      renderRadar(displayRadar, { pendingCount });
 
       // ===== 核心指标 =====
       const kpiTotalEl = document.getElementById('kpi-total');
@@ -1592,7 +1656,7 @@
       const coverageEl = document.getElementById('kpi-llm-coverage');
       if (coverageEl) coverageEl.textContent = total ? `${llmCoverage}%` : '—';
       const llmNEl = document.getElementById('llm-evaluated-n');
-      if (llmNEl) llmNEl.textContent = llmScoreCount;
+      if (llmNEl) llmNEl.textContent = llmEvaluatedCount;
       renderLLMMatrix(avgLLMDims, llmScoreCount);
       if (window.bindHelpTooltips) window.bindHelpTooltips(document);
       const kpiP95El = document.getElementById('kpi-p95');

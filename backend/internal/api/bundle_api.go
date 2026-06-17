@@ -57,7 +57,7 @@ func isUpstreamAuthMissing(err error) bool {
 //   - limit / offset：分页（offset / limit 换算成 page_no / page_size）
 //   - start_time / end_time：可选时间窗，格式 "YYYY-MM-DD HH:mm:ss"；缺省最近 7 天
 //   - user_id / user_name / session_id / artifact_id：本地二次过滤（上游接口当前不支持服务端过滤）
-//   - artifact_status：兼容旧参数但会被忽略，接口固定只返回未发布 sessions。
+//   - artifact_status：兼容旧参数但会被忽略，接口同时返回 published + unpublished sessions。
 //
 // 列表项不实时拉 JSONL，仅返回元信息概览。当 aggregator 已对涉及日期完成预聚合时，
 // 会把缓存指标 join 到 bundle 上（chip / token / 雷达指标全部填充）；缺失的日期
@@ -93,7 +93,7 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 
 	bundles := make([]apiSessionBundle, 0)
 
-	collectItems := func(resp *modellog.ListResponse) []listBundleItem {
+	collectItems := func(resp *modellog.ListResponse, status string) []listBundleItem {
 		if resp == nil {
 			return nil
 		}
@@ -112,11 +112,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 				continue
 			}
 			bundle := lightBundleFromAPI(s)
-			bundle.ArtifactPublicationStatus = artifactStatusUnpublished
+			bundle.ArtifactPublicationStatus = status
 			if h.aggregator != nil {
 				if m, ok := h.aggregator.Get(s.SessionID); ok {
 					bundle = applyCachedMetricsToBundle(bundle, m)
-					bundle.ArtifactPublicationStatus = artifactStatusUnpublished
+					bundle.ArtifactPublicationStatus = status
 				}
 			}
 			updatedAtMs := parseUpstreamTime(s.UpdateAt).UnixMilli()
@@ -165,16 +165,30 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		}
 	}
 
-	unpubResp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-		TimeRange:                tr,
-		Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
-		OnlyUnpublishedArtifacts: true,
-	})
-	if err != nil {
-		fail(c, fmt.Errorf("upstream list unpublished: %w", err))
-		return
+	type listAttempt struct {
+		status          string
+		onlyUnpublished bool
 	}
-	appendUniqueBundles(collectItems(unpubResp))
+	attempts := []listAttempt{
+		{status: artifactStatusUnpublished, onlyUnpublished: true},
+		{status: artifactStatusPublished, onlyUnpublished: false},
+	}
+	reportedTotal := 0
+	for _, attempt := range attempts {
+		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+			TimeRange:                tr,
+			Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
+			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
+		})
+		if err != nil {
+			fail(c, fmt.Errorf("upstream list %s: %w", attempt.status, err))
+			return
+		}
+		appendUniqueBundles(collectItems(resp, attempt.status))
+		if resp != nil {
+			reportedTotal += int(resp.Total)
+		}
+	}
 
 	bundles = filterBundlesByQueryRange(bundles, tr)
 	bundles = h.applyQualityEvaluations(bundles)
@@ -184,9 +198,8 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 		h.aggregator.EnsureDays(cookie, daysFromQueryRange(tr))
 	}
 
-	reportedTotal := len(bundles)
-	if unpubResp != nil && int(unpubResp.Total) > reportedTotal {
-		reportedTotal = int(unpubResp.Total)
+	if reportedTotal < len(bundles) {
+		reportedTotal = len(bundles)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -251,7 +264,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		}
 	}
 
-	// 详情页同样固定只扫描未发布产物，避免已发布数据进入平台口径。
+	// 详情页与列表口径一致：同时扫描 unpublished + published，避免列表可见但详情拿不到完整 trace。
 	var attempts []struct {
 		onlyUnpublished bool
 		label           string
@@ -260,6 +273,10 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		onlyUnpublished bool
 		label           string
 	}{true, artifactStatusUnpublished})
+	attempts = append(attempts, struct {
+		onlyUnpublished bool
+		label           string
+	}{false, artifactStatusPublished})
 
 	var hit *modellog.Session
 	var hitStatus string

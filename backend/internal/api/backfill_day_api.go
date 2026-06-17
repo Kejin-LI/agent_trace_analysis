@@ -74,7 +74,7 @@ func (h *Handler) backfillDay(c *gin.Context) {
 	// 前端通过 /api/aggregate-status 轮询该日期 status 进度。
 	go func() {
 		defer runner.releaseDateFlight(date)
-		runner.runAggregate(cookie, date)
+		runner.runAggregate(cookie, date, false)
 	}()
 
 	row, _ := loadAggregateStatusRow(h, date)

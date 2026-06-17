@@ -26,12 +26,13 @@ type apiDashboardSummaryRadar struct {
 }
 
 type apiDashboardSummary struct {
-	Total         int                      `json:"total"`
-	AnalyzedCount int                      `json:"analyzed_count"`
-	PendingCount  int                      `json:"pending_count"`
-	AnomalyCount  int                      `json:"anomaly_count"`
-	AvgScore      *float64                 `json:"avg_score,omitempty"`
-	Radar         apiDashboardSummaryRadar `json:"radar"`
+	Total             int                      `json:"total"`
+	AnalyzedCount     int                      `json:"analyzed_count"`
+	PendingCount      int                      `json:"pending_count"`
+	AnomalyCount      int                      `json:"anomaly_count"`
+	LLMEvaluatedCount int                      `json:"llm_evaluated_count"`
+	AvgScore          *float64                 `json:"avg_score,omitempty"`
+	Radar             apiDashboardSummaryRadar `json:"radar"`
 }
 
 func (h *Handler) getTopAnomalySessions(c *gin.Context) {
@@ -64,6 +65,14 @@ func (h *Handler) getDashboardSummary(c *gin.Context) {
 
 func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 	tr := timeRangeFromQuery(c)
+	if h.aggregator != nil {
+		h.aggregator.EnsureDays(h.effectiveCookie(c), daysFromQueryRange(tr))
+	}
+	summary, err := h.buildDashboardSummaryFromAggregates(tr)
+	if err != nil {
+		log.Printf("dashboard summary: build aggregate summary failed err=%v", err)
+		summary = apiDashboardSummary{}
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
@@ -72,7 +81,6 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 	if err != nil {
 		if isUpstreamAuthMissing(err) {
 			log.Printf("dashboard summary: upstream total count unavailable err=%v", err)
-			summary := apiDashboardSummary{}
 			finalizeDashboardSummary(&summary)
 			c.JSON(http.StatusOK, summary)
 			return
@@ -81,13 +89,16 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 		return
 	}
 
-	summary := apiDashboardSummary{Total: totalCount}
+	summary.Total = totalCount
 	finalizeDashboardSummary(&summary)
 	c.JSON(http.StatusOK, summary)
 }
 
 func (h *Handler) getDashboardSummaryDB(c *gin.Context) {
 	tr := timeRangeFromQuery(c)
+	if h.aggregator != nil {
+		h.aggregator.EnsureDays(h.effectiveCookie(c), daysFromQueryRange(tr))
+	}
 	summary, err := h.buildDashboardSummaryFromAggregates(tr)
 	if err != nil {
 		fail(c, fmt.Errorf("build dashboard summary from db: %w", err))
@@ -150,6 +161,9 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 			if dashboardScoreBand(*q.CombinedScore) != "green" {
 				anomalyCount++
 			}
+		}
+		if q.LLMScore != nil {
+			summary.LLMEvaluatedCount++
 		}
 		totalResponse += float64(bundle.Radar.Response)
 		responseCount++
