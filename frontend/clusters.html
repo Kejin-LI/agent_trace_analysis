@@ -358,18 +358,20 @@
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
  * 数据源：./data/sessions.json（与大盘 / 明细共用）
- * 口径：复用 sessions.html / index.html 的 buildAnomalies（基于 efficiency-helper.js 统一口径）
- * 每张卡 = 一类 failed_label，hits = 命中该 label 的 session 数
+ * 口径：先按大盘同口径筛选异常 session（综合健康度非绿色），再按异常标签分组
+ * 每张卡 = 一类异常标签，hits = 命中该标签的异常 session 数
  */
 
 const COLOR = { red:'#FF453A', orange:'#FF9F0A', green:'#30D158', purple:'#BF5AF2', cyan:'#64D2FF', blue:'#0071E3' };
 const RANGE_MS = { '24h': 24*3600e3, '7d': 7*86400e3, '30d': 30*86400e3 };
+const RANGE_LABEL = { '24h': '近 24 小时', '7d': '近 7 天', '30d': '近 30 天' };
 const STATE = {
   range: localStorage.getItem('agenttrace.range') || '24h',
   customFrom: parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null,
   customTo: parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null,
   summary: null,
   loadedKey: '',
+  requestSeq: 0,
 };
 
 function fmtQueryTime(ms) {
@@ -408,9 +410,76 @@ function sourceLabel(source) {
 }
 
 function clusterSessionScore(session) {
-  const raw = Number(session?.score ?? session?.combined_score ?? session?.rule_score);
+  const quality = getClusterQualityScores(session);
+  const raw = Number(quality?.combinedScore);
   if (!Number.isFinite(raw)) return 0;
   return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function clampClusterScore(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n);
+  if (rounded < 0 || rounded > 100) return null;
+  return rounded;
+}
+
+function hasClusterParsedRuleMetrics(session) {
+  return !!(session && session.radar && ['response', 'stability', 'thinking', 'resource', 'orchestration']
+    .some(key => typeof session.radar[key] === 'number' && !Number.isNaN(session.radar[key])));
+}
+
+function hasClusterPersistedQualityScore(session) {
+  return clampClusterScore(session?.combined_score) !== null || clampClusterScore(session?.llm_score) !== null;
+}
+
+function hasClusterFullTraceDetail(session) {
+  return !!((session?.traces || []).some(t => (t?.spans || []).length > 0));
+}
+
+function validClusterAggregateScore(session) {
+  const score = clampClusterScore(session?.score);
+  if (score === null) return null;
+  if (!(hasClusterPersistedQualityScore(session) || hasClusterParsedRuleMetrics(session))) return null;
+  return score;
+}
+
+function getClusterQualityScores(session) {
+  const fallbackRuleScore = (hasClusterFullTraceDetail(session) && session?.radar && hasClusterParsedRuleMetrics(session))
+    ? clampClusterScore(window.AgentTraceEfficiency?.adjustedScore?.(session))
+    : (validClusterAggregateScore(session) ?? clampClusterScore(session?.rule_score));
+  if (window.AgentTraceTags?.getSessionQualityScores) {
+    return window.AgentTraceTags.getSessionQualityScores(session, fallbackRuleScore);
+  }
+  const raw = Number(session?.combined_score ?? session?.score ?? session?.rule_score ?? session?.cached_score ?? session?.quality_score ?? session?.health_score);
+  const combinedScore = Number.isFinite(raw) ? Math.max(0, Math.min(100, Math.round(raw))) : null;
+  return { combinedScore };
+}
+
+function dashboardAnomalyScore(session) {
+  const raw = Number(getClusterQualityScores(session)?.combinedScore);
+  if (!Number.isFinite(raw)) return null;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function isDashboardAnomalySession(session) {
+  const score = dashboardAnomalyScore(session);
+  return score !== null && scoreBand(score) !== 'green';
+}
+
+function fallbackDashboardAnomalyTag(session) {
+  const score = dashboardAnomalyScore(session);
+  if (score === null) return null;
+  const band = scoreBand(score);
+  const label = score < 50 ? '严重风险'
+    : score < 70 ? '亚健康'
+    : '健康度偏低';
+  return {
+    label,
+    detail: `综合健康度 ${score} 分`,
+    color: band,
+    source: 'system',
+  };
 }
 
 function anomalyExplanation(label, source, dimension) {
@@ -487,11 +556,18 @@ function buildAnomalies(s) {
     : rules.filter(r => r && r.passed === false).map(r => ({ label: r.failed_label || r.name, detail: r.detail || '', color: scoreBand(window.AgentTraceEfficiency.adjustedScore(s)) }));
 }
 
-/* 聚合：按 failed_label + source 拆开，避免规则标签与 GPT 标签被错误合并。 */
+function buildClusterTags(s) {
+  const tags = buildAnomalies(s);
+  if (tags.length) return tags;
+  const fallback = fallbackDashboardAnomalyTag(s);
+  return fallback ? [fallback] : [];
+}
+
+/* 聚合：先使用大盘异常 Session 口径，再按 label + source 拆开。 */
 function buildClusters(sessions) {
   const map = new Map();
   sessions.forEach(s => {
-    const failed = buildAnomalies(s);
+    const failed = buildClusterTags(s);
     failed.forEach(r => {
       const label = r.label || r.failed_label || r.name;
       const source = r.source || 'rule';
@@ -744,8 +820,8 @@ let ALL_SESSIONS = [];
 
 function render() {
   const grid = document.getElementById('clusterGrid');
-  const buckets = genBuckets(STATE.range, ALL_SESSIONS);
-  const effective = ALL_SESSIONS;
+  const effective = ALL_SESSIONS.filter(isDashboardAnomalySession);
+  const buckets = genBuckets(STATE.range, effective.length ? effective : ALL_SESSIONS);
 
   // 概览
   const clusters = buildClusters(effective);
@@ -777,6 +853,33 @@ function render() {
   });
 }
 
+function rangeLabel(range, customFrom, customTo) {
+  if (range === 'custom' && customFrom && customTo) {
+    const from = new Date(customFrom);
+    const to = new Date(customTo);
+    return `${pad(from.getMonth()+1)}-${pad(from.getDate())} 至 ${pad(to.getMonth()+1)}-${pad(to.getDate())}`;
+  }
+  return RANGE_LABEL[range] || range || '当前范围';
+}
+
+function renderLoadingState(label) {
+  ALL_SESSIONS = [];
+  STATE.summary = null;
+  document.getElementById('ovw-cluster-count').textContent = '—';
+  document.getElementById('ovw-affected').textContent = '—';
+  document.getElementById('ovw-total').textContent = '—';
+  const grid = document.getElementById('clusterGrid');
+  if (grid) {
+    grid.innerHTML = `
+      <div class="grid-empty">
+        <div class="text-[14px] font-medium text-[--text-secondary]">正在加载${escapeHtml(label)}的异常数据...</div>
+        <div class="text-[12px] text-[--text-tertiary] mt-1.5">已切换时间范围，旧数据已清空。</div>
+      </div>`;
+  }
+  const capHintEl = document.getElementById('cap-hint');
+  if (capHintEl) capHintEl.classList.add('hidden');
+}
+
 /* ============== 加载真实数据 ============== */
 (async function() {
   const loaderEl = document.getElementById('global-loader');
@@ -787,6 +890,7 @@ function render() {
     window.setTimeout(() => loaderEl.remove(), 380);
   }
   async function loadRange(range, customFrom, customTo) {
+    const seq = ++STATE.requestSeq;
     STATE.range = range || STATE.range;
     if (STATE.range === 'custom') {
       STATE.customFrom = customFrom || STATE.customFrom || null;
@@ -800,15 +904,14 @@ function render() {
       render();
       return;
     }
-    document.getElementById('ovw-cluster-count').textContent = '—';
-    document.getElementById('ovw-affected').textContent = '—';
-    document.getElementById('ovw-total').textContent = '—';
+    renderLoadingState(rangeLabel(STATE.range, STATE.customFrom, STATE.customTo));
     const [summary, d] = await Promise.all([
       window.AgentTraceDB.loadDashboardSummary
         ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
         : Promise.resolve(null),
       window.AgentTraceDB.loadSessions(query),
     ]);
+    if (seq !== STATE.requestSeq) return;
     STATE.loadedKey = key;
     STATE.summary = summary;
     ALL_SESSIONS = d.sessions || [];

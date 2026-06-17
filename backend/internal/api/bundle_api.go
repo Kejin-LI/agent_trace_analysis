@@ -699,6 +699,12 @@ func filterBundlesByQueryRange(bundles []apiSessionBundle, tr modellog.TimeRange
 	startMs, endMs := st.UnixMilli(), et.UnixMilli()
 	out := bundles[:0]
 	for _, b := range bundles {
+		// api 模式下上游已先按时间窗过滤过一轮；若列表项缺少 create_at / update_at，
+		// StartedAtMs 会保持 0，此时不应在本地二次过滤时把真实数据误删。
+		if b.StartedAtMs == 0 {
+			out = append(out, b)
+			continue
+		}
 		if b.StartedAtMs >= startMs && b.StartedAtMs <= endMs {
 			out = append(out, b)
 		}
