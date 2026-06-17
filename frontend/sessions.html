@@ -543,6 +543,7 @@
     }
     function pad(n) { return n.toString().padStart(2, '0'); }
     function fmtTime(ms) {
+      if (!ms || ms <= 0) return '-';
       const d = new Date(ms);
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
@@ -681,7 +682,7 @@
     function hasVisibleAnomaly(meta) {
       if (!meta) return false;
       const hasTags = !!(meta.anomaly && Array.isArray(meta.anomaly.list) && meta.anomaly.list.length);
-      return hasTags || (meta.score !== null && !meta.isHealthy);
+      return hasTags;
     }
 
     // ----- 状态 -----
@@ -823,6 +824,40 @@
         query: { startTime: fmtQueryTime(end - winMs), endTime: fmtQueryTime(end) },
         key: f.range,
       };
+    }
+
+    const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
+
+    function buildDetailSeed(session) {
+      if (!session || !session.id) return null;
+      const quality = getSessionQualityMeta(session);
+      const combinedScore = quality.combinedScore;
+      const scoreValue = Number.isFinite(Number(combinedScore)) ? Math.round(Number(combinedScore)) : null;
+      const scoreColor = scoreValue === null ? '' : scoreBand(scoreValue);
+      return {
+        id: String(session.id || ''),
+        title: String(session.title || ('Session ' + displayId(session.id))),
+        user: String(session.user || 'anonymous'),
+        trace: String(session.trace_id || session.trace || '--'),
+        startedAtMs: Number(session.started_at_ms || 0),
+        score: scoreValue,
+        scoreColor,
+        chip: String((quality.anomaly.list[0] && quality.anomaly.list[0].label) || (scoreValue === null ? '--' : scoreValue >= 85 ? '健康' : scoreValue >= 70 ? '注意' : scoreValue >= 50 ? '亚健康' : '严重')),
+      };
+    }
+
+    function persistDetailSeed(seed) {
+      if (!seed || !seed.id) return;
+      try {
+        sessionStorage.setItem(DETAIL_SEED_KEY_PREFIX + seed.id, JSON.stringify(seed));
+      } catch {}
+    }
+
+    function persistDetailSeedFromRow(tr) {
+      if (!tr || !tr.dataset.detailSeed) return;
+      try {
+        persistDetailSeed(JSON.parse(decodeURIComponent(tr.dataset.detailSeed)));
+      } catch {}
     }
 
     function setSessionsLoadingState() {
@@ -1025,8 +1060,13 @@
           : fmtDuration(durationMs);
 
       const hasDisplayScore = score !== null && score !== undefined;
-      const detailHref = `./session-detail?id=${encodeURIComponent(s.id)}&artifact_status=unpublished`;
-      return `<tr class="row-hover cursor-pointer" data-href="${detailHref}">
+      const detailParams = new URLSearchParams({ id: String(s.id || ''), artifact_status: 'unpublished' });
+      const detailRange = currentRangeQuery().query || {};
+      if (detailRange.startTime) detailParams.set('start_time', detailRange.startTime);
+      if (detailRange.endTime) detailParams.set('end_time', detailRange.endTime);
+      const detailHref = `./session-detail?${detailParams.toString()}`;
+      const detailSeed = encodeURIComponent(JSON.stringify(buildDetailSeed(s)));
+      return `<tr class="row-hover cursor-pointer" data-href="${detailHref}" data-detail-seed="${detailSeed}">
         <td class="px-5 py-3.5">${titleCellHtml}</td>
         <td class="px-4 py-3.5">
           <div class="flex items-center gap-2.5 min-w-0">
@@ -1064,8 +1104,8 @@
         const meta = getSessionMeta(s);
         const ano = meta.anomaly;
         const score = meta.score;
-        // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
-        // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
+        // 是否「异常」：只看规则 / GPT 问题标签；低分但无标签不算异常。
+        // 「健康」仍以健康度档位（≥85，绿色）服务列表筛选。
         const isHealthy = meta.isHealthy;
         const hasAnomaly = hasVisibleAnomaly(meta);
         // 状态分段
@@ -1305,7 +1345,10 @@
     });
     tbody.addEventListener('click', e => {
       const tr = e.target.closest('tr[data-href]');
-      if (tr && tbody.contains(tr)) window.location.href = tr.dataset.href;
+      if (!tr || !tbody.contains(tr)) return;
+      persistDetailSeedFromRow(tr);
+      if (e.target.closest('a')) return;
+      window.location.href = tr.dataset.href;
     });
     pgPages.addEventListener('click', e => {
       const btn = e.target.closest('button[data-page]');

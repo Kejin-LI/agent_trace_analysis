@@ -1544,8 +1544,8 @@
       </a>
       <div class="w-px h-5 bg-black/10 flex-shrink-0"></div>
       <div class="min-w-0" style="max-width:50vw">
-        <div class="text-[14px] font-semibold leading-tight truncate" title="帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用">帮我创建一个qba联赛的标注模板，要求高端大气上档次，最小可用</div>
-        <div class="text-[11px] text-[--text-tertiary] mono leading-tight truncate" title="session: 3cfaea · trace: 3cfaea74-fd61-45b5-b67e-98c9b41938ae">session: 3cfaea · trace: 3cfaea74-fd61-45b5-b67e-98c9b41938ae</div>
+        <div class="text-[14px] font-semibold leading-tight truncate" title="加载中...">加载中...</div>
+        <div class="text-[11px] text-[--text-tertiary] mono leading-tight truncate" title="session: -- · trace: --">session: -- · trace: --</div>
       </div>
     </div>
     <div class="flex items-center gap-2">
@@ -1630,7 +1630,7 @@
             </div>
             <div id="info-status-cell" class="cursor-help" style="position:relative">
               <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">会话状态</div>
-              <div class="text-[12px]" id="info-status"><span class="text-[--apple-green]">成功</span></div>
+              <div class="text-[12px]" id="info-status"><span class="text-[--text-tertiary]">--</span></div>
             </div>
           </div>
         </div>
@@ -1682,22 +1682,22 @@
             <!-- 中：标题 + 描述 -->
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1 flex-wrap" id="status-chip-container">
-                <span class="text-[15px] font-semibold" id="status-title">本次会话整体表现良好</span>
-                <span class="chip" id="status-chip" style="background:rgba(52,199,89,0.1);color:var(--apple-green)">健康</span>
+                <span class="text-[15px] font-semibold" id="status-title">加载中...</span>
+                <span class="chip" id="status-chip" style="background:rgba(120,120,128,0.12);color:var(--text-tertiary)">--</span>
               </div>
               <div class="text-[12.5px] text-[--text-secondary] leading-relaxed" id="status-desc">
-                5 个维度均处于正常区间。
+                加载中...
               </div>
-              <div class="text-[11px] text-[--text-tertiary] mt-1" id="health-source">综合来源：规则评估</div>
+              <div class="text-[11px] text-[--text-tertiary] mt-1" id="health-source">综合来源：--</div>
             </div>
             <!-- 右：大分数 -->
             <div class="text-right flex-shrink-0">
               <div class="flex items-baseline gap-1 leading-none justify-end">
-                <span class="text-[40px] font-semibold num-mono" id="health-score" style="color:var(--apple-green)">92</span>
+                <span class="text-[40px] font-semibold num-mono" id="health-score" style="color:var(--text-tertiary)">--</span>
                 <span class="text-[12px] text-[--text-tertiary]">/100</span>
               </div>
               <div class="mt-1 flex items-center gap-1 justify-end">
-                <span class="text-[10.5px] text-[--text-tertiary]" id="health-grade">健康</span>
+                  <span class="text-[10.5px] text-[--text-tertiary]" id="health-grade">--</span>
                 <span class="text-[10.5px] text-[--text-tertiary] help cursor-help" style="position:relative" aria-label="健康度说明">
                   <span class="tip" style="width:320px">
                     <span class="tip-title">综合健康度如何计算</span>
@@ -3114,12 +3114,143 @@
       'a2c094': { title: '行为死循环 · 路由 Agent 卡顿 (已拦截)', score: 81, color: 'purple', chip: '行为死循环', user: 'huachen', trace: 'a2c09478-22bb-4119-9f23-9a4bd7f1e504' }
     };
 
+    const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
+
+    function detailSeedStorageKey(sessionId) {
+      return DETAIL_SEED_KEY_PREFIX + String(sessionId || '');
+    }
+
+    function readDetailSeed(sessionId) {
+      if (!sessionId) return null;
+      try {
+        const raw = sessionStorage.getItem(detailSeedStorageKey(sessionId));
+        if (!raw) return null;
+        const seed = JSON.parse(raw);
+        if (!seed || String(seed.id || '') !== String(sessionId)) return null;
+        return seed;
+      } catch {
+        return null;
+      }
+    }
+
+    function formatDetailDateTime(ms) {
+      const value = Number(ms || 0);
+      if (!Number.isFinite(value) || value <= 0) return '--';
+      return new Date(value).toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function renderSeedSession(seed) {
+      if (!seed) return false;
+      const title = String(seed.title || ('Session ' + idDisplay));
+      const trace = String(seed.trace || '--');
+      const user = String(seed.user || '--');
+      const score = Number.isFinite(Number(seed.score)) ? Math.max(0, Math.min(100, Math.round(Number(seed.score)))) : null;
+      const color = String(seed.scoreColor || (score === null ? 'tertiary' : score >= 85 ? 'green' : score >= 70 ? 'orange' : score >= 50 ? 'purple' : 'red'));
+      const chip = String(seed.chip || '--');
+      const toneMap = {
+        green: 'rgba(52,199,89,0.12)',
+        orange: 'rgba(255,149,0,0.12)',
+        purple: 'rgba(175,82,222,0.12)',
+        red: 'rgba(255,59,48,0.12)',
+        cyan: 'rgba(90,200,250,0.12)',
+      };
+
+      const titleEl = document.querySelector('header .text-\\[14px\\].font-semibold');
+      if (titleEl) {
+        titleEl.textContent = title;
+        titleEl.setAttribute('title', title);
+      }
+      const subEl = document.querySelector('header .text-\\[11px\\].mono');
+      if (subEl) {
+        const text = 'session: ' + idDisplay + ' · trace: ' + trace;
+        subEl.textContent = text;
+        subEl.setAttribute('title', text);
+      }
+      const headerScoreEl = document.querySelector('header .absolute.inset-1.rounded-full');
+      if (headerScoreEl) {
+        headerScoreEl.textContent = score === null ? '--' : String(score);
+        headerScoreEl.classList.remove('bg-[--apple-green]', 'bg-[--apple-red]', 'bg-[--apple-orange]', 'bg-[--apple-purple]', 'bg-[--apple-cyan]');
+        headerScoreEl.classList.add(score === null ? 'bg-black/5' : 'bg-[--apple-' + color + ']');
+        const ring = headerScoreEl.previousElementSibling;
+        if (ring) {
+          ring.classList.remove('bg-[--apple-green]/15', 'bg-[--apple-red]/15', 'bg-[--apple-orange]/15', 'bg-[--apple-purple]/15', 'bg-[--apple-cyan]/15');
+          ring.classList.add(score === null ? 'bg-black/5' : 'bg-[--apple-' + color + ']/15');
+        }
+      }
+      const chipEl = document.querySelector('header .chip');
+      if (chipEl) {
+        chipEl.className = score === null
+          ? 'chip bg-black/5 text-[--text-tertiary]'
+          : 'chip bg-[--apple-' + color + ']/10 text-[--apple-' + color + ']';
+        chipEl.textContent = chip;
+      }
+
+      const setText0 = (targetId, value) => {
+        const el = document.getElementById(targetId);
+        if (el) el.textContent = value;
+      };
+      setText0('info-session-id', idDisplay);
+      const traceEl = document.getElementById('info-trace-id');
+      if (traceEl) {
+        traceEl.textContent = trace;
+        traceEl.title = trace === '--' ? '' : trace;
+      }
+      setText0('info-user', user);
+      setText0('info-start', formatDetailDateTime(seed.startedAtMs));
+
+      const statusTitleEl = document.getElementById('status-title');
+      if (statusTitleEl) statusTitleEl.textContent = '详情加载中...';
+      const statusChipEl = document.getElementById('status-chip');
+      if (statusChipEl) {
+        statusChipEl.textContent = chip;
+        statusChipEl.style.background = score === null ? 'rgba(120,120,128,0.12)' : (toneMap[color] || 'rgba(120,120,128,0.12)');
+        statusChipEl.style.color = score === null ? 'var(--text-tertiary)' : `var(--apple-${color})`;
+      }
+      const statusDescEl = document.getElementById('status-desc');
+      if (statusDescEl) statusDescEl.textContent = '已展示列表页摘要，正在加载完整详情...';
+      const sourceEl = document.getElementById('health-source');
+      if (sourceEl) sourceEl.textContent = '综合来源：列表摘要';
+      const scoreEl = document.getElementById('health-score');
+      if (scoreEl) {
+        scoreEl.textContent = score === null ? '--' : String(score);
+        scoreEl.style.color = score === null ? 'var(--text-tertiary)' : `var(--apple-${color})`;
+      }
+      const gradeEl = document.getElementById('health-grade');
+      if (gradeEl) gradeEl.textContent = score === null ? '--' : score >= 85 ? '健康' : score >= 70 ? '注意' : score >= 50 ? '亚健康' : '严重';
+      document.title = title.slice(0, 24) + ' · Session 详情';
+      return true;
+    }
+
+    function detailLoadErrorMessage(message) {
+      const text = String(message || '').trim();
+      if (!text) return '未拿到真实会话详情。若从列表页进入，请重试；若直接打开链接，请携带 start_time / end_time。';
+      if (text.includes('接口鉴权失败')) return '登录态失效或当前账号无权限查看该会话，请重新登录后重试。';
+      if (text.includes('接口返回了登录页或非 JSON 数据')) return '接口返回了登录页或非 JSON 数据，请确认登录状态后重试。';
+      if (text.includes('未找到该会话详情')) return '未找到该会话详情。若直接打开链接，请携带 start_time / end_time。';
+      if (text.includes('接口连接失败')) return '接口连接失败，请确认当前页面与后端同域且登录态有效。';
+      return text;
+    }
+
+    function canUseFallbackMock() {
+      const host = location.hostname;
+      return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+    }
+
     async function loadRealData(sessionId, opts) {
-      if (sessionId === 'clarify-demo') return buildClarifyDemoSession();
+      if (sessionId === 'clarify-demo') return { data: buildClarifyDemoSession(), error: '' };
+      let loadError = '';
       try {
         const r = await window.AgentTraceDB.loadSession(sessionId, opts);
-        if (r) return r;
-      } catch (e) {}
+        if (r) return { data: r, error: '' };
+      } catch (e) {
+        loadError = e && e.message ? e.message : String(e || '');
+      }
       // 仅本地开发兜底：无后端时直接读静态 data/sessions.json，方便本地预览。
       // 线上有后端（上面已返回），此分支不会触发，对生产零影响。
       const host = location.hostname;
@@ -3129,11 +3260,11 @@
           if (resp.ok) {
             const d = await resp.json();
             const hit = (d.sessions || []).find(x => x.id === sessionId || x.session_id === sessionId);
-            if (hit) return hit;
+            if (hit) return { data: hit, error: loadError };
           }
         } catch (e) {}
       }
-      return null;
+      return { data: null, error: loadError };
     }
 
     const params = new URLSearchParams(location.search);
@@ -3142,6 +3273,8 @@
     if (!id) { hideGlobalLoader(); return; }
     // 仅用于展示：去掉 URL 透传进来的 .json 后缀（数据查找/请求仍用原始 id）。
     const idDisplay = String(id).replace(/\.json$/i, '');
+    const detailSeed = readDetailSeed(id);
+    if (detailSeed) renderSeedSession(detailSeed);
 
     function actionSeverityMeta(severity) {
       if (severity === 'bad' || severity === 'high') return { label: '优先', c: '--apple-red' };
@@ -4082,10 +4215,57 @@
     document.title = s.title.slice(0, 24) + ' · Session 详情';
     }
 
+    function renderMissingSessionState(message, opts) {
+      const keepContext = !!(opts && opts.keepContext);
+      if (!keepContext) {
+        const titleEl = document.querySelector('header .text-\\[14px\\].font-semibold');
+        if (titleEl) {
+          titleEl.textContent = '未加载到会话详情';
+          titleEl.setAttribute('title', '未加载到会话详情');
+        }
+        const subEl = document.querySelector('header .text-\\[11px\\].mono');
+        if (subEl) {
+          const text = 'session: ' + idDisplay + ' · trace: --';
+          subEl.textContent = text;
+          subEl.setAttribute('title', text);
+        }
+      }
+      const chatEl = document.getElementById('chat-stream');
+      if (chatEl) {
+        chatEl.innerHTML = `<div class="text-[11px] text-[--text-tertiary] text-center leading-6">${escapeHTML(message)}</div>`;
+      }
+      const statusEl = document.getElementById('info-status');
+      if (statusEl) statusEl.innerHTML = '<span class="text-[--text-tertiary]">未加载</span>';
+      const statusTitleEl = document.getElementById('status-title');
+      if (statusTitleEl) statusTitleEl.textContent = '未加载到会话详情';
+      const statusChipEl = document.getElementById('status-chip');
+      if (statusChipEl) {
+        statusChipEl.textContent = '--';
+        statusChipEl.style.background = 'rgba(120,120,128,0.12)';
+        statusChipEl.style.color = 'var(--text-tertiary)';
+      }
+      const statusDescEl = document.getElementById('status-desc');
+      if (statusDescEl) statusDescEl.textContent = message;
+      const sourceEl = document.getElementById('health-source');
+      if (sourceEl) sourceEl.textContent = '综合来源：--';
+      if (!keepContext) {
+        const scoreEl = document.getElementById('health-score');
+        if (scoreEl) {
+          scoreEl.textContent = '--';
+          scoreEl.style.color = 'var(--text-tertiary)';
+        }
+        const gradeEl = document.getElementById('health-grade');
+        if (gradeEl) gradeEl.textContent = '--';
+        document.title = '未加载到会话详情 · Session 详情';
+      }
+    }
+
     // ===== 两段式加载：先 meta_only 拿指标骨架"秒出"，再异步拉完整 traces 渲染对话流 =====
     (async function () {
       // 第一段：DB 指标骨架（命中即秒出头部/分数/卡片；未命中返回 null）
-      const meta = await loadRealData(id, { metaOnly: true, artifactStatus });
+      const metaResult = await loadRealData(id, { metaOnly: true, artifactStatus });
+      const meta = metaResult.data;
+      let lastLoadError = metaResult.error || '';
       let metaRendered = false;
       if (meta) {
         renderSession(meta, 'meta');
@@ -4093,11 +4273,15 @@
         hideGlobalLoader(); // 指标已出，先把遮罩去掉，对话流稍后填充
       }
       // 第二段：完整 bundle（含对话流）
-      const real = await loadRealData(id, { artifactStatus });
+      const realResult = await loadRealData(id, { artifactStatus });
+      const real = realResult.data;
+      if (realResult.error) lastLoadError = realResult.error;
       if (real) {
         renderSession(real, 'full');
-      } else if (!metaRendered && FALLBACK_MOCK[id]) {
+      } else if (!metaRendered && canUseFallbackMock() && FALLBACK_MOCK[id]) {
         renderSession(null, 'full');
+      } else {
+        renderMissingSessionState(detailLoadErrorMessage(lastLoadError), { keepContext: metaRendered || !!detailSeed });
       }
       hideGlobalLoader();
     })();
