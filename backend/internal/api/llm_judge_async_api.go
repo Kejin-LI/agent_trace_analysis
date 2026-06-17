@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -183,28 +185,71 @@ func (h *Handler) checkRunningLLMJudge(sessionID string) (string, bool) {
 // markLLMJudgeRunning 写一行 running 状态;若已有同 session_id 的行就 update。
 func (h *Handler) markLLMJudgeRunning(sessionID string, req llmJudgeAsyncRequest) error {
 	now := time.Now()
-	values := h.filterExistingAssignments(map[string]interface{}{
-		"session_id":       trimLen(sessionID, 128),
-		"artifact_id":      trimLen(req.ArtifactID, 128),
-		"trace_id":         trimLen(req.TraceID, 128),
-		"session_title":    trimLen(req.SessionTitle, 1024),
-		"session_user":     trimLen(req.SessionUser, 128),
-		"session_user_id":  trimLen(req.UserID, 128),
-		"llm_eval_status":  "running",
-		"llm_evaluated_at": &now,
-		"llm_triggered_by": trimLen(firstReviewNonEmpty(req.SessionUser, req.UserID), 128),
-		"llm_error":        "",
-		"is_deleted":       0,
-	})
+	title := safeSessionTitleForDB(req.SessionTitle, 1024)
+	host, _ := os.Hostname()
+	buildValues := func(sessionTitle string) map[string]interface{} {
+		return h.filterExistingAssignments(map[string]interface{}{
+			"session_id":       trimLen(sessionID, 128),
+			"artifact_id":      trimLen(req.ArtifactID, 128),
+			"trace_id":         trimLen(req.TraceID, 128),
+			"session_title":    sessionTitle,
+			"session_user":     trimLen(req.SessionUser, 128),
+			"session_user_id":  trimLen(req.UserID, 128),
+			"llm_eval_status":  "running",
+			"llm_evaluated_at": &now,
+			"llm_triggered_by": trimLen(firstReviewNonEmpty(req.SessionUser, req.UserID), 128),
+			"llm_error":        "",
+			"is_deleted":       0,
+		})
+	}
 	updateColumns := h.filterExistingColumns([]string{
 		"artifact_id", "trace_id", "session_title", "session_user", "session_user_id",
 		"llm_eval_status", "llm_evaluated_at", "llm_triggered_by", "llm_error",
 		"is_deleted", "updated_at",
 	})
-	return h.db.Model(&model.StgSessionQualityEvaluation{}).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "session_id"}},
-		DoUpdates: clause.AssignmentColumns(updateColumns),
-	}).Create(values).Error
+	create := func(values map[string]interface{}) error {
+		return h.db.Model(&model.StgSessionQualityEvaluation{}).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "session_id"}},
+			DoUpdates: clause.AssignmentColumns(updateColumns),
+		}).Create(values).Error
+	}
+	if err := create(buildValues(title)); err != nil {
+		log.Printf(
+			"llm-judge running write failed session=%s artifact=%s trace=%s host=%s raw_title=%q safe_title=%q raw_len=%d safe_len=%d err=%v",
+			trimLen(sessionID, 128),
+			trimLen(req.ArtifactID, 128),
+			trimLen(req.TraceID, 128),
+			host,
+			trimLen(req.SessionTitle, 256),
+			trimLen(title, 256),
+			len(req.SessionTitle),
+			len(title),
+			err,
+		)
+		if title == "" {
+			return err
+		}
+		if retryErr := create(buildValues("")); retryErr != nil {
+			log.Printf(
+				"llm-judge running retry-empty-title failed session=%s artifact=%s trace=%s host=%s err=%v",
+				trimLen(sessionID, 128),
+				trimLen(req.ArtifactID, 128),
+				trimLen(req.TraceID, 128),
+				host,
+				retryErr,
+			)
+			return retryErr
+		}
+		log.Printf(
+			"llm-judge running retry-empty-title succeeded session=%s artifact=%s trace=%s host=%s",
+			trimLen(sessionID, 128),
+			trimLen(req.ArtifactID, 128),
+			trimLen(req.TraceID, 128),
+			host,
+		)
+		return nil
+	}
+	return nil
 }
 
 // runLLMJudgeAsync goroutine 主体:跑 GPT,把结果或错误回写到 stg 表。

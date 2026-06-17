@@ -305,15 +305,16 @@
       combined_score: raw.combined_score ?? raw.combinedScore ?? null,
     };
 
-    if (helper && session.radar && hasRadarEvidence) {
+    const hasTraceDetail = traces.some(t => (t.spans || []).length > 0);
+    if (helper && session.radar && hasRadarEvidence && hasTraceDetail) {
       session.cached_score = persistedScore;
       session.derived_rule_score = helper.adjustedScore(session);
       session.score = session.derived_rule_score;
       session.color = helper.scoreColor(session.score);
     } else if (persistedScore !== null) {
       session.cached_score = persistedScore;
-      session.score = null;
-      session.color = raw.color || 'gray';
+      session.score = persistedScore;
+      session.color = helper ? helper.scoreColor(session.score) : (raw.color || 'gray');
     } else {
       session.score = null;
       session.color = raw.color || 'gray';
