@@ -54,7 +54,7 @@
     }
 
     // 读取初始状态
-    let curRange = localStorage.getItem(STORAGE_KEY) || '7d';
+    let curRange = localStorage.getItem(STORAGE_KEY) || '24h';
     let customFromMs = parseInt(localStorage.getItem(STORAGE_FROM) || '0', 10) || null;
     let customToMs = parseInt(localStorage.getItem(STORAGE_TO) || '0', 10) || null;
 
@@ -341,7 +341,7 @@
   // 工具：读取当前状态
   function getCurrentRange() {
     return {
-      range: localStorage.getItem(STORAGE_KEY) || '30d',
+      range: localStorage.getItem(STORAGE_KEY) || '24h',
       customFrom: parseInt(localStorage.getItem(STORAGE_FROM) || '0', 10) || null,
       customTo: parseInt(localStorage.getItem(STORAGE_TO) || '0', 10) || null,
     };

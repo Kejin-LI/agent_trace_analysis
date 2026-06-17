@@ -46,6 +46,14 @@ func (h *Handler) getTopAnomalySessions(c *gin.Context) {
 		fail(c, fmt.Errorf("build top anomaly sessions: %w", err))
 		return
 	}
+	if len(bundles) == 0 && dataSourceMode() == "api" {
+		realtimeBundles, realtimeTotal, rtErr := h.topAnomalySessionsFromRealtime(c, tr, limit)
+		if rtErr != nil {
+			log.Printf("top anomaly realtime fallback failed err=%v", rtErr)
+		} else {
+			bundles, total = realtimeBundles, realtimeTotal
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"data":   bundles,
 		"limit":  limit,
@@ -91,6 +99,15 @@ func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
 
 	summary.Total = totalCount
 	finalizeDashboardSummary(&summary)
+	if summary.AnalyzedCount == 0 {
+		if fallback, rtErr := h.buildRealtimeDashboardSummary(ctx, h.effectiveCookie(c), tr); rtErr != nil {
+			log.Printf("dashboard summary realtime fallback failed err=%v", rtErr)
+		} else if fallback.AnalyzedCount > 0 || fallback.AnomalyCount > 0 || fallback.LLMEvaluatedCount > 0 {
+			fallback.Total = totalCount
+			finalizeDashboardSummary(&fallback)
+			summary = fallback
+		}
+	}
 	c.JSON(http.StatusOK, summary)
 }
 
@@ -390,6 +407,157 @@ func (h *Handler) fetchDashboardTotalCount(ctx context.Context, cookie string, t
 		return 0, err
 	}
 	return int(resp.Total), nil
+}
+
+func (h *Handler) buildRealtimeDashboardSummary(ctx context.Context, cookie string, tr modellog.TimeRange) (apiDashboardSummary, error) {
+	bundles, err := h.realtimeBundlesForDashboard(ctx, cookie, tr, 20)
+	if err != nil {
+		return apiDashboardSummary{}, err
+	}
+	return summarizeDashboardBundles(h.applyQualityEvaluations(bundles)), nil
+}
+
+func (h *Handler) topAnomalySessionsFromRealtime(c *gin.Context, tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, error) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	bundles, err := h.realtimeBundlesForDashboard(ctx, h.effectiveCookie(c), tr, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	bundles = h.applyQualityEvaluations(bundles)
+	candidates := make([]apiSessionBundle, 0, len(bundles))
+	for _, bundle := range bundles {
+		if dashboardBundleHasAnomaly(bundle, 0) && getDashboardQualityScores(bundle).CombinedScore != nil {
+			candidates = append(candidates, bundle)
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		qi := getDashboardQualityScores(candidates[i])
+		qj := getDashboardQualityScores(candidates[j])
+		si, sj := 101, 101
+		if qi.CombinedScore != nil {
+			si = *qi.CombinedScore
+		}
+		if qj.CombinedScore != nil {
+			sj = *qj.CombinedScore
+		}
+		if si == sj {
+			return candidates[i].StartedAtMs > candidates[j].StartedAtMs
+		}
+		return si < sj
+	})
+	total := len(candidates)
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, total, nil
+}
+
+func (h *Handler) realtimeBundlesForDashboard(ctx context.Context, cookie string, tr modellog.TimeRange, limit int) ([]apiSessionBundle, error) {
+	if h == nil || h.upstream == nil || h.fetcher == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+		TimeRange: tr,
+		Page: modellog.Page{
+			PageNo:   1,
+			PageSize: limit,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	bundles := make([]apiSessionBundle, 0, len(resp.Data))
+	for _, s := range resp.Data {
+		if len(s.FileList) == 0 || s.FileList[0].URL == "" {
+			continue
+		}
+		pr, err := h.fetcher.FetchAndParse(s.FileList[0].URL)
+		if err != nil {
+			log.Printf("dashboard realtime fallback: fetch session=%s failed err=%v", s.SessionID, err)
+			continue
+		}
+		bundle := buildBundleFromTOS(sessionToStgSource(s), pr)
+		bundle.ArtifactPublicationStatus = artifactStatusPublished
+		bundles = append(bundles, bundle)
+	}
+	return bundles, nil
+}
+
+func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
+	summary := apiDashboardSummary{}
+	if len(bundles) == 0 {
+		return summary
+	}
+	summary.AnalyzedCount = len(bundles)
+	scores := make([]float64, 0, len(bundles))
+	var anomalyCount int
+	var totalResponse float64
+	var totalThinking float64
+	var totalResource float64
+	var totalStability float64
+	var totalOrchestration float64
+	var responseCount int
+	var thinkingCount int
+	var resourceCount int
+	var stabilityCount int
+	var orchestrationCount int
+	for _, bundle := range bundles {
+		q := getDashboardQualityScores(bundle)
+		if q.CombinedScore != nil {
+			score := float64(*q.CombinedScore)
+			scores = append(scores, score)
+			if dashboardScoreBand(*q.CombinedScore) != "green" {
+				anomalyCount++
+			}
+		}
+		if q.LLMScore != nil {
+			summary.LLMEvaluatedCount++
+		}
+		totalResponse += float64(bundle.Radar.Response)
+		responseCount++
+		totalThinking += float64(bundle.Radar.Thinking)
+		thinkingCount++
+		totalResource += float64(bundle.Radar.Resource)
+		resourceCount++
+		if bundle.Radar.Stability > 0 {
+			totalStability += float64(bundle.Radar.Stability)
+			stabilityCount++
+		}
+		if bundle.Radar.Orchestration > 0 {
+			totalOrchestration += float64(bundle.Radar.Orchestration)
+			orchestrationCount++
+		}
+	}
+	summary.AnomalyCount = anomalyCount
+	if len(scores) > 0 {
+		avgScore := round2(sumFloat64(scores) / float64(len(scores)))
+		summary.AvgScore = &avgScore
+	}
+	if responseCount > 0 {
+		v := round2(totalResponse / float64(responseCount))
+		summary.Radar.Response = &v
+	}
+	if thinkingCount > 0 {
+		v := round2(totalThinking / float64(thinkingCount))
+		summary.Radar.Thinking = &v
+	}
+	if resourceCount > 0 {
+		v := round2(totalResource / float64(resourceCount))
+		summary.Radar.Resource = &v
+	}
+	if stabilityCount > 0 {
+		v := round2(totalStability / float64(stabilityCount))
+		summary.Radar.Stability = &v
+	}
+	if orchestrationCount > 0 {
+		v := round2(totalOrchestration / float64(orchestrationCount))
+		summary.Radar.Orchestration = &v
+	}
+	return summary
 }
 
 type dashboardQualityScores struct {

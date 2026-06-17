@@ -333,8 +333,8 @@
         <span class="help">受影响 Session
           <div class="help-tip">
             <div class="tip-title">受影响 Session</div>
-            被任意一类异常命中过的 session 去重总数（一个 session 可能命中多类，只算 1 次）。
-            <div class="tip-formula">count(distinct session_id where any rule failed)</div>
+            当前卡片中，被任意一类异常命中过的 session 去重总数（一个 session 可能命中多类，只算 1 次）。分母为大盘同口径的异常 Session 总数。
+            <div class="tip-formula">count(distinct session_id where any rule/GPT tag failed)</div>
           </div>
         </span>
       </div>
@@ -354,7 +354,7 @@
 
 <script src="./efficiency-helper.js"></script>
 <script src="./tag-system.js"></script>
-<script src="./db-api.js?v=20260617-fast-load-5000"></script>
+<script src="./db-api.js?v=20260617-local-origin-fix"></script>
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
  * 数据源：./data/sessions.json（与大盘 / 明细共用）
@@ -365,7 +365,7 @@
 const COLOR = { red:'#FF453A', orange:'#FF9F0A', green:'#30D158', purple:'#BF5AF2', cyan:'#64D2FF', blue:'#0071E3' };
 const RANGE_MS = { '24h': 24*3600e3, '7d': 7*86400e3, '30d': 30*86400e3 };
 const STATE = {
-  range: localStorage.getItem('agenttrace.range') || '30d',
+  range: localStorage.getItem('agenttrace.range') || '24h',
   customFrom: parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null,
   customTo: parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null,
   summary: null,
@@ -519,6 +519,26 @@ function buildClusters(sessions) {
     if (scoreDiff !== 0) return scoreDiff;
     return String(a.label).localeCompare(String(b.label), 'zh-CN');
   });
+}
+
+function sessionIdentity(s) {
+  return s?.id || s?.session_id || s?.conversation_id || '';
+}
+
+function countAffectedSessionsFromClusters(clusters) {
+  const ids = new Set();
+  let anonymousCount = 0;
+  clusters.forEach(cluster => {
+    (cluster.sessions || []).forEach(s => {
+      const id = sessionIdentity(s);
+      if (id) {
+        ids.add(id);
+      } else {
+        anonymousCount++;
+      }
+    });
+  });
+  return ids.size + anonymousCount;
 }
 
 /* 时间桶 · 以数据中最新 session 开始时间为锚点 */
@@ -729,15 +749,11 @@ function render() {
 
   // 概览
   const clusters = buildClusters(effective);
-  const affected = effective.filter(s => buildAnomalies(s).length > 0);
   const summaryAnomaly = STATE.summary?.anomaly_count;
-  const summaryTotal = STATE.summary?.total;
-  const affectedCount = summaryAnomaly === null || summaryAnomaly === undefined
-    ? affected.length
+  const affectedCount = countAffectedSessionsFromClusters(clusters);
+  const totalCount = summaryAnomaly === null || summaryAnomaly === undefined
+    ? affectedCount
     : Number(summaryAnomaly || 0);
-  const totalCount = summaryTotal === null || summaryTotal === undefined
-    ? effective.length
-    : Number(summaryTotal || 0);
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
   document.getElementById('ovw-total').textContent = totalCount;

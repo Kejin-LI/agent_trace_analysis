@@ -805,6 +805,7 @@
       }
       container.innerHTML = `基于全量 <span class="num-mono" id="radar-n">${totalN}</span> 个 session 分析`;
     }
+    window.renderDashboardRadarScope = renderRuleRadarScope;
 
     function previewScoreColor(score) {
       const n = Number(score);
@@ -855,8 +856,12 @@
         radarTotalEl.textContent = radarAvg == null ? (pendingCount > 0 ? '计算中...' : '—') : Math.round(radarAvg);
         radarTotalEl.style.color = previewScoreColor(radarAvg);
       }
-      renderRuleRadarScope(total, analyzedTotal, pendingCount);
-      renderRadar(displayRadar, { pendingCount });
+      if (typeof window.renderDashboardRadarScope === 'function') {
+        window.renderDashboardRadarScope(total, analyzedTotal, pendingCount);
+      }
+      if (typeof window.renderDashboardRadar === 'function') {
+        window.renderDashboardRadar(displayRadar, { pendingCount });
+      }
       const kpiTotalEl = document.getElementById('kpi-total');
       if (kpiTotalEl) kpiTotalEl.textContent = total || (pendingCount > 0 ? '计算中...' : '—');
       const combinedEl = document.getElementById('kpi-combined-score');
@@ -1018,7 +1023,7 @@
 
 <script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
 <script src="./tag-system.js?v=20260616-fix-score-cache"></script>
-<script src="./db-api.js?v=20260617-fast-load-5000"></script>
+<script src="./db-api.js?v=20260617-local-origin-fix"></script>
 <script>
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
@@ -1522,6 +1527,13 @@
       });
       document.getElementById('radar-area').setAttribute('points', pts.join(' '));
     }
+    window.renderDashboardRadar = renderRadar;
+
+    function averageRadarScore(radar) {
+      if (!radar) return null;
+      const vals = Object.values(radar).filter(v => typeof v === 'number' && !Number.isNaN(v));
+      return vals.length ? vals.reduce((sum, v) => sum + v, 0) / vals.length : null;
+    }
 
     window.renderDashboard = function(sessions, meta = {}) {
       const sampledTotal = sessions.length;
@@ -1687,9 +1699,12 @@
       if (h1) h1.title = h1.innerText;
 
       // ===== 雷达 =====
-      document.getElementById('radar-total').textContent = ruleScoreCount ? Math.round(avgRuleScore) : '—';
-      document.getElementById('radar-total').style.color = ruleScoreCount ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
-      renderRuleRadarScope(total, analyzedTotal, pendingCount);
+      const displayRuleScore = averageRadarScore(displayRadar) ?? avgRuleScore;
+      document.getElementById('radar-total').textContent = displayRuleScore == null ? '—' : Math.round(displayRuleScore);
+      document.getElementById('radar-total').style.color = displayRuleScore == null ? 'var(--text-tertiary)' : scoreColor(displayRuleScore);
+      if (typeof window.renderDashboardRadarScope === 'function') {
+        window.renderDashboardRadarScope(total, analyzedTotal, pendingCount);
+      }
       renderRadar(displayRadar, { pendingCount });
 
       // ===== 核心指标 =====
@@ -1702,8 +1717,8 @@
       }
       const ruleEl = document.getElementById('kpi-rule-score');
       if (ruleEl) {
-        ruleEl.textContent = ruleScoreCount ? Math.round(avgRuleScore) : '—';
-        ruleEl.style.color = ruleScoreCount ? scoreColor(avgRuleScore) : 'var(--text-tertiary)';
+        ruleEl.textContent = displayRuleScore == null ? '—' : Math.round(displayRuleScore);
+        ruleEl.style.color = displayRuleScore == null ? 'var(--text-tertiary)' : scoreColor(displayRuleScore);
       }
       const llmEl = document.getElementById('kpi-llm-score');
       if (llmEl) {
@@ -1755,7 +1770,7 @@
     };
 
     try {
-      const savedRange = localStorage.getItem('agenttrace.range') || '30d';
+      const savedRange = localStorage.getItem('agenttrace.range') || '24h';
       await window.applyRange(savedRange);
       hideGlobalLoader();
     } catch (e) {

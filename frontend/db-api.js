@@ -43,15 +43,15 @@
     if (manual) return uniq([manual]);
     const saved = isLocalEnv() ? localStorage.getItem('agenttrace.apiBase') : null;
     const origin = window.location.origin;
-    const originPort = window.location.port;
-    const originLooksLikeApi = !isLocalEnv() || originPort === '18080';
     const fallbacks = [];
     if (isLocalEnv()) {
       if (origin !== 'http://127.0.0.1:18080') fallbacks.push('http://127.0.0.1:18080');
       if (origin !== 'http://localhost:18080') fallbacks.push('http://localhost:18080');
       fallbacks.push('https://agentic-aidp.bytedance.net/trace_sever');
     }
-    return uniq([saved, originLooksLikeApi ? origin : null, ...fallbacks]);
+    // 本地预览页如果由 19100/19103 这类端口直接承载前后端，同源 /api 必须优先尝试；
+    // 失败后再回退到 18080 / 线上网关，避免页面误把“本地一体服务”当成纯静态页。
+    return uniq([saved, origin, ...fallbacks]);
   }
 
   // 基础 path：取当前页面所在目录，用于把 "/api/..." 拼到正确的网关前缀下
