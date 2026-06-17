@@ -1044,7 +1044,7 @@ func bundlePagination(c *gin.Context) (limit, offset int) {
 // 用于 TOS 模式列表页：默认 50 条更适合按更新时间倒序浏览。
 func bundlePaginationDefault(c *gin.Context, defaultLimit int) (limit, offset int) {
 	limit = defaultLimit
-	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 2000 {
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 5000 {
 		limit = v
 	}
 	if v, err := strconv.Atoi(c.Query("offset")); err == nil && v >= 0 {

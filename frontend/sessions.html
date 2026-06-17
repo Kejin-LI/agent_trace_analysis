@@ -372,7 +372,7 @@
         共 <span class="font-medium text-[--text-primary] num-mono" id="total-count">--</span> 个 session，按时间由近到远排序，便于查看最新记录。
       </p>
       <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">
-        ⚠️ 数据量较大，当前仅分析最新的 2000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。
+        ⚠️ 数据量较大，当前仅分析最新的 5000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。
       </p>
     </div>
   </section>
@@ -503,7 +503,7 @@
 
 </main>
 
-<script src="./db-api.js?v=20260616-fix-score-cache"></script>
+<script src="./db-api.js?v=20260617-fast-load-5000"></script>
 <script src="./range-picker.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
@@ -678,6 +678,12 @@
         : ruleScore;
     }
 
+    function hasVisibleAnomaly(meta) {
+      if (!meta) return false;
+      const hasTags = !!(meta.anomaly && Array.isArray(meta.anomaly.list) && meta.anomaly.list.length);
+      return hasTags || (meta.score !== null && !meta.isHealthy);
+    }
+
     // ----- 状态 -----
     const PAGE_SIZE = 20;
     const state = {
@@ -705,7 +711,7 @@
     let tooltipReady = false;
     let loadSeq = 0;
     const SESSIONS_CACHE_TTL_MS = 2 * 60 * 1000;
-    const SESSIONS_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v1:';
+    const SESSIONS_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v2:';
     const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
     const sessionsRangeCache = new Map();
 
@@ -823,6 +829,10 @@
       state.all = [];
       state.filteredCacheKey = '';
       state.filteredCacheList = [];
+      state.stats = { total: 0, anomaly: 0, healthy: 0 };
+      state.anomalyCounts = new Map();
+      setStatusCountPlaceholders();
+      buildDynamicDropdowns();
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-[12px] text-[--text-tertiary]">正在加载当前日期范围的 session...</td></tr>`;
       }
@@ -842,6 +852,7 @@
       if (totalCountEl) totalCountEl.textContent = '—';
       if (pgInfo) pgInfo.textContent = '加载失败';
       if (pgPages) pgPages.innerHTML = '';
+      setStatusCountPlaceholders();
     }
 
     function applySessionsPayload(d) {
@@ -852,7 +863,7 @@
       state.filteredCacheList = [];
       precomputeSessionMeta();
       const capHintEl = document.getElementById('cap-hint');
-      if (capHintEl) capHintEl.classList.toggle('hidden', state.all.length < 2000);
+      if (capHintEl) capHintEl.classList.toggle('hidden', state.all.length < 5000);
       buildDynamicDropdowns();
       if (!tooltipReady) {
         setupCellTooltip();
@@ -930,9 +941,10 @@
       state.all.forEach(s => {
         total++;
         const meta = getSessionMeta(s);
-        if (meta.score !== null) {
-          if (meta.isHealthy) healthy++;
-          else anomaly++;
+        if (hasVisibleAnomaly(meta)) {
+          anomaly++;
+        } else if (meta.score !== null && meta.isHealthy) {
+          healthy++;
         }
         if (meta.anomaly) {
           meta.anomaly.list.forEach(it => {
@@ -1055,10 +1067,10 @@
         // 是否「健康」：以健康度档位（≥85，绿色）为口径，与列表行/筛选 tab 视觉颜色一致；
         // 用规则全通过来判健康会过于严格——多数 session 都至少触发 1 条软规则（如执行步数）但分数仍 90+。
         const isHealthy = meta.isHealthy;
-        const isPendingScore = score === null;
+        const hasAnomaly = hasVisibleAnomaly(meta);
         // 状态分段
-        if (f.status === 'anomaly' && (isHealthy || isPendingScore)) return false;
-        if (f.status === 'healthy' && !isHealthy) return false;
+        if (f.status === 'anomaly' && !hasAnomaly) return false;
+        if (f.status === 'healthy' && (!isHealthy || hasAnomaly)) return false;
         // 异常类型
         if (f.anomalyType !== 'all') {
           if (!ano) return false;
@@ -1190,6 +1202,13 @@
     }
 
     // ----- 状态分段 count -----
+    function setStatusCountPlaceholders() {
+      if (!statusSeg) return;
+      statusSeg.querySelector('[data-count="all"]').textContent = '—';
+      statusSeg.querySelector('[data-count="anomaly"]').textContent = '—';
+      statusSeg.querySelector('[data-count="healthy"]').textContent = '—';
+    }
+
     function refreshStatusCount() {
       const { total, anomaly, healthy } = state.stats;
       statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();

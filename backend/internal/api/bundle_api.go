@@ -73,15 +73,39 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 
 	tr := timeRangeFromQuery(c)
 	cookie := h.effectiveCookie(c)
-	if trimmed := strings.TrimSpace(cookie); trimmed == "" {
-		log.Printf("bundle list: missing cookie path=%s range=%s~%s", c.Request.URL.Path, tr.StartTime, tr.EndTime)
-	} else {
-		log.Printf("bundle list: cookie received len=%d path=%s range=%s~%s", len(trimmed), c.Request.URL.Path, tr.StartTime, tr.EndTime)
-	}
 	uid := c.Query("user_id")
 	uname := c.Query("user_name")
 	sid := c.Query("session_id")
 	aid := c.Query("artifact_id")
+	respondWithCachedAggregates := func(reason string) bool {
+		bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset)
+		if err != nil {
+			fail(c, fmt.Errorf("list cached session bundles: %w", err))
+			return true
+		}
+		if !ok {
+			return false
+		}
+		log.Printf("bundle list: fallback to cached aggregates reason=%s rows=%d total=%d range=%s~%s", reason, len(bundles), total, tr.StartTime, tr.EndTime)
+		bundles = h.applyQualityEvaluations(bundles)
+		c.JSON(http.StatusOK, gin.H{
+			"data":   bundles,
+			"limit":  limit,
+			"offset": offset,
+			"total":  total,
+			"source": "cached_aggregates",
+		})
+		return true
+	}
+
+	if trimmed := strings.TrimSpace(cookie); trimmed == "" {
+		log.Printf("bundle list: missing cookie path=%s range=%s~%s", c.Request.URL.Path, tr.StartTime, tr.EndTime)
+		if respondWithCachedAggregates("missing_cookie") {
+			return
+		}
+	} else {
+		log.Printf("bundle list: cookie received len=%d path=%s range=%s~%s", len(trimmed), c.Request.URL.Path, tr.StartTime, tr.EndTime)
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -181,6 +205,9 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
 		})
 		if err != nil {
+			if isUpstreamAuthMissing(err) && respondWithCachedAggregates("upstream_auth_missing") {
+				return
+			}
 			fail(c, fmt.Errorf("upstream list %s: %w", attempt.status, err))
 			return
 		}
@@ -413,7 +440,7 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 		return nil, 0, false, err
 	}
 	if total == 0 {
-		return nil, 0, false, nil
+		return nil, 0, true, nil
 	}
 	var rows []model.APISessionAggregate
 	if err := q.

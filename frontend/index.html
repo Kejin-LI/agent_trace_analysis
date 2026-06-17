@@ -540,7 +540,62 @@
           </g>
         </svg>
       </div>
-      <div class="grid grid-cols-6 gap-2 mt-3 text-[11px] min-h-[36px]" id="llm-dim-grid"></div>
+      <div class="grid grid-cols-6 gap-2 mt-3 text-[11px] min-h-[36px]" id="llm-dim-grid">
+        <div class="text-center help" style="flex-direction:column">
+          <div class="text-[--text-secondary]">问题解决</div>
+          <div class="font-semibold num-mono" id="llm-dim-resolved">—</div>
+          <div class="tip">
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>问题解决：核心问题是否真正闭环</div>
+            看用户要办的事是否实际完成；如果只是声称完成但缺少会话证据，仍会扣分。
+            <div class="tip-formula">权重 30% · 已解决更高，部分解决/未解决按程度扣分</div>
+          </div>
+        </div>
+        <div class="text-center help" style="flex-direction:column">
+          <div class="text-[--text-secondary]">意图匹配</div>
+          <div class="font-semibold num-mono" id="llm-dim-intent_match">—</div>
+          <div class="tip">
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>意图匹配：回答是否对准真实诉求</div>
+            重点判断回答是否偏离用户原始目标和最新追问，避免答非所问或只解决了旁支问题。
+            <div class="tip-formula">权重 18% · 完全匹配更高，部分偏离/明显答非所问扣分</div>
+          </div>
+        </div>
+        <div class="text-center help" style="flex-direction:column">
+          <div class="text-[--text-secondary]">效率体感</div>
+          <div class="font-semibold num-mono" id="llm-dim-efficiency_feel">—</div>
+          <div class="tip">
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>效率体感：相对任务难度是否拖沓</div>
+            从语义上判断用户感知效率，包含无效往返、绕路步骤、等待解释过多等体验问题。
+            <div class="tip-formula">权重 15% · 高效更高，一般/偏低效按程度扣分</div>
+          </div>
+        </div>
+        <div class="text-center help" style="flex-direction:column">
+          <div class="text-[--text-secondary]">用户情绪</div>
+          <div class="font-semibold num-mono" id="llm-dim-sentiment">—</div>
+          <div class="tip">
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>用户情绪：用户是否出现负向反馈</div>
+            只看用户表达的情绪信号，不因为“问题没解决”重复扣分。
+            <div class="tip-formula">权重 15% · 正向/中性更高，负向/强负向扣分</div>
+          </div>
+        </div>
+        <div class="text-center help" style="flex-direction:column">
+          <div class="text-[--text-secondary]">可执行性</div>
+          <div class="font-semibold num-mono" id="llm-dim-actionability">—</div>
+          <div class="tip">
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>可执行性：建议能不能直接照着做</div>
+            优先看是否给出具体步骤、命令、文件位置、验证方式或明确下一步。
+            <div class="tip-formula">权重 12% · 可直接执行更高，空泛不可执行扣分</div>
+          </div>
+        </div>
+        <div class="text-center help" style="flex-direction:column">
+          <div class="text-[--text-secondary]">幻觉风险</div>
+          <div class="font-semibold num-mono" id="llm-dim-hallucination_risk">—</div>
+          <div class="tip">
+            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>幻觉风险：是否凭空编造事实或结论</div>
+            只判断事实、API、引用、结论是否缺少依据，不重复处理“完成声明无证据”。
+            <div class="tip-formula">权重 10% · 风险低更高，中/高风险扣分</div>
+          </div>
+        </div>
+      </div>
     </div>
 
   </section>
@@ -751,6 +806,15 @@
       container.innerHTML = `基于全量 <span class="num-mono" id="radar-n">${totalN}</span> 个 session 分析`;
     }
 
+    function previewScoreColor(score) {
+      const n = Number(score);
+      if (!Number.isFinite(n)) return 'var(--text-tertiary)';
+      if (n >= 85) return 'var(--text-primary)';
+      if (n >= 70) return 'var(--apple-orange)';
+      if (n >= 50) return 'var(--apple-purple)';
+      return 'var(--apple-red)';
+    }
+
     function renderSummaryPreview(summary, opts = {}) {
       if (!summary) return;
       const label = opts.label || '';
@@ -789,7 +853,7 @@
       const radarTotalEl = document.getElementById('radar-total');
       if (radarTotalEl) {
         radarTotalEl.textContent = radarAvg == null ? (pendingCount > 0 ? '计算中...' : '—') : Math.round(radarAvg);
-        radarTotalEl.style.color = radarAvg == null ? 'var(--text-tertiary)' : scoreColor(radarAvg);
+        radarTotalEl.style.color = previewScoreColor(radarAvg);
       }
       renderRuleRadarScope(total, analyzedTotal, pendingCount);
       renderRadar(displayRadar, { pendingCount });
@@ -798,12 +862,12 @@
       const combinedEl = document.getElementById('kpi-combined-score');
       if (combinedEl) {
         combinedEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : (pendingCount > 0 ? '计算中...' : '—');
-        combinedEl.style.color = hasDisplayAvgScore ? scoreColor(avgScore) : 'var(--text-tertiary)';
+        combinedEl.style.color = hasDisplayAvgScore ? previewScoreColor(avgScore) : 'var(--text-tertiary)';
       }
       const ruleEl = document.getElementById('kpi-rule-score');
       if (ruleEl) {
         ruleEl.textContent = radarAvg == null ? (pendingCount > 0 ? '计算中...' : '—') : Math.round(radarAvg);
-        ruleEl.style.color = radarAvg == null ? 'var(--text-tertiary)' : scoreColor(radarAvg);
+        ruleEl.style.color = previewScoreColor(radarAvg);
       }
     }
 
@@ -851,8 +915,8 @@
         ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
         : Promise.resolve(null);
       const anomalyPromise = window.AgentTraceDB.loadTopAnomalySessions
-        ? window.AgentTraceDB.loadTopAnomalySessions(query).catch(() => window.AgentTraceDB.loadSessions(query))
-        : window.AgentTraceDB.loadSessions(query);
+        ? window.AgentTraceDB.loadTopAnomalySessions(query).catch(() => window.AgentTraceDB.loadSessions(Object.assign({}, query, { limit: 10 })))
+        : window.AgentTraceDB.loadSessions(Object.assign({}, query, { limit: 10 }));
       const summary = await summaryPromise;
       if (seq === applySeq && summary) {
         window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, { summary });
@@ -866,9 +930,7 @@
         throw err;
       }
       if (seq !== applySeq) return;
-      const sessions = payload.topAnomalyOnly
-        ? await hydrateTopAnomalySessions(payload.sessions || [], query)
-        : (payload.sessions || []);
+      const sessions = payload.sessions || [];
       if (seq !== applySeq) return;
       window.dashboardData = sessions.slice().sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
       window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, {
@@ -956,7 +1018,7 @@
 
 <script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
 <script src="./tag-system.js?v=20260616-fix-score-cache"></script>
-<script src="./db-api.js?v=20260616-fix-score-cache"></script>
+<script src="./db-api.js?v=20260617-fast-load-5000"></script>
 <script>
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
@@ -1072,21 +1134,16 @@
       const areaEl = document.getElementById('llm-radar-area');
       if (areaEl) areaEl.setAttribute('points', pts.join(' '));
       if (!grid) return;
-      grid.innerHTML = LLM_DIMENSIONS.map(dim => {
+      LLM_DIMENSIONS.forEach(dim => {
         const v = llmCount ? avgDims[dim.key] : null;
-        const text = v == null ? '--' : Math.round(v);
+        const text = v == null ? '—' : Math.round(v);
         const color = v == null ? 'var(--text-tertiary)' : scoreColor(v);
-        return `<div class="text-center help" style="display:flex;flex-direction:column;cursor:help">
-          <div class="text-[--text-secondary]">${dim.label}</div>
-          <div class="font-semibold num-mono" style="color:${color}">${text}</div>
-          <div class="tip" style="width:280px">
-            <div class="tip-title"><span class="inline-block w-2.5 h-2.5 rounded-full bg-[--apple-purple] mr-1.5 align-middle"></span>${dim.label} · ${dim.desc}</div>
-            <div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">平均得分 <b style="color:${color}">${text}${v == null ? '' : ' 分'}</b></div>
-            <div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">仅统计已完成 GPT-5.5 评估的 session。</div>
-            <div class="tip-formula">${dim.formula}</div>
-          </div>
-        </div>`;
-      }).join('');
+        const el = document.getElementById(`llm-dim-${dim.key}`);
+        if (el) {
+          el.textContent = text;
+          el.style.color = color;
+        }
+      });
     }
 
     function buildScoreTipHtml(q) {
