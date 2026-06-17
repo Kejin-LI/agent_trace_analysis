@@ -237,11 +237,10 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	})
 }
 
-// getSessionBundleAPI 详情页：按 session_id / artifact_id 命中上游某条记录，
-// 实时拉取 file_list[0] 的 JSONL 解析后返回完整 bundle。
+// getSessionBundleAPI 详情页：优先按 session_id / artifact_id 直查本地 stg_session_sources 索引，
+// 命中时实时拉取 obj_url JSONL；未命中时再回退到上游列表扫描。
 //
-// 由于上游接口不支持按 ID 直查，这里用同样的时间窗 + page_size 兜底拉一批，
-// 在内存里 match。前端正常使用时间窗很紧（详情页在列表的同一时段内），命中率足够。
+// 由于上游接口不支持按 ID 直查，回退路径仍使用时间窗 + page_size 拉一批再内存匹配。
 // 当 DB-backed aggregator 已启用时，会在成功解析后顺手把这条 session 写入聚合表。
 func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if h.upstream == nil {
@@ -271,6 +270,29 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusNoContent, nil)
+		return
+	}
+
+	if indexedBundle, indexedSrc, ok, err := h.getIndexedSessionBundle(key, status); err != nil {
+		log.Printf("session detail indexed lookup failed key=%s err=%v", key, err)
+	} else if ok {
+		if hasCached {
+			indexedBundle = mergeBundleWithCachedBundle(indexedBundle, cachedBundle)
+			indexedBundle.ArtifactPublicationStatus = status
+		}
+		if h.aggregator != nil {
+			go func(src model.StgSessionSource, bundle apiSessionBundle) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("session detail indexed persist panic session=%s: %v", src.SessionID, r)
+					}
+				}()
+				if err := h.aggregator.PersistBundle(src, bundle); err != nil {
+					log.Printf("session detail indexed persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
+				}
+			}(indexedSrc, indexedBundle)
+		}
+		c.JSON(http.StatusOK, h.applyQualityEvaluation(indexedBundle))
 		return
 	}
 
@@ -518,6 +540,40 @@ func (h *Handler) getCachedSessionBundle(key, statusHint string) (apiSessionBund
 		bundle.Trace = realTraceID
 	}
 	return bundle, true, nil
+}
+
+func (h *Handler) getIndexedSessionBundle(key, statusHint string) (apiSessionBundle, model.StgSessionSource, bool, error) {
+	if h == nil || h.db == nil || h.fetcher == nil || key == "" {
+		return apiSessionBundle{}, model.StgSessionSource{}, false, nil
+	}
+	var src model.StgSessionSource
+	err := h.db.
+		Where("session_id = ? OR artifact_id = ?", key, key).
+		Order("source_updated_at DESC, id DESC").
+		First(&src).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apiSessionBundle{}, model.StgSessionSource{}, false, nil
+		}
+		return apiSessionBundle{}, model.StgSessionSource{}, false, err
+	}
+	if src.ObjFormat != "jsonl" || src.ObjURL == "" {
+		return apiSessionBundle{}, src, false, fmt.Errorf("indexed source invalid obj_format=%s obj_url_empty=%t", src.ObjFormat, src.ObjURL == "")
+	}
+	pr, err := h.fetcher.FetchAndParse(src.ObjURL)
+	if err != nil {
+		return apiSessionBundle{}, src, false, fmt.Errorf("fetch indexed jsonl: %w", err)
+	}
+	bundle := buildBundleFromTOS(src, pr)
+	if statusHint != "" {
+		bundle.ArtifactPublicationStatus = statusHint
+	}
+	if realTraceID, err := h.lookupRealTraceID(bundle.SessionID, bundle.ArtifactID); err != nil {
+		log.Printf("session detail indexed real trace lookup failed session=%s artifact=%s err=%v", bundle.SessionID, bundle.ArtifactID, err)
+	} else if realTraceID != "" {
+		bundle.Trace = realTraceID
+	}
+	return bundle, src, true, nil
 }
 
 func (h *Handler) lookupRealTraceID(sessionID, artifactID string) (string, error) {

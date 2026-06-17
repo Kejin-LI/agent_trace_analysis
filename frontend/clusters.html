@@ -311,7 +311,7 @@
     </div>
   </section>
 
-  <!-- 概览 2 卡 · 全部基于真实 sessions.json -->
+  <!-- 概览 2 卡 · 基于接口实时返回的 session 标签 -->
   <section class="grid grid-cols-2 gap-4">
     <div class="glass rounded-2xl p-4">
       <div class="text-[11px] text-[--text-tertiary]">
@@ -357,8 +357,8 @@
 <script src="./db-api.js?v=20260617-local-origin-fix"></script>
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
- * 数据源：./data/sessions.json（与大盘 / 明细共用）
- * 口径：先按大盘同口径筛选异常 session（综合健康度非绿色），再按异常标签分组
+ * 数据源：接口实时返回的 session 列表（与大盘 / 明细共用）
+ * 口径：仅统计命中规则 / GPT 问题标签的 session；低分但无标签不进入异常页
  * 每张卡 = 一类异常标签，hits = 命中该标签的异常 session 数
  */
 
@@ -456,32 +456,6 @@ function getClusterQualityScores(session) {
   return { combinedScore };
 }
 
-function dashboardAnomalyScore(session) {
-  const raw = Number(getClusterQualityScores(session)?.combinedScore);
-  if (!Number.isFinite(raw)) return null;
-  return Math.max(0, Math.min(100, Math.round(raw)));
-}
-
-function isDashboardAnomalySession(session) {
-  const score = dashboardAnomalyScore(session);
-  return score !== null && scoreBand(score) !== 'green';
-}
-
-function fallbackDashboardAnomalyTag(session) {
-  const score = dashboardAnomalyScore(session);
-  if (score === null) return null;
-  const band = scoreBand(score);
-  const label = score < 50 ? '严重风险'
-    : score < 70 ? '亚健康'
-    : '健康度偏低';
-  return {
-    label,
-    detail: `综合健康度 ${score} 分`,
-    color: band,
-    source: 'system',
-  };
-}
-
 function anomalyExplanation(label, source, dimension) {
   const text = String(label || '').trim();
   const rules = [
@@ -557,13 +531,10 @@ function buildAnomalies(s) {
 }
 
 function buildClusterTags(s) {
-  const tags = buildAnomalies(s);
-  if (tags.length) return tags;
-  const fallback = fallbackDashboardAnomalyTag(s);
-  return fallback ? [fallback] : [];
+  return buildAnomalies(s);
 }
 
-/* 聚合：先使用大盘异常 Session 口径，再按 label + source 拆开。 */
+/* 聚合：仅按规则 / GPT 问题标签拆分，不用健康分兜底造标签。 */
 function buildClusters(sessions) {
   const map = new Map();
   sessions.forEach(s => {
@@ -651,26 +622,37 @@ function pad(n) { return n < 10 ? '0' + n : '' + n; }
 function weekdayCN(n) { return '日一二三四五六'[n]; }
 
 /* 把 cluster.sessions 投到桶上（每个 session 落到 started_at_ms 所在桶） */
-function genSeries(cluster, buckets) {
+function genSeriesStats(cluster, buckets) {
   const counts = new Array(buckets.length).fill(0);
+  let unknownTime = 0;
   cluster.sessions.forEach(s => {
     const t = s.started_at_ms || 0;
+    let matched = false;
     for (let i = 0; i < buckets.length; i++) {
       const b = buckets[i];
-      if (t >= b.ts && t < b.ts + b.span) { counts[i]++; break; }
+      if (t >= b.ts && t < b.ts + b.span) { counts[i]++; matched = true; break; }
     }
+    if (!matched) unknownTime++;
   });
-  return counts;
+  const inWindow = counts.reduce((a, b) => a + b, 0);
+  const series = counts.slice();
+  const displayBuckets = buckets.slice();
+  if (unknownTime > 0) {
+    series.push(unknownTime);
+    displayBuckets.push({ ts: 0, label: '未知时间', span: 0, unknown: true });
+  }
+  return { series, buckets: displayBuckets, inWindow, unknownTime, total: inWindow + unknownTime };
 }
 
 /* ============== 渲染单张卡片 ============== */
 function renderCard(cluster, buckets) {
   const accent = cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue');
   const accentColor = COLOR[accent] || COLOR.blue;
-  const series = genSeries(cluster, buckets);
+  const seriesStats = genSeriesStats(cluster, buckets);
   const total = cluster.sessions.length;
-  const rangeLabel = ({'24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天'})[STATE.range];
-  const inWindow = series.reduce((a, b) => a + b, 0);
+  const inWindow = seriesStats.inWindow;
+  const unknownTime = seriesStats.unknownTime;
+  const seriesTotal = seriesStats.total;
   const previewSessions = cluster.sessions.slice(0, 3);
   const tooltipHtml = issueTooltipHtml(cluster);
 
@@ -692,7 +674,7 @@ function renderCard(cluster, buckets) {
       </div>
       <div class="text-[11.5px] text-[--text-tertiary] mb-3">
         平均健康度 <span class="num-mono font-semibold text-[--apple-${cluster.severity}]">${Math.round(cluster.avgScore)}</span>
-        ${inWindow !== total ? `· 窗口内 <span class="num-mono">${inWindow}</span>` : ''}
+        ${unknownTime > 0 ? `· 趋势合计 <span class="num-mono">${seriesTotal}</span>/<span class="num-mono">${total}</span> · 未知时间 <span class="num-mono">${unknownTime}</span>` : ''}
       </div>
       <div class="spark-wrap mb-3" style="color:${accentColor};">
         <svg class="spark w-full h-10" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>
@@ -820,19 +802,15 @@ let ALL_SESSIONS = [];
 
 function render() {
   const grid = document.getElementById('clusterGrid');
-  const effective = ALL_SESSIONS.filter(isDashboardAnomalySession);
+  const effective = ALL_SESSIONS.filter(s => buildClusterTags(s).length > 0);
   const buckets = genBuckets(STATE.range, effective.length ? effective : ALL_SESSIONS);
 
   // 概览
   const clusters = buildClusters(effective);
-  const summaryAnomaly = STATE.summary?.anomaly_count;
   const affectedCount = countAffectedSessionsFromClusters(clusters);
-  const totalCount = summaryAnomaly === null || summaryAnomaly === undefined
-    ? affectedCount
-    : Number(summaryAnomaly || 0);
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
-  document.getElementById('ovw-total').textContent = totalCount;
+  document.getElementById('ovw-total').textContent = affectedCount;
   // 卡片
   if (!clusters.length) {
     grid.innerHTML = renderGlobalEmpty();
@@ -848,8 +826,8 @@ function render() {
   bindHelpTooltips(grid);
   grid.querySelectorAll('[data-cluster]').forEach((card, i) => {
     const cluster = clusters[i];
-    const series = genSeries(cluster, buckets);
-    drawSpark(card, series, buckets, COLOR[cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue')] || COLOR.blue);
+    const seriesStats = genSeriesStats(cluster, buckets);
+    drawSpark(card, seriesStats.series, seriesStats.buckets, COLOR[cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue')] || COLOR.blue);
   });
 }
 

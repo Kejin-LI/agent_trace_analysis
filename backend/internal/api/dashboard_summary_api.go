@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -175,9 +174,9 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 		if q.CombinedScore != nil {
 			score := float64(*q.CombinedScore)
 			scores = append(scores, score)
-			if dashboardScoreBand(*q.CombinedScore) != "green" {
-				anomalyCount++
-			}
+		}
+		if dashboardBundleHasIssueTag(bundle) {
+			anomalyCount++
 		}
 		if q.LLMScore != nil {
 			summary.LLMEvaluatedCount++
@@ -293,12 +292,8 @@ func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit 
 	}
 	bundles = h.applyQualityEvaluations(bundles)
 	candidates := make([]apiSessionBundle, 0, len(bundles))
-	for i, bundle := range bundles {
-		abnormalLevel := 0
-		if i < len(rows) {
-			abnormalLevel = rows[i].AbnormalLevel
-		}
-		if dashboardBundleHasAnomaly(bundle, abnormalLevel) && getDashboardQualityScores(bundle).CombinedScore != nil {
+	for _, bundle := range bundles {
+		if dashboardBundleHasAnomaly(bundle) {
 			candidates = append(candidates, bundle)
 		}
 	}
@@ -324,21 +319,46 @@ func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit 
 	return candidates, total, nil
 }
 
-func dashboardBundleHasAnomaly(bundle apiSessionBundle, abnormalLevel int) bool {
-	if abnormalLevel > 0 {
-		return true
-	}
+func dashboardBundleHasAnomaly(bundle apiSessionBundle) bool {
+	return dashboardBundleHasIssueTag(bundle)
+}
+
+func dashboardBundleHasIssueTag(bundle apiSessionBundle) bool {
 	for _, rule := range bundle.Rules {
 		if !rule.Passed {
 			return true
 		}
 	}
-	chip := strings.TrimSpace(bundle.Chip)
-	if chip != "" && chip != "健康" {
+	return dashboardBundleHasLLMIssueTag(bundle)
+}
+
+func dashboardBundleHasLLMIssueTag(bundle apiSessionBundle) bool {
+	if !hasDashboardLLMScoreEvidence(bundle) {
+		return false
+	}
+	if optionalScoreBelow(bundle.LLMResolvedScore, 70) {
 		return true
 	}
-	q := getDashboardQualityScores(bundle)
-	return q.CombinedScore != nil && dashboardScoreBand(*q.CombinedScore) != "green"
+	if optionalScoreBelow(bundle.LLMIntentMatchScore, 70) {
+		return true
+	}
+	if optionalScoreBelow(bundle.LLMSentimentScore, 60) {
+		return true
+	}
+	if optionalScoreBelow(bundle.LLMEfficiencyFeelScore, 70) {
+		return true
+	}
+	if optionalScoreBelow(bundle.LLMActionabilityScore, 70) {
+		return true
+	}
+	if optionalScoreBelow(bundle.LLMHallucinationRiskScore, 70) {
+		return true
+	}
+	return false
+}
+
+func optionalScoreBelow(score *int, threshold int) bool {
+	return score != nil && *score < threshold
 }
 
 func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionBundle, error) {
@@ -427,7 +447,7 @@ func (h *Handler) topAnomalySessionsFromRealtime(c *gin.Context, tr modellog.Tim
 	bundles = h.applyQualityEvaluations(bundles)
 	candidates := make([]apiSessionBundle, 0, len(bundles))
 	for _, bundle := range bundles {
-		if dashboardBundleHasAnomaly(bundle, 0) && getDashboardQualityScores(bundle).CombinedScore != nil {
+		if dashboardBundleHasAnomaly(bundle) {
 			candidates = append(candidates, bundle)
 		}
 	}
@@ -510,9 +530,9 @@ func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
 		if q.CombinedScore != nil {
 			score := float64(*q.CombinedScore)
 			scores = append(scores, score)
-			if dashboardScoreBand(*q.CombinedScore) != "green" {
-				anomalyCount++
-			}
+		}
+		if dashboardBundleHasIssueTag(bundle) {
+			anomalyCount++
 		}
 		if q.LLMScore != nil {
 			summary.LLMEvaluatedCount++
