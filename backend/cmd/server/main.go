@@ -37,8 +37,14 @@ var frontendDir string
 func main() {
 	frontendDir = findFrontendDir()
 
-	// 初始化 TCC 客户端：AI 一键诊断需从 TCC 读取火山方舟（豆包2.0）加密配置。
-	secret.InitTCC()
+	// 本地调试真实 session 预览时，允许跳过 TCC 初始化，避免因内网依赖阻塞整个服务启动。
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("AGENTTRACE_SKIP_TCC")), "1") &&
+		!strings.EqualFold(strings.TrimSpace(os.Getenv("AGENTTRACE_SKIP_TCC")), "true") {
+		// 初始化 TCC 客户端：AI 一键诊断需从 TCC 读取火山方舟（豆包2.0）加密配置。
+		secret.InitTCC()
+	} else {
+		log.Printf("AGENTTRACE_SKIP_TCC enabled: skip TCC init for local preview")
+	}
 
 	r := gin.Default()
 

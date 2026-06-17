@@ -503,7 +503,7 @@
 
 </main>
 
-<script src="./db-api.js?v=20260617-fast-load-5000"></script>
+<script src="./db-api.js?v=20260617-local-origin-fix"></script>
 <script src="./range-picker.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
@@ -693,7 +693,7 @@
         anomalyType: 'all',     // all / failed_label
         score: 'all',           // all / green / orange / red
         keyword: '',            // 模糊搜索：session_id / 展示ID / trace_id / 标题 / 用户
-        range: localStorage.getItem('agenttrace.range') || '30d',
+        range: localStorage.getItem('agenttrace.range') || '24h',
         customFrom: parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null, // ms
         customTo: parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null,     // ms
       },
