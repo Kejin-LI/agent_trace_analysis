@@ -324,10 +324,13 @@
   }
 
   async function loadSessions(opts) {
-    const params = new URLSearchParams({ limit: '2000' });
+    const requestedLimit = Number(opts && opts.limit);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(5000, Math.round(requestedLimit)))
+      : 5000;
+    const params = new URLSearchParams({ limit: String(limit) });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
-    params.set('artifact_status', 'unpublished');
     const payload = await fetchJSON('/api/session-bundles?' + params.toString());
     const sessions = (payload?.data || []).map(normalizeSession);
     return {
