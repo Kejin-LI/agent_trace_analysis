@@ -30,6 +30,8 @@ type apiDashboardSummary struct {
 	PendingCount      int                      `json:"pending_count"`
 	AnomalyCount      int                      `json:"anomaly_count"`
 	LLMEvaluatedCount int                      `json:"llm_evaluated_count"`
+	P50DurationMs     int64                    `json:"p50_duration_ms,omitempty"`
+	P90DurationMs     int64                    `json:"p90_duration_ms,omitempty"`
 	AvgScore          *float64                 `json:"avg_score,omitempty"`
 	Radar             apiDashboardSummaryRadar `json:"radar"`
 }
@@ -157,6 +159,7 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 	summary.AnalyzedCount = len(bundles)
 	summary.Total = len(bundles)
 	scores := make([]float64, 0, len(bundles))
+	durations := make([]int64, 0, len(bundles))
 	var anomalyCount int
 	var totalResponse float64
 	var totalThinking float64
@@ -181,6 +184,9 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 		if q.LLMScore != nil {
 			summary.LLMEvaluatedCount++
 		}
+		if bundle.DurationMs > 0 {
+			durations = append(durations, bundle.DurationMs)
+		}
 		totalResponse += float64(bundle.Radar.Response)
 		responseCount++
 		totalThinking += float64(bundle.Radar.Thinking)
@@ -198,6 +204,11 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 	}
 
 	summary.AnomalyCount = anomalyCount
+	if len(durations) > 0 {
+		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		summary.P50DurationMs = percentile(durations, 0.50)
+		summary.P90DurationMs = percentile(durations, 0.90)
+	}
 	if len(scores) > 0 {
 		avgScore := round2(sumFloat64(scores) / float64(len(scores)))
 		summary.AvgScore = &avgScore
@@ -514,6 +525,7 @@ func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
 	}
 	summary.AnalyzedCount = len(bundles)
 	scores := make([]float64, 0, len(bundles))
+	durations := make([]int64, 0, len(bundles))
 	var anomalyCount int
 	var totalResponse float64
 	var totalThinking float64
@@ -537,6 +549,9 @@ func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
 		if q.LLMScore != nil {
 			summary.LLMEvaluatedCount++
 		}
+		if bundle.DurationMs > 0 {
+			durations = append(durations, bundle.DurationMs)
+		}
 		totalResponse += float64(bundle.Radar.Response)
 		responseCount++
 		totalThinking += float64(bundle.Radar.Thinking)
@@ -553,6 +568,11 @@ func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
 		}
 	}
 	summary.AnomalyCount = anomalyCount
+	if len(durations) > 0 {
+		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		summary.P50DurationMs = percentile(durations, 0.50)
+		summary.P90DurationMs = percentile(durations, 0.90)
+	}
 	if len(scores) > 0 {
 		avgScore := round2(sumFloat64(scores) / float64(len(scores)))
 		summary.AvgScore = &avgScore

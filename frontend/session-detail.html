@@ -1630,10 +1630,24 @@
 
         <!-- L1. 基础信息条（身份信息：谁、什么时候、结果如何） -->
         <div class="glass rounded-xl px-4 py-3">
-          <div class="grid grid-cols-6 gap-x-4 text-[12px]">
-            <div class="min-w-0">
-              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">Session ID</div>
-              <div class="mono text-[12px] truncate" id="info-session-id">--</div>
+          <div class="grid grid-cols-7 gap-x-8 gap-y-3 text-[12px]">
+            <div class="col-span-2 min-w-0">
+              <div class="flex items-center gap-1.5 mb-0.5">
+                <div class="text-[10.5px] text-[--text-tertiary]">Session ID</div>
+                <button
+                  id="copy-session-id-btn"
+                  type="button"
+                  class="inline-flex items-center justify-center text-[--text-tertiary] hover:text-[--text-primary] transition-colors"
+                  onclick="copyToClipboard(this)"
+                  data-content=""
+                  title="复制 Session ID">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 15H6a2 2 0 01-2-2V6a2 2 0 012-2h7a2 2 0 012 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+              <div class="mono text-[12px] leading-4 break-all" id="info-session-id">--</div>
             </div>
             <div class="col-span-2 min-w-0">
               <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">Trace ID</div>
@@ -1648,7 +1662,7 @@
               <div class="mono text-[12px]" id="info-start">--</div>
             </div>
             <div id="info-status-cell" class="cursor-help" style="position:relative">
-              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">会话状态</div>
+              <div class="text-[10.5px] text-[--text-tertiary] mb-0.5">发布状态</div>
               <div class="text-[12px]" id="info-status"><span class="text-[--text-tertiary]">--</span></div>
             </div>
           </div>
@@ -1661,7 +1675,7 @@
             <span class="text-[10.5px] text-[--text-tertiary]">·</span>
             <div class="text-[10.5px] text-[--text-tertiary]">本次会话的核心运行指标（hover 看判断口径）</div>
           </div>
-          <div class="grid grid-cols-5 gap-x-4" id="kpi-grid">
+          <div class="grid grid-cols-4 gap-x-4" id="kpi-grid">
             <div class="kpi-cell cursor-help" data-kpi="duration" style="position:relative">
               <div class="text-[10.5px] text-[--text-tertiary] mb-1">总耗时</div>
               <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-duration">--</div>
@@ -1681,11 +1695,6 @@
               <div class="text-[10.5px] text-[--text-tertiary] mb-1">Token 用量</div>
               <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-tokens">--</div>
               <div class="mt-1.5"><span class="kpi-badge" id="kpi-tokens-sub">--</span></div>
-            </div>
-            <div class="kpi-cell cursor-help" data-kpi="cost" style="position:relative">
-              <div class="text-[10.5px] text-[--text-tertiary] mb-1">总成本</div>
-              <div class="text-[20px] font-semibold num-mono leading-tight" id="kpi-cost">--</div>
-              <div class="mt-1.5"><span class="kpi-badge" id="kpi-cost-sub">--</span></div>
             </div>
           </div>
         </div>
@@ -3215,6 +3224,8 @@
         if (el) el.textContent = value;
       };
       setText0('info-session-id', idDisplay);
+      const copySessionIdBtn = document.getElementById('copy-session-id-btn');
+      if (copySessionIdBtn) copySessionIdBtn.setAttribute('data-content', idDisplay);
       const traceEl = document.getElementById('info-trace-id');
       if (traceEl) {
         traceEl.textContent = trace;
@@ -3286,6 +3297,11 @@
       return { data: null, error: loadError };
     }
 
+    function formatSummaryDateTime(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
     const params = new URLSearchParams(location.search);
     const id = params.get('id');
     const artifactStatus = params.get('artifact_status') || '';
@@ -3294,6 +3310,33 @@
     const idDisplay = String(id).replace(/\.json$/i, '');
     const detailSeed = readDetailSeed(id);
     if (detailSeed) renderSeedSession(detailSeed);
+
+    async function loadDurationBenchmark(real) {
+      if (!real || !window.AgentTraceDB || typeof window.AgentTraceDB.loadDashboardSummary !== 'function') return null;
+      let startTime = String(params.get('start_time') || '').trim();
+      let endTime = String(params.get('end_time') || '').trim();
+      if (!startTime || !endTime) {
+        const startedAtMs = Number(real.started_at_ms || 0);
+        if (!(startedAtMs > 0)) return null;
+        const startedAt = new Date(startedAtMs);
+        const dayStart = new Date(startedAt);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(startedAt);
+        dayEnd.setHours(23, 59, 59, 999);
+        startTime = formatSummaryDateTime(dayStart);
+        endTime = formatSummaryDateTime(dayEnd);
+      }
+      try {
+        const summary = await window.AgentTraceDB.loadDashboardSummary({ startTime, endTime });
+        const p50 = Number(summary?.p50_duration_ms || 0);
+        const p90 = Number(summary?.p90_duration_ms || 0);
+        if (!(p50 > 0) && !(p90 > 0)) return null;
+        return { p50_duration_ms: p50, p90_duration_ms: p90, start_time: startTime, end_time: endTime };
+      } catch (err) {
+        console.warn('loadDurationBenchmark failed', err);
+        return null;
+      }
+    }
 
     function actionSeverityMeta(severity) {
       if (severity === 'bad' || severity === 'high') return { label: '优先', c: '--apple-red' };
@@ -3424,6 +3467,8 @@
     // 元数据：基础信息条（顶部平铺）
     const setText0 = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     setText0('info-session-id', idDisplay);
+    const copySessionIdBtn = document.getElementById('copy-session-id-btn');
+    if (copySessionIdBtn) copySessionIdBtn.setAttribute('data-content', idDisplay);
     const traceEl = document.getElementById('info-trace-id');
     if (traceEl) { traceEl.textContent = s.trace || '-'; traceEl.title = s.trace === '-' ? '' : s.trace; }
     setText0('info-user', s.user || '--');
@@ -3929,21 +3974,34 @@
         issues.push({ severity: lv, tag: '指标', title, reason, actions });
       };
 
-      // 总耗时（按任务复杂度分桶：简单/中等/复杂任务阈值不同）
+      // 总耗时（仅按当前时间窗 P50 / P90 做客观分位描述，不推断任务复杂度）
       {
-        const taskType = efficiencyMetric.toolCalls < 3 ? '简单任务' : efficiencyMetric.toolCalls < 10 ? '中等任务' : '复杂任务';
-        const lv = durSec <= efficiencyMetric.bucket.full ? 'good' : durSec <= efficiencyMetric.bucket.floor ? 'warn' : 'bad';
-        const txt = lv === 'good' ? `${taskType} · 体感正常` : lv === 'warn' ? `${taskType} · 体感偏慢` : `${taskType} · 严重偏慢`;
-        const reason = `本次共耗时 ${durSec} 秒，工具调用 ${efficiencyMetric.toolCalls} 次，按${taskType}阈值评估：满分阈值 ${efficiencyMetric.bucket.full}s，触底阈值 ${efficiencyMetric.bucket.floor}s（仅作客观耗时参考，难度与耗时是否合理由 GPT 评估判断）`;
+        const durationBenchmark = s._real._durationBenchmark || null;
+        const p50Ms = Number(durationBenchmark?.p50_duration_ms || 0);
+        const p90Ms = Number(durationBenchmark?.p90_duration_ms || 0);
+        let lv = 'good';
+        let txt = '缺少 P50/P90 基线';
+        let reason = `本次总耗时 ${fmtDur(durSec)}。当前时间窗缺少可用的 P50 / P90 基线，因此仅展示原始耗时。`;
+        if (p90Ms > 0 || p50Ms > 0) {
+          const p50Label = p50Ms > 0 ? fmtDur(Math.round(p50Ms / 1000)) : '--';
+          const p90Label = p90Ms > 0 ? fmtDur(Math.round(p90Ms / 1000)) : '--';
+          if (p90Ms > 0 && s._real.duration_ms > p90Ms) {
+            lv = 'bad';
+            txt = '高于 P90';
+          } else if (p50Ms > 0 && s._real.duration_ms > p50Ms) {
+            lv = 'warn';
+            txt = p90Ms > 0 ? '介于 P50-P90' : '高于 P50';
+          } else {
+            lv = 'good';
+            txt = p50Ms > 0 ? '低于 P50' : '低于 P90';
+          }
+          reason = `本次总耗时 ${fmtDur(durSec)}；同时间窗基线为 P50 ${p50Label}、P90 ${p90Label}，当前位于 ${txt}。`;
+        }
         setKpi('duration', 'kpi-duration', 'kpi-duration-sub',
           fmtDur(durSec), txt, lv,
           '总耗时如何判断？',
-          '口径：按工具调用数分桶。简单任务 <3 次工具：30s 满分/90s 触底；中等任务 3-9 次：90s 满分/240s 触底；复杂任务 ≥10 次：240s 满分/600s 触底',
+          '口径：仅对比当前时间窗内 session 总耗时分位。低于 P50 = 低于中位；介于 P50-P90 = 高于中位但仍处于常见区间；高于 P90 = 进入长尾区间。',
           reason);
-        pushKpiIssue(lv, `总耗时 ${fmtDur(durSec)} · ${txt}`, reason, [
-          '打开「执行分析」Tab，定位耗时 Top 1 的 span',
-          efficiencyMetric.hits.length ? `同时检查结构低效信号：${efficiencyMetric.hits.map(h => h.label).join('、')}` : '若无结构低效信号，优先评估任务复杂度是否合理',
-        ]);
       }
 
       // 执行效率（轨迹级健康度：检测轨迹是否走完、有无空转/截断/无答复）
@@ -4033,26 +4091,6 @@
         ]);
       }
 
-      // 总成本（Fornax 暂未提供 cost 字段，按 Claude-3.5 Sonnet 单价估算：input $3/M, output $15/M）
-      const totalIn = (s._real.traces || []).reduce((sum, t) => sum + (Number(t.input_tokens)||0), 0);
-      const totalOut = (s._real.traces || []).reduce((sum, t) => sum + (Number(t.output_tokens)||0), 0);
-      const costUSD = (totalIn / 1e6) * 3 + (totalOut / 1e6) * 15;
-      const costStr = costUSD < 0.01 ? `$${costUSD.toFixed(4)}` : `$${costUSD.toFixed(2)}`;
-      {
-        const lv = costUSD <= 0.5 ? 'good' : costUSD <= 1.5 ? 'warn' : 'bad';
-        const txt = lv === 'good' ? '正常区间' : lv === 'warn' ? '偏高 · 关注预算' : '严重超支';
-        const reason = `输入 ${fmtTokens(totalIn)} × $3/M + 输出 ${fmtTokens(totalOut)} × $15/M = ${costStr}`;
-        setKpi('cost', 'kpi-cost', 'kpi-cost-sub',
-          costStr, txt, lv,
-          '总成本如何判断？',
-          '阈值：≤$0.5 良好 / $0.5–$1.5 警告 / >$1.5 严重（按 Claude-3.5 Sonnet 单价估算：input $3/M、output $15/M）',
-          reason);
-        pushKpiIssue(lv, `总成本 ${costStr} · ${txt}`, reason, [
-          '复核 Token 用量与执行步数，定位主要成本来源',
-          lv === 'bad' ? '评估能否切换更廉价的模型完成本类任务' : '设置预算告警，避免单 session 失控',
-        ]);
-      }
-
       // 质量评估下方的行动建议：规则信号先写入，GPT-5.5 完成后会刷新语义建议列。
       issues.sort((a, b) => (a.severity === 'bad' ? 0 : 1) - (b.severity === 'bad' ? 0 : 1));
       window.__ruleActionIssues = issues;
@@ -4060,35 +4098,24 @@
 
       updateCombinedHealth();
 
-      // 状态指示 → 写入顶部基础信息条
-      // 三态判定：
-      //   - 失败：trace 根 span 异常退出（has_root_fail）
-      //   - 部分失败：根 span 成功，但中间存在 model/tool span 失败（执行过程中出现错误，被框架内部捕获/重试后最终走通）
-      //   - 成功：所有 model/tool span 全部 status_code === 0
-      const isFail = f.has_root_fail;
-      const allSpansForStatus = (s._real.traces || []).flatMap(t => t.spans || []);
-      const failedModelSpans = allSpansForStatus.filter(sp => sp.span_type === 'model' && sp.status_code !== 0).length;
-      const failedToolSpans  = allSpansForStatus.filter(sp => sp.span_type === 'tool'  && sp.status_code !== 0).length;
-      const hasInnerFail = failedModelSpans + failedToolSpans > 0;
+      // 发布状态 → 写入顶部基础信息条。
+      // meta_only 阶段先占位，完整详情返回后再按后端实时判定结果渲染。
       const statusInfoEl = document.getElementById('info-status');
       const statusCellEl = document.getElementById('info-status-cell');
       if (statusInfoEl && statusCellEl) {
         let statusLabel, statusColor, tipTitle, tipDetail;
-        if (isFail) {
-          statusLabel = '失败'; statusColor = '--apple-red';
-          tipTitle = '会话状态如何判断？';
-          tipDetail = 'trace 根 span 异常退出，任务未能完成';
-        } else if (hasInnerFail) {
-          statusLabel = '部分失败'; statusColor = '--apple-orange';
-          const parts = [];
-          if (failedModelSpans) parts.push(`${failedModelSpans} 次模型调用失败`);
-          if (failedToolSpans)  parts.push(`${failedToolSpans} 次工具调用失败`);
-          tipTitle = '会话状态如何判断？';
-          tipDetail = `根 span 成功结束，但执行过程中存在 ${parts.join(' · ')}（被框架内部捕获 / 重试后最终走通）`;
+        if (stage !== 'full') {
+          statusLabel = '--'; statusColor = '--text-tertiary';
+          tipTitle = '发布状态如何判断？';
+          tipDetail = '完整详情加载后，会按上游发布池实时刷新该模板的发布状态。';
+        } else if (String(s._real.artifact_publication_status || '').toLowerCase() === 'unpublished') {
+          statusLabel = '未发布'; statusColor = '--apple-orange';
+          tipTitle = '发布状态如何判断？';
+          tipDetail = '当前会话命中上游 unpublished 模板池，因此判定为未发布。';
         } else {
-          statusLabel = '成功'; statusColor = '--apple-green';
-          tipTitle = '会话状态如何判断？';
-          tipDetail = '所有模型 / 工具调用均成功';
+          statusLabel = '已发布'; statusColor = '--apple-green';
+          tipTitle = '发布状态如何判断？';
+          tipDetail = '只有明确命中 unpublished 才显示未发布；其余情况统一按已发布展示。';
         }
         statusInfoEl.innerHTML = `<span class="text-[var(${statusColor})]">${statusLabel}</span>`;
         let tip = statusCellEl.querySelector(':scope > .tip');
@@ -4098,7 +4125,7 @@
           tip.style.width = '280px';
           statusCellEl.appendChild(tip);
         }
-        tip.innerHTML = `<span class="tip-title">${tipTitle}</span><div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">本次状态 <b style="color:var(${statusColor})">${statusLabel}</b></div><div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${tipDetail}</div><div class="tip-formula" style="margin-top:8px">口径：综合根 span 与中间所有 model / tool span 判定</div>`;
+        tip.innerHTML = `<span class="tip-title">${tipTitle}</span><div style="margin:4px 0 6px;color:rgba(255,255,255,0.85);font-size:11px">当前状态 <b style="color:var(${statusColor})">${statusLabel}</b></div><div style="color:rgba(255,255,255,0.7);font-size:10.5px;line-height:1.5">${tipDetail}</div><div class="tip-formula" style="margin-top:8px">口径：每次打开详情页时实时刷新；仅 unpublished 显示未发布，其余统一显示已发布</div>`;
         delete statusCellEl.dataset.tipBound;
         bindTooltip(statusCellEl);
       }
@@ -4296,6 +4323,7 @@
       const real = realResult.data;
       if (realResult.error) lastLoadError = realResult.error;
       if (real) {
+        real._durationBenchmark = await loadDurationBenchmark(real);
         renderSession(real, 'full');
       } else if (!metaRendered && canUseFallbackMock() && FALLBACK_MOCK[id]) {
         renderSession(null, 'full');

@@ -23,9 +23,70 @@ const (
 	artifactStatusUnpublished = "unpublished"
 )
 
-// normalizeArtifactStatus 保留兼容旧 query 参数，但平台统一强制未发布口径。
-func normalizeArtifactStatus(_ string) string {
-	return artifactStatusUnpublished
+func normalizeArtifactStatus(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case artifactStatusPublished:
+		return artifactStatusPublished
+	case artifactStatusUnpublished:
+		return artifactStatusUnpublished
+	default:
+		return ""
+	}
+}
+
+func detailLookupTimeRange(c *gin.Context, tr modellog.TimeRange, cachedBundle apiSessionBundle, hasCached bool) modellog.TimeRange {
+	detailTR := tr
+	if c.Query("start_time") == "" && c.Query("end_time") == "" {
+		if hasCached && cachedBundle.StartedAtMs > 0 {
+			st := time.UnixMilli(cachedBundle.StartedAtMs).Add(-2 * time.Hour)
+			et := time.UnixMilli(cachedBundle.StartedAtMs).Add(2 * time.Hour)
+			detailTR = modellog.TimeRange{
+				StartTime: st.Format("2006-01-02 15:04:05"),
+				EndTime:   et.Format("2006-01-02 15:04:05"),
+			}
+		}
+	}
+	return detailTR
+}
+
+func (h *Handler) resolveSessionPublicationStatus(ctx context.Context, key, cookie string, tr modellog.TimeRange) (*modellog.Session, string, error) {
+	if h == nil || h.upstream == nil || key == "" {
+		return nil, "", nil
+	}
+	attempts := []struct {
+		onlyUnpublished bool
+		label           string
+	}{
+		{onlyUnpublished: true, label: artifactStatusUnpublished},
+		{onlyUnpublished: false, label: artifactStatusPublished},
+	}
+	var lastErr error
+	for _, attempt := range attempts {
+		const pageSize = 500
+		const maxPages = 6
+		for pageNo := 1; pageNo <= maxPages; pageNo++ {
+			resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+				TimeRange:                tr,
+				Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
+				OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
+			})
+			if err != nil {
+				lastErr = err
+				break
+			}
+			for i := range resp.Data {
+				s := &resp.Data[i]
+				if s.SessionID == key || s.ArtifactID == key {
+					return s, attempt.label, nil
+				}
+			}
+			total := int(resp.Total)
+			if len(resp.Data) < pageSize || total <= pageNo*pageSize {
+				break
+			}
+		}
+	}
+	return nil, "", lastErr
 }
 
 func bundleIdentityKey(sessionID, artifactID string) string {
@@ -255,16 +316,11 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	key := c.Param("session_id")
 	tr := timeRangeFromQuery(c)
 	cookie := h.effectiveCookie(c)
-	status := normalizeArtifactStatus(c.Query("artifact_status"))
-	cachedBundle, hasCached, err := h.getCachedSessionBundle(key, status)
+	cachedBundle, hasCached, err := h.getCachedSessionBundle(key, "")
 	if err != nil {
 		log.Printf("session detail cached lookup failed key=%s err=%v", key, err)
 	}
-	if hasCached && hasDetailTraces(cachedBundle) {
-		// DB 已有完整 bundle 时直接返回，避免详情页再走一次最近 7 天的上游扫描。
-		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
-		return
-	}
+	detailTR := detailLookupTimeRange(c, tr, cachedBundle, hasCached)
 
 	// 指标秒出：前端两段式加载，第一段带 meta_only=1 只要 DB 里的指标骨架
 	// （分数/tokens/雷达），立即渲染头部与卡片，不等下载解析大文件。
@@ -278,12 +334,27 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		return
 	}
 
-	if indexedBundle, indexedSrc, ok, err := h.getIndexedSessionBundle(key, status); err != nil {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	hit, hitStatus, resolveErr := h.resolveSessionPublicationStatus(ctx, key, cookie, detailTR)
+
+	if hitStatus != "" {
+		cachedBundle.ArtifactPublicationStatus = hitStatus
+	}
+	if hasCached && hasDetailTraces(cachedBundle) {
+		// DB 已有完整 bundle 时仍要实时刷新发布状态，避免详情页命中旧缓存。
+		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
+		return
+	}
+
+	if indexedBundle, indexedSrc, ok, err := h.getIndexedSessionBundle(key, ""); err != nil {
 		log.Printf("session detail indexed lookup failed key=%s err=%v", key, err)
 	} else if ok {
 		if hasCached {
 			indexedBundle = mergeBundleWithCachedBundle(indexedBundle, cachedBundle)
-			indexedBundle.ArtifactPublicationStatus = status
+		}
+		if hitStatus != "" {
+			indexedBundle.ArtifactPublicationStatus = hitStatus
 		}
 		if h.aggregator != nil {
 			go func(src model.StgSessionSource, bundle apiSessionBundle) {
@@ -304,79 +375,12 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	// 详情页用尽量窄的时间窗在上游定位这条 session，避免默认最近 7 天 ×500 的大扫描。
-	// 优先用 query 里显式传的窗；没有就用缓存里这条 session 的起始时间 ±2h 收窄。
-	detailTR := tr
-	if c.Query("start_time") == "" && c.Query("end_time") == "" {
-		if hasCached && cachedBundle.StartedAtMs > 0 {
-			st := time.UnixMilli(cachedBundle.StartedAtMs).Add(-2 * time.Hour)
-			et := time.UnixMilli(cachedBundle.StartedAtMs).Add(2 * time.Hour)
-			detailTR = modellog.TimeRange{
-				StartTime: st.Format("2006-01-02 15:04:05"),
-				EndTime:   et.Format("2006-01-02 15:04:05"),
-			}
-		}
-	}
-
-	// 详情页与列表口径一致：同时扫描 unpublished + published，避免列表可见但详情拿不到完整 trace。
-	var attempts []struct {
-		onlyUnpublished bool
-		label           string
-	}
-	attempts = append(attempts, struct {
-		onlyUnpublished bool
-		label           string
-	}{true, artifactStatusUnpublished})
-	attempts = append(attempts, struct {
-		onlyUnpublished bool
-		label           string
-	}{false, artifactStatusPublished})
-
-	var hit *modellog.Session
-	var hitStatus string
-	var lastErr error
-	for _, attempt := range attempts {
-		const pageSize = 500
-		const maxPages = 6
-		for pageNo := 1; pageNo <= maxPages; pageNo++ {
-			resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
-				TimeRange:                detailTR,
-				Page:                     modellog.Page{PageNo: pageNo, PageSize: pageSize},
-				OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
-			})
-			if err != nil {
-				lastErr = err
-				break
-			}
-			for i := range resp.Data {
-				s := &resp.Data[i]
-				if s.SessionID == key || s.ArtifactID == key {
-					hit = s
-					hitStatus = attempt.label
-					break
-				}
-			}
-			if hit != nil {
-				break
-			}
-			total := int(resp.Total)
-			if len(resp.Data) < pageSize || total <= pageNo*pageSize {
-				break
-			}
-		}
-		if hit != nil {
-			break
-		}
-	}
-	if hit == nil && lastErr != nil {
+	if hit == nil && resolveErr != nil {
 		if hasCached {
 			c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 			return
 		}
-		fail(c, fmt.Errorf("upstream list: %w", lastErr))
+		fail(c, fmt.Errorf("upstream list: %w", resolveErr))
 		return
 	}
 	if hit == nil {
