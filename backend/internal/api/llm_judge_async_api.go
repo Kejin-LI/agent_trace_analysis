@@ -407,9 +407,13 @@ func (h *Handler) markLLMJudgeSucceeded(sessionID string, req llmJudgeAsyncReque
 		"llm_error":                    "",
 	}
 	updates = h.filterExistingAssignments(updates)
-	return h.db.Model(&model.StgSessionQualityEvaluation{}).
+	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).
 		Where("session_id = ?", sessionID).
-		Updates(updates).Error
+		Updates(updates).Error; err != nil {
+		return err
+	}
+	h.refreshAggregateIssueForSessionID(sessionID)
+	return nil
 }
 
 // toFloat 统一处理 json.Number / float64 / int / string 的转换。

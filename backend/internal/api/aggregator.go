@@ -969,6 +969,7 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		"resource_score",
 		"orchestration_score",
 		"abnormal_level",
+		"has_issue",
 		"chip",
 		"rules_json",
 		"features_json",
@@ -1014,6 +1015,7 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		ResourceScore:      m.ResourceScore,
 		OrchestrationScore: m.OrchestrationScore,
 		AbnormalLevel:      m.AbnormalLevel,
+		HasIssue:           aggregateIssueFlagForSession(a.db, src.SessionID, src.ArtifactID, rulesJSON),
 		RulesJSON:          rulesJSON,
 		FeaturesJSON:       featuresJSON,
 		SourceCreateAt:     src.SourceCreatedAt,
@@ -1026,6 +1028,10 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		updateColumns = append(updateColumns, "bundle_json")
 	} else {
 		tx = tx.Omit("bundle_json")
+	}
+	if !apiSessionAggregateHasIssueColumn(a.db) {
+		tx = tx.Omit("has_issue")
+		updateColumns = removeString(updateColumns, "has_issue")
 	}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "session_id"}},
@@ -1237,6 +1243,19 @@ func (a *Aggregator) hasBundleJSONColumn() bool {
 		}
 	})
 	return a.bundleJSONColumnOK
+}
+
+func removeString(values []string, target string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	out := values[:0]
+	for _, value := range values {
+		if value != target {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // LastNDays 返回最近 n 天（含今天）的日期列表，格式 "YYYY-MM-DD"。

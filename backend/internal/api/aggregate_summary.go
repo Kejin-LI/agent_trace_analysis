@@ -43,7 +43,7 @@ func buildDailySummaryFromAggregateRows(date time.Time, rows []model.APISessionA
 		if row.UserID != "" {
 			userIDs[row.UserID] = struct{}{}
 		}
-		if row.AbnormalLevel > 0 {
+		if aggregateRowHasIssue(row) {
 			abnormalSessionCount++
 		}
 		if row.HasRootFail {
