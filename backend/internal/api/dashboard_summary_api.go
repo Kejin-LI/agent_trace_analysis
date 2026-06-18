@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
@@ -34,80 +35,36 @@ type apiDashboardSummary struct {
 	Radar             apiDashboardSummaryRadar `json:"radar"`
 }
 
+type dashboardAnomalyCandidateStats struct {
+	filteredTotal  int
+	candidateTotal int
+	truncated      bool
+}
+
 func (h *Handler) getTopAnomalySessions(c *gin.Context) {
 	limit := 10
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 50 {
 		limit = v
 	}
 	tr := timeRangeFromQuery(c)
-	bundles, total, err := h.topAnomalySessionsFromAggregates(tr, limit)
+	bundles, total, stats, err := h.topAnomalySessionsFromAggregates(tr, limit)
 	if err != nil {
 		fail(c, fmt.Errorf("build top anomaly sessions: %w", err))
 		return
 	}
-	if len(bundles) == 0 && dataSourceMode() == "api" {
-		realtimeBundles, realtimeTotal, rtErr := h.topAnomalySessionsFromRealtime(c, tr, limit)
-		if rtErr != nil {
-			log.Printf("top anomaly realtime fallback failed err=%v", rtErr)
-		} else {
-			bundles, total = realtimeBundles, realtimeTotal
-		}
-	}
 	c.JSON(http.StatusOK, gin.H{
-		"data":   bundles,
-		"limit":  limit,
-		"offset": 0,
-		"total":  total,
+		"data":            bundles,
+		"limit":           limit,
+		"offset":          0,
+		"total":           total,
+		"filtered_total":  stats.filteredTotal,
+		"candidate_total": stats.candidateTotal,
+		"truncated":       stats.truncated,
 	})
 }
 
 func (h *Handler) getDashboardSummary(c *gin.Context) {
-	switch dataSourceMode() {
-	case "api":
-		h.getDashboardSummaryAPI(c)
-	default:
-		h.getDashboardSummaryDB(c)
-	}
-}
-
-func (h *Handler) getDashboardSummaryAPI(c *gin.Context) {
-	tr := timeRangeFromQuery(c)
-	if h.aggregator != nil {
-		h.aggregator.EnsureDays(h.effectiveCookie(c), daysFromQueryRange(tr))
-	}
-	summary, err := h.buildDashboardSummaryFromAggregates(tr)
-	if err != nil {
-		log.Printf("dashboard summary: build aggregate summary failed err=%v", err)
-		summary = apiDashboardSummary{}
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-	defer cancel()
-
-	totalCount, err := h.fetchDashboardTotalCount(ctx, h.effectiveCookie(c), tr)
-	if err != nil {
-		if isUpstreamAuthMissing(err) {
-			log.Printf("dashboard summary: upstream total count unavailable err=%v", err)
-			finalizeDashboardSummary(&summary)
-			c.JSON(http.StatusOK, summary)
-			return
-		}
-		fail(c, fmt.Errorf("fetch dashboard total count: %w", err))
-		return
-	}
-
-	summary.Total = totalCount
-	finalizeDashboardSummary(&summary)
-	if summary.AnalyzedCount == 0 {
-		if fallback, rtErr := h.buildRealtimeDashboardSummary(ctx, h.effectiveCookie(c), tr); rtErr != nil {
-			log.Printf("dashboard summary realtime fallback failed err=%v", rtErr)
-		} else if fallback.AnalyzedCount > 0 || fallback.AnomalyCount > 0 || fallback.LLMEvaluatedCount > 0 {
-			fallback.Total = totalCount
-			finalizeDashboardSummary(&fallback)
-			summary = fallback
-		}
-	}
-	c.JSON(http.StatusOK, summary)
+	h.getDashboardSummaryDB(c)
 }
 
 func (h *Handler) getDashboardSummaryDB(c *gin.Context) {
@@ -115,7 +72,7 @@ func (h *Handler) getDashboardSummaryDB(c *gin.Context) {
 	if h.aggregator != nil {
 		h.aggregator.EnsureDays(h.effectiveCookie(c), daysFromQueryRange(tr))
 	}
-	summary, err := h.buildDashboardSummaryFromAggregates(tr)
+	summary, err := h.buildDashboardSummaryOptimized(tr)
 	if err != nil {
 		fail(c, fmt.Errorf("build dashboard summary from db: %w", err))
 		return
@@ -125,6 +82,28 @@ func (h *Handler) getDashboardSummaryDB(c *gin.Context) {
 	}
 	finalizeDashboardSummary(&summary)
 	c.JSON(http.StatusOK, summary)
+}
+
+func (h *Handler) getAnomalySessions(c *gin.Context) {
+	limit := 600
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 800 {
+		limit = v
+	}
+	tr := timeRangeFromQuery(c)
+	bundles, total, stats, err := h.anomalySessionsFromAggregates(tr, limit)
+	if err != nil {
+		fail(c, fmt.Errorf("build anomaly sessions: %w", err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data":            bundles,
+		"limit":           limit,
+		"offset":          0,
+		"total":           total,
+		"filtered_total":  stats.filteredTotal,
+		"candidate_total": stats.candidateTotal,
+		"truncated":       stats.truncated,
+	})
 }
 
 func finalizeDashboardSummary(summary *apiDashboardSummary) {
@@ -138,6 +117,85 @@ func finalizeDashboardSummary(summary *apiDashboardSummary) {
 	if summary.PendingCount < 0 {
 		summary.PendingCount = 0
 	}
+}
+
+func (h *Handler) buildDashboardSummaryOptimized(tr modellog.TimeRange) (apiDashboardSummary, error) {
+	summary, err := h.buildDashboardSummaryFromDailySummaries(tr)
+	if err != nil {
+		return apiDashboardSummary{}, err
+	}
+	if summary.AnalyzedCount > 0 || summary.AnomalyCount > 0 || summary.LLMEvaluatedCount > 0 {
+		return summary, nil
+	}
+	return h.buildDashboardSummaryFromAggregates(tr)
+}
+
+func (h *Handler) buildDashboardSummaryFromDailySummaries(tr modellog.TimeRange) (apiDashboardSummary, error) {
+	summary := apiDashboardSummary{}
+	if h == nil || h.db == nil {
+		return summary, nil
+	}
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return summary, nil
+	}
+	startDate := startOfLocalDay(startAt)
+	endDate := startOfLocalDay(endAt)
+	var rows []model.APIDailySummary
+	if err := h.db.Model(&model.APIDailySummary{}).
+		Where("aggregate_date BETWEEN ? AND ?", startDate, endDate).
+		Order("aggregate_date DESC").
+		Find(&rows).Error; err != nil {
+		return summary, err
+	}
+	if len(rows) == 0 {
+		return summary, nil
+	}
+	var totalSessions int
+	var anomalyCount int
+	var weightedAvgScore float64
+	var weightedResponse float64
+	var weightedThinking float64
+	var weightedResource float64
+	var weightedStability float64
+	var weightedOrchestration float64
+	for _, row := range rows {
+		if row.SessionCount <= 0 {
+			continue
+		}
+		totalSessions += row.SessionCount
+		anomalyCount += row.AbnormalSessionCount
+		weightedAvgScore += row.AvgScore * float64(row.SessionCount)
+		weightedResponse += row.ResponseScoreAvg * float64(row.SessionCount)
+		weightedThinking += row.ThinkingScoreAvg * float64(row.SessionCount)
+		weightedResource += row.ResourceScoreAvg * float64(row.SessionCount)
+		weightedStability += row.StabilityScoreAvg * float64(row.SessionCount)
+		weightedOrchestration += row.OrchestrationScoreAvg * float64(row.SessionCount)
+	}
+	if totalSessions == 0 {
+		return summary, nil
+	}
+	summary.Total = totalSessions
+	summary.AnalyzedCount = totalSessions
+	summary.AnomalyCount = anomalyCount
+	avgScore := round2(weightedAvgScore / float64(totalSessions))
+	summary.AvgScore = &avgScore
+	response := round2(weightedResponse / float64(totalSessions))
+	thinking := round2(weightedThinking / float64(totalSessions))
+	resource := round2(weightedResource / float64(totalSessions))
+	stability := round2(weightedStability / float64(totalSessions))
+	orchestration := round2(weightedOrchestration / float64(totalSessions))
+	summary.Radar.Response = &response
+	summary.Radar.Thinking = &thinking
+	summary.Radar.Resource = &resource
+	summary.Radar.Stability = &stability
+	summary.Radar.Orchestration = &orchestration
+	llmCount, err := h.countDashboardLLMEvaluated(tr)
+	if err != nil {
+		return apiDashboardSummary{}, err
+	}
+	summary.LLMEvaluatedCount = llmCount
+	return summary, nil
 }
 
 func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (apiDashboardSummary, error) {
@@ -225,70 +283,49 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 	return summary, nil
 }
 
-func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, error) {
+func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
+	return h.queryDashboardAnomalyBundles(tr, limit, maxDashboardAnomalyScanLimit(limit, 8, 200))
+}
+
+func (h *Handler) anomalySessionsFromAggregates(tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
+	return h.queryDashboardAnomalyBundles(tr, limit, maxDashboardAnomalyScanLimit(limit, 6, 300))
+}
+
+func maxDashboardAnomalyScanLimit(limit, multiplier, minValue int) int {
+	if limit <= 0 {
+		limit = minValue
+	}
+	scanLimit := limit * multiplier
+	if scanLimit < minValue {
+		scanLimit = minValue
+	}
+	if scanLimit > 2000 {
+		scanLimit = 2000
+	}
+	return scanLimit
+}
+
+func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, scanLimit int) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
+	stats := dashboardAnomalyCandidateStats{}
 	if h == nil || h.db == nil {
-		return nil, 0, nil
+		return nil, 0, stats, nil
 	}
-	startAt, endAt, ok := parseTimeRangeBounds(tr)
-	if !ok {
-		return nil, 0, nil
+	if limit <= 0 {
+		limit = 10
 	}
-	startDate := startOfLocalDay(startAt)
-	endDate := startOfLocalDay(endAt)
-	var rows []model.APISessionAggregate
-	if err := h.db.Model(&model.APISessionAggregate{}).
-		Where(
-			"(started_at_ms BETWEEN ? AND ?) OR "+
-				"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
-				"(started_at_ms = 0 AND started_at IS NULL AND aggregate_date BETWEEN ? AND ?)",
-			startAt.UnixMilli(), endAt.UnixMilli(), startAt, endAt, startDate, endDate,
-		).
-		Select([]string{
-			"id",
-			"session_id",
-			"artifact_id",
-			"aggregate_date",
-			"user_id",
-			"user_name",
-			"started_at_ms",
-			"started_at",
-			"duration_ms",
-			"trace_id",
-			"title",
-			"chip",
-			"input_tokens",
-			"output_tokens",
-			"total_tokens",
-			"avg_tokens_per_turn",
-			"turns",
-			"trace_count",
-			"tool_calls",
-			"unique_tools",
-			"tool_failures",
-			"tool_fail_rate_bp",
-			"tool_retries",
-			"max_serial_run",
-			"has_root_fail",
-			"has_loop",
-			"score",
-			"response_score",
-			"stability_score",
-			"thinking_score",
-			"resource_score",
-			"orchestration_score",
-			"abnormal_level",
-			"rules_json",
-			"features_json",
-			"created_at",
-			"updated_at",
-		}).
-		Find(&rows).Error; err != nil {
-		return nil, 0, err
+	if scanLimit < limit {
+		scanLimit = limit
+	}
+	rows, candidateTotal, err := h.loadDashboardAnomalyCandidateRows(tr, scanLimit)
+	if err != nil {
+		return nil, 0, stats, err
+	}
+	if len(rows) == 0 {
+		return nil, 0, stats, nil
 	}
 	bundles := make([]apiSessionBundle, 0, len(rows))
 	for _, row := range rows {
-		bundle := buildBundleFromAggregateRow(row)
-		bundles = append(bundles, bundle)
+		bundles = append(bundles, buildBundleFromAggregateRow(row))
 	}
 	bundles = h.applyQualityEvaluations(bundles)
 	candidates := make([]apiSessionBundle, 0, len(bundles))
@@ -297,6 +334,99 @@ func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit 
 			candidates = append(candidates, bundle)
 		}
 	}
+	sortDashboardAnomalyCandidates(candidates)
+	stats.filteredTotal = len(candidates)
+	stats.candidateTotal = candidateTotal
+	stats.truncated = candidateTotal > scanLimit
+	total := len(candidates)
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, total, stats, nil
+}
+
+func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int) ([]model.APISessionAggregate, int, error) {
+	q, ok := h.dashboardAggregateRangeQuery(tr)
+	if !ok {
+		return nil, 0, nil
+	}
+	q = q.Where("LEFT(session_id, 4) = ?", "ses_").
+		Where("(abnormal_level > 0 OR has_root_fail = ? OR has_loop = ? OR score < ? OR COALESCE(chip, '') <> '')", true, true, 85)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []model.APISessionAggregate
+	if err := q.Select([]string{
+		"id",
+		"session_id",
+		"artifact_id",
+		"aggregate_date",
+		"user_id",
+		"user_name",
+		"started_at_ms",
+		"started_at",
+		"duration_ms",
+		"trace_id",
+		"title",
+		"chip",
+		"input_tokens",
+		"output_tokens",
+		"total_tokens",
+		"avg_tokens_per_turn",
+		"turns",
+		"trace_count",
+		"tool_calls",
+		"unique_tools",
+		"tool_failures",
+		"tool_fail_rate_bp",
+		"tool_retries",
+		"max_serial_run",
+		"has_root_fail",
+		"has_loop",
+		"score",
+		"response_score",
+		"stability_score",
+		"thinking_score",
+		"resource_score",
+		"orchestration_score",
+		"abnormal_level",
+		"rules_json",
+		"features_json",
+		"created_at",
+		"updated_at",
+	}).
+		Order("abnormal_level DESC").
+		Order("score ASC").
+		Order("started_at_ms DESC").
+		Order("id DESC").
+		Limit(scanLimit).
+		Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, int(total), nil
+}
+
+func (h *Handler) dashboardAggregateRangeQuery(tr modellog.TimeRange) (*gorm.DB, bool) {
+	if h == nil || h.db == nil {
+		return nil, false
+	}
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return nil, false
+	}
+	startDate := startOfLocalDay(startAt)
+	endDate := startOfLocalDay(endAt)
+	q := h.db.Model(&model.APISessionAggregate{}).Where(
+		"(started_at_ms BETWEEN ? AND ?) OR "+
+			"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
+			"(started_at_ms = 0 AND started_at IS NULL AND aggregate_date BETWEEN ? AND ?)",
+		startAt.UnixMilli(), endAt.UnixMilli(), startAt, endAt, startDate, endDate,
+	)
+	return q, true
+}
+
+func sortDashboardAnomalyCandidates(candidates []apiSessionBundle) {
 	sort.SliceStable(candidates, func(i, j int) bool {
 		qi := getDashboardQualityScores(candidates[i])
 		qj := getDashboardQualityScores(candidates[j])
@@ -312,11 +442,6 @@ func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit 
 		}
 		return si < sj
 	})
-	total := len(candidates)
-	if limit > 0 && len(candidates) > limit {
-		candidates = candidates[:limit]
-	}
-	return candidates, total, nil
 }
 
 func dashboardBundleHasAnomaly(bundle apiSessionBundle) bool {
@@ -412,6 +537,30 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 	return bundles, nil
 }
 
+func (h *Handler) countDashboardLLMEvaluated(tr modellog.TimeRange) (int, error) {
+	if h == nil || h.db == nil {
+		return 0, nil
+	}
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return 0, nil
+	}
+	type countRow struct {
+		Count int
+	}
+	var row countRow
+	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).
+		Select("COUNT(DISTINCT session_id) AS count").
+		Where("is_deleted = 0").
+		Where("LEFT(session_id, 4) = ?", "ses_").
+		Where("llm_eval_status = ?", "succeeded").
+		Where("session_started_at BETWEEN ? AND ?", startAt, endAt).
+		Scan(&row).Error; err != nil {
+		return 0, err
+	}
+	return row.Count, nil
+}
+
 func (h *Handler) fetchDashboardTotalCount(ctx context.Context, cookie string, tr modellog.TimeRange) (int, error) {
 	if h == nil || h.upstream == nil {
 		return 0, nil
@@ -451,21 +600,7 @@ func (h *Handler) topAnomalySessionsFromRealtime(c *gin.Context, tr modellog.Tim
 			candidates = append(candidates, bundle)
 		}
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		qi := getDashboardQualityScores(candidates[i])
-		qj := getDashboardQualityScores(candidates[j])
-		si, sj := 101, 101
-		if qi.CombinedScore != nil {
-			si = *qi.CombinedScore
-		}
-		if qj.CombinedScore != nil {
-			sj = *qj.CombinedScore
-		}
-		if si == sj {
-			return candidates[i].StartedAtMs > candidates[j].StartedAtMs
-		}
-		return si < sj
-	})
+	sortDashboardAnomalyCandidates(candidates)
 	total := len(candidates)
 	if limit > 0 && len(candidates) > limit {
 		candidates = candidates[:limit]

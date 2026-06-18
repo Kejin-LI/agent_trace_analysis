@@ -242,6 +242,63 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	})
 }
 
+func (h *Handler) listSessionBundlesDBFirst(c *gin.Context) {
+	tr := timeRangeFromQuery(c)
+	limit, offset := bundlePaginationDefault(c, 50)
+	uid := c.Query("user_id")
+	uname := c.Query("user_name")
+	sid := c.Query("session_id")
+	aid := c.Query("artifact_id")
+
+	bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset)
+	if err != nil {
+		fail(c, fmt.Errorf("list session bundles from db: %w", err))
+		return
+	}
+	if !ok {
+		if h.upstream != nil {
+			h.listSessionBundlesAPI(c)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"data":   []apiSessionBundle{},
+			"limit":  limit,
+			"offset": offset,
+			"total":  0,
+			"source": "db_aggregates",
+		})
+		return
+	}
+	if h.aggregator != nil {
+		h.aggregator.EnsureDays(h.effectiveCookie(c), daysFromQueryRange(tr))
+	}
+	bundles = h.applyQualityEvaluations(bundles)
+	c.JSON(http.StatusOK, gin.H{
+		"data":   bundles,
+		"limit":  limit,
+		"offset": offset,
+		"total":  total,
+		"source": "db_aggregates",
+	})
+}
+
+func normalizeBundleListTotal(reportedTotal, loaded, limit, offset int) int {
+	if loaded < 0 {
+		loaded = 0
+	}
+	if limit <= 0 {
+		limit = loaded
+	}
+	minVisibleTotal := offset + loaded
+	if loaded < limit {
+		return minVisibleTotal
+	}
+	if reportedTotal < minVisibleTotal {
+		return minVisibleTotal
+	}
+	return reportedTotal
+}
+
 // getSessionBundleAPI 详情页：优先按 session_id / artifact_id 直查本地 stg_session_sources 索引，
 // 命中时实时拉取 obj_url JSONL；未命中时再回退到上游列表扫描。
 //
@@ -450,6 +507,7 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 	startDate := startOfLocalDay(startAt)
 	endDate := startOfLocalDay(endAt)
 	q := h.db.Model(&model.APISessionAggregate{}).
+		Where("LEFT(session_id, 4) = ?", "ses_").
 		Where(
 			"(started_at_ms BETWEEN ? AND ?) OR "+
 				"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
@@ -523,7 +581,7 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 	for _, row := range rows {
 		bundles = append(bundles, buildBundleFromAggregateRow(row))
 	}
-	return bundles, total, true, nil
+	return bundles, int64(normalizeBundleListTotal(int(total), len(bundles), limit, offset)), true, nil
 }
 
 func (h *Handler) getCachedSessionBundle(key, statusHint string) (apiSessionBundle, bool, error) {
