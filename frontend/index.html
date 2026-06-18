@@ -408,6 +408,9 @@
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">DASHBOARD · <span id="hdr-today">2026-05-25</span></div>
       <h1 id="hdr-title" class="text-[34px] font-semibold tracking-tight leading-tight truncate max-w-[820px]"><span id="hdr-greet">早安 ☀️</span> <span id="hdr-rangelabel">最近 7 天</span>有 <span class="text-[--apple-orange]" id="hdr-issue-count">— 个</span> 异常会话需要关注</h1>
       <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
+      <p class="text-[12px] text-[--apple-orange] mt-2 px-3 py-2 rounded-xl bg-[--apple-orange]/10 border border-[--apple-orange]/20 hidden" id="hdr-list-cap-note">
+        查看 Session 列表时，默认仅展示当前时间范围内最新 2000 条记录；如需完整排查，请缩小时间范围。
+      </p>
     </div>
     <div class="flex items-center gap-2"></div>
   </section>
@@ -712,6 +715,7 @@
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     };
     let applySeq = 0;
+    let currentAppliedRange = localStorage.getItem('agenttrace.range') || '24h';
     let appliedRangeKey = '';
     const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
     const DASHBOARD_CACHE_PREFIX = 'agenttrace.dashboard.rangeCache.v1:';
@@ -815,6 +819,19 @@
       }
       const pgInfo = document.getElementById('risk-pg-info');
       if (pgInfo) pgInfo.textContent = `正在切换到${label}`;
+      const listCapNoteEl = document.getElementById('hdr-list-cap-note');
+      if (listCapNoteEl) listCapNoteEl.classList.add('hidden');
+    }
+
+    function renderListCapNote(total) {
+      const listCapNoteEl = document.getElementById('hdr-list-cap-note');
+      if (!listCapNoteEl) return;
+      const totalN = Number(total || 0) || 0;
+      const truncated = totalN > 2000;
+      listCapNoteEl.classList.toggle('hidden', !truncated);
+      if (truncated) {
+        listCapNoteEl.innerHTML = `查看 Session 列表时，默认仅展示当前时间范围内最新 <span class="num-mono">2,000</span> 条记录；当前范围共有 <span class="num-mono">${totalN.toLocaleString()}</span> 条。完整排查请缩小时间范围。`;
+      }
     }
 
     function renderRuleRadarScope(total, analyzedTotal, pendingCount) {
@@ -865,6 +882,7 @@
       if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       const totalEl = document.getElementById('hdr-total');
       if (totalEl) totalEl.textContent = total;
+      renderListCapNote(total);
       const anomalyEl = document.getElementById('hdr-anomaly');
       if (anomalyEl) anomalyEl.textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
@@ -924,6 +942,7 @@
     }
 
     async function apply(range) {
+      currentAppliedRange = range || '24h';
       const { query, customFrom, customTo, key } = currentRangeQuery(range);
       const label = (range === 'custom' && customFrom && customTo)
         ? fmtCustom(customFrom, customTo)
@@ -1466,7 +1485,7 @@
       }
 
       const detailParams = new URLSearchParams({ id: String(s.id || ''), artifact_status: 'unpublished' });
-      const detailRange = currentRangeQuery(state.range).query || {};
+      const detailRange = currentRangeQuery(currentAppliedRange).query || {};
       if (detailRange.startTime) detailParams.set('start_time', detailRange.startTime);
       if (detailRange.endTime) detailParams.set('end_time', detailRange.endTime);
       const detailHref = `./session-detail?${detailParams.toString()}`;
@@ -1701,6 +1720,7 @@
       const avgScoreEl = document.getElementById('hdr-avg-score');
       if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       document.getElementById('hdr-total').textContent = total;
+      renderListCapNote(total);
       document.getElementById('hdr-anomaly').textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {

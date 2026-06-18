@@ -1516,6 +1516,9 @@ func isSyntheticToolPrompt(text string) bool {
 		strings.Contains(lower, "unsure how to proceed") {
 		return true
 	}
+        if isTitleGenerationPrompt(text) {
+                return true
+        }
 	for _, sig := range []string{
 		"the user requested the following",
 		"i have fetched the raw content",
@@ -1544,6 +1547,26 @@ func isSyntheticToolPrompt(text string) bool {
 		return true
 	}
 	return false
+}
+
+func isTitleGenerationPrompt(raw string) bool {
+        normalized := strings.ToLower(strings.TrimSpace(raw))
+        normalized = strings.Join(strings.Fields(normalized), " ")
+        switch normalized {
+        case "generate a title for this conversation",
+                "generate a title for this conversation:",
+                "write a title for this conversation",
+                "write a title for this conversation:",
+                "summarize this conversation in a title",
+                "summarize this conversation in a title:",
+                "generate a concise title for this conversation",
+                "generate a concise title for this conversation:",
+                "write a concise title for this conversation",
+                "write a concise title for this conversation:":
+                return true
+        default:
+                return false
+        }
 }
 
 // contentText 把多种 content 形态压成纯文本预览。

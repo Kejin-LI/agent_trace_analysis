@@ -130,6 +130,9 @@ func (h *Handler) backfillAllMetrics() {
 	sem := make(chan struct{}, 4)
 	var done int64
 	for _, src := range rows {
+		if !isSupportedSessionID(src.SessionID) {
+			continue
+		}
 		// 已有 cached_metrics 且 chip 字段非空的跳过（避免老缓存只有 features 没 chip 的情况）
 		if m, ok := readCachedMetrics(src.Extra); ok && len(m.Rules) > 0 {
 			continue
@@ -1355,6 +1358,9 @@ func isSyntheticToolPrompt(raw string) bool {
 		strings.Contains(lower, "unsure how to proceed") {
 		return true
 	}
+        if isTitleGenerationPrompt(raw) {
+                return true
+        }
 	for _, sig := range []string{
 		"the user requested the following",
 		"i have fetched the raw content",
@@ -1397,6 +1403,25 @@ func isSyntheticToolPrompt(raw string) bool {
 		return true
 	}
 	return false
+}
+
+func isTitleGenerationPrompt(raw string) bool {
+        normalized := strings.ToLower(normalizePromptText(raw))
+        switch normalized {
+        case "generate a title for this conversation",
+                "generate a title for this conversation:",
+                "write a title for this conversation",
+                "write a title for this conversation:",
+                "summarize this conversation in a title",
+                "summarize this conversation in a title:",
+                "generate a concise title for this conversation",
+                "generate a concise title for this conversation:",
+                "write a concise title for this conversation",
+                "write a concise title for this conversation:":
+                return true
+        default:
+                return false
+        }
 }
 
 func normalizePromptText(raw string) string {

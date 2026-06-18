@@ -1,4 +1,7 @@
 (function () {
+  const DEFAULT_SESSION_LIST_LIMIT = 2000;
+  const MAX_SESSION_LIST_LIMIT = 2000;
+
   function uniq(arr) {
     return [...new Set(arr.filter(Boolean))];
   }
@@ -12,14 +15,18 @@
     try { return JSON.parse(v); } catch { return null; }
   }
 
-  function friendlyFetchError(errors) {
+  function friendlyFetchError(path, errors) {
     const uniqueErrors = uniq(errors.map(e => String(e || '').trim()).filter(Boolean));
     if (!uniqueErrors.length) return '接口请求失败';
     if (uniqueErrors.some(e => /http 401\b|http 403\b/i.test(e))) {
       return '接口鉴权失败，请重新登录后重试';
     }
     if (uniqueErrors.some(e => /http 404\b/i.test(e))) {
-      return '未找到该会话详情';
+      const cleanPath = String(path || '');
+      if (/^\/api\/session-bundles\/[^/?]+(?:\?|$)/.test(cleanPath)) {
+        return '未找到该会话详情';
+      }
+      return '接口地址不存在（404），请检查服务是否已发布最新后端';
     }
     if (uniqueErrors.every(e => /failed to fetch/i.test(e))) {
       return '接口连接失败，请确认已登录并使用线上同域页面访问';
@@ -35,6 +42,24 @@
     if (typeof tags === 'string') return safeJSON(tags) || {};
     if (typeof tags === 'object') return tags;
     return {};
+  }
+
+  function normalizeObjectLike(value, fallback) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = safeJSON(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    }
+    return fallback;
+  }
+
+  function normalizeArrayLike(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = safeJSON(value);
+      if (Array.isArray(parsed)) return parsed;
+    }
+    return [];
   }
 
   // 部署在 agentic-aidp.bytedance.net 这种带网关前缀的环境下，本地回环兜底毫无意义且会污染缓存，
@@ -102,7 +127,7 @@
         errors.push(err.message || String(err));
       }
     }
-    throw new Error(friendlyFetchError(errors));
+    throw new Error(friendlyFetchError(path, errors));
   }
 
   function scoreBand(score) {
@@ -257,7 +282,11 @@
   }
 
   function normalizeSession(raw) {
-    const traces = (raw.traces || []).map(normalizeTrace);
+    const tracesRaw = normalizeArrayLike(raw.traces);
+    const rulesRaw = normalizeArrayLike(raw.rules);
+    const featuresRaw = normalizeObjectLike(raw.features, {});
+    const rawRadar = normalizeObjectLike(raw.radar, null);
+    const traces = tracesRaw.map(normalizeTrace);
     const allSpans = traces.flatMap(t => t.spans || []);
     const modelSpans = allSpans.filter(sp => sp.span_type === 'model');
     const turns = modelSpans.length || Number(raw.turns || 0) || traces.length;
@@ -268,7 +297,6 @@
     const helper = window.AgentTraceEfficiency;
     const llmJudgeResult = raw.llm_judge_result || raw.llmJudgeResult || raw.llm_judge || raw.gpt55_judge_result || null;
     const persistedScore = parseOptionalScore(raw.score);
-    const rawRadar = raw.radar && typeof raw.radar === 'object' ? raw.radar : null;
     const hasRadarEvidence = rawRadar && ['response', 'stability', 'thinking', 'resource', 'orchestration']
       .some(key => typeof rawRadar[key] === 'number' && !Number.isNaN(rawRadar[key]));
 
@@ -288,9 +316,9 @@
       output_tokens: outputTokens,
       trace_count: Number(raw.trace_count || 0) || traces.length,
       turns,
-      tool_calls: Number(raw.tool_calls || 0) || Number(raw.features?.tool_calls || 0),
-      features: raw.features || {},
-      rules: raw.rules || [],
+      tool_calls: Number(raw.tool_calls || 0) || Number(featuresRaw.tool_calls || 0),
+      features: featuresRaw,
+      rules: rulesRaw,
       radar: rawRadar,
       traces,
       terminated_by: raw.terminated_by || '',
@@ -332,8 +360,8 @@
   async function loadSessions(opts) {
     const requestedLimit = Number(opts && opts.limit);
     const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(5000, Math.round(requestedLimit)))
-      : 5000;
+      ? Math.max(1, Math.min(MAX_SESSION_LIST_LIMIT, Math.round(requestedLimit)))
+      : DEFAULT_SESSION_LIST_LIMIT;
     const params = new URLSearchParams({ limit: String(limit) });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);

@@ -91,6 +91,11 @@ const staleRunningTimeout = 15 * time.Minute
 const (
 	defaultMemSoftLimitPct = 75.0
 	defaultMemHardLimitPct = 88.0
+	// aggregateFetchConcurrency 单天内 detail 拉取并发。
+	aggregateFetchConcurrency = 2
+	// aggregateRetryRounds 失败 session 的额外重试轮数。
+	// 例如取 2 表示“首轮失败后，再补跑最多 2 轮”。
+	aggregateRetryRounds = 2
 	// memBackoffInterval 软阈值命中后的等待粒度。
 	memBackoffInterval = 2 * time.Second
 	// memBackoffMaxRounds 连续等待多少轮仍未回落则判定为硬阈值中止。
@@ -325,6 +330,9 @@ func (a *Aggregator) shouldSkipNightlyDate(date string, now time.Time) bool {
 	}
 	var row model.APIDailyAggregateStatus
 	if err := a.db.Where("aggregate_date = ?", targetDate).First(&row).Error; err != nil {
+		return false
+	}
+	if row.FailCount > 0 {
 		return false
 	}
 	return isNightlyFreshCompletion(row, targetDate, now)
@@ -577,6 +585,9 @@ func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, t
 			continue
 		}
 		for _, s := range resp.Data {
+			if !isSupportedSessionID(s.SessionID) {
+				continue
+			}
 			key := aggregateSessionKey(s)
 			if key != "" {
 				if _, ok := seen[key]; ok {
@@ -607,11 +618,11 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("aggregator: %s panic: %v", date, r)
-			a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, fmt.Sprintf("panic: %v", r), &startedAt, nil, nil, 0, 2)
+			a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, 0, fmt.Sprintf("panic: %v", r), &startedAt, nil, nil, 0, aggregateFetchConcurrency)
 		}
 	}()
 
-	a.upsertDayStatus(dateValue, "running", 0, 0, 0, 0, "", &startedAt, nil, nil, 0, 2)
+	a.upsertDayStatus(dateValue, "running", 0, 0, 0, 0, 0, "", &startedAt, nil, nil, 0, aggregateFetchConcurrency)
 
 	tr := modellog.TimeRange{
 		StartTime: date + " 00:00:00",
@@ -623,7 +634,7 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 	sessions, err := a.listAggregateSessions(ctx, cookie, tr, includePublished)
 	if err != nil {
 		errAt := time.Now()
-		a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, err.Error(), &startedAt, nil, &errAt, 0, 2)
+		a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, 0, err.Error(), &startedAt, nil, &errAt, 0, aggregateFetchConcurrency)
 		log.Printf("aggregator: %s list failed: %v", date, err)
 		// 鉴权失败说明缓存 Cookie 已失效，清空它让凌晨 cron 回退到用户访问触发。
 		if isAuthError(err) {
@@ -649,10 +660,8 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 	var successCount atomic.Int64
 	var failCount atomic.Int64
 	var skippedExisting atomic.Int64
-	sem := make(chan struct{}, 2) // 单天 detail 拉取最多 2 并发，避免内存尖峰
-	var wg sync.WaitGroup
 	aborted := false
-
+	pending := make([]modellog.Session, 0, len(sessions))
 	for i := range sessions {
 		s := sessions[i]
 		if len(s.FileList) == 0 || s.FileList[0].URL == "" || s.SessionID == "" {
@@ -662,40 +671,74 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 			skippedExisting.Add(1)
 			continue // 续补：已补过，跳过
 		}
-		// 派发前内存闸门：超软阈值暂停等待，连续仍超硬阈值则中止本次补数。
-		if waitForMemory(date) == memGateAbort {
-			aborted = true
+		pending = append(pending, s)
+	}
+	retryRoundsUsed := 0
+	for attempt := 0; attempt <= aggregateRetryRounds && len(pending) > 0; attempt++ {
+		current := pending
+		pending = nil
+		if attempt > 0 {
+			retryRoundsUsed = attempt
+			log.Printf("aggregator: %s retry round=%d pending=%d", date, attempt, len(current))
+		}
+
+		var roundMu sync.Mutex
+		nextPending := make([]modellog.Session, 0)
+		sem := make(chan struct{}, aggregateFetchConcurrency) // 单天 detail 拉取最多 2 并发，避免内存尖峰
+		var wg sync.WaitGroup
+
+		for i := range current {
+			s := current[i]
+			// 派发前内存闸门：超软阈值暂停等待，连续仍超硬阈值则中止本次补数。
+			if waitForMemory(date) == memGateAbort {
+				aborted = true
+				roundMu.Lock()
+				nextPending = append(nextPending, current[i:]...)
+				roundMu.Unlock()
+				break
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(s modellog.Session) {
+				defer wg.Done()
+				defer func() {
+					<-sem
+					if r := recover(); r != nil {
+						log.Printf("aggregator: %s session %s panic: %v", date, s.SessionID, r)
+						roundMu.Lock()
+						nextPending = append(nextPending, s)
+						roundMu.Unlock()
+					}
+				}()
+
+				pr, err := a.fetcher.FetchAndParse(s.FileList[0].URL)
+				if err != nil {
+					log.Printf("aggregator: %s session %s fetch failed attempt=%d: %v", date, s.SessionID, attempt+1, err)
+					roundMu.Lock()
+					nextPending = append(nextPending, s)
+					roundMu.Unlock()
+					return
+				}
+				src := sessionToStgSource(s)
+				bundle := buildBundleFromTOS(src, pr)
+				m := extractCachedMetrics(bundle)
+				if err := a.upsertSessionAggregate(dateValue, src, bundle, m); err != nil {
+					log.Printf("aggregator: %s session %s upsert failed attempt=%d: %v", date, s.SessionID, attempt+1, err)
+					roundMu.Lock()
+					nextPending = append(nextPending, s)
+					roundMu.Unlock()
+					return
+				}
+				successCount.Add(1)
+			}(s)
+		}
+		wg.Wait()
+		pending = nextPending
+		if aborted {
 			break
 		}
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(s modellog.Session) {
-			defer wg.Done()
-			defer func() {
-				<-sem
-				if r := recover(); r != nil {
-					log.Printf("aggregator: %s session %s panic: %v", date, s.SessionID, r)
-				}
-			}()
-
-			pr, err := a.fetcher.FetchAndParse(s.FileList[0].URL)
-			if err != nil {
-				log.Printf("aggregator: %s session %s fetch failed: %v", date, s.SessionID, err)
-				failCount.Add(1)
-				return
-			}
-			src := sessionToStgSource(s)
-			bundle := buildBundleFromTOS(src, pr)
-			m := extractCachedMetrics(bundle)
-			if err := a.upsertSessionAggregate(dateValue, src, bundle, m); err != nil {
-				log.Printf("aggregator: %s session %s upsert failed: %v", date, s.SessionID, err)
-				failCount.Add(1)
-				return
-			}
-			successCount.Add(1)
-		}(s)
 	}
-	wg.Wait()
+	failCount.Store(int64(len(pending)))
 
 	completedAt := time.Now()
 	// 始终用 DB 已落库行重算 daily summary：续补/中止场景下也能保证大盘数字
@@ -720,12 +763,13 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 		aggregatedTotal,
 		int(failCount.Load()),
 		listTotal,
+		retryRoundsUsed,
 		lastErr,
 		&startedAt,
 		&completedAt,
 		nil,
 		time.Since(startedAt).Milliseconds(),
-		2,
+		aggregateFetchConcurrency,
 	)
 	skipCount := listTotal - aggregatedTotal - int(failCount.Load())
 	if skipCount < 0 {
@@ -782,6 +826,10 @@ func (a *Aggregator) isDateCompleted(date string) bool {
 		log.Printf("aggregator: date=%s marked completed but still has incomplete session aggregates, will retry", targetDate.Format("2006-01-02"))
 		return false
 	}
+	if row.FailCount > 0 {
+		log.Printf("aggregator: date=%s marked completed but still has failed sessions fail_count=%d, will retry", targetDate.Format("2006-01-02"), row.FailCount)
+		return false
+	}
 	return true
 }
 
@@ -805,13 +853,14 @@ func (a *Aggregator) hasIncompleteSessionAggregates(date time.Time) bool {
 	return count > 0
 }
 
-func (a *Aggregator) upsertDayStatus(date time.Time, status string, sessionCount, successCount, failCount, listTotal int, lastErr string, startedAt, completedAt, lastErrorAt *time.Time, costMs int64, fetchConcurrency int) {
+func (a *Aggregator) upsertDayStatus(date time.Time, status string, sessionCount, successCount, failCount, listTotal, retryCount int, lastErr string, startedAt, completedAt, lastErrorAt *time.Time, costMs int64, fetchConcurrency int) {
 	row := model.APIDailyAggregateStatus{
 		AggregateDate:    date,
 		Status:           status,
 		SessionCount:     sessionCount,
 		SuccessCount:     successCount,
 		FailCount:        failCount,
+		RetryCount:       retryCount,
 		ListTotal:        listTotal,
 		FetchConcurrency: fetchConcurrency,
 		LastError:        lastErr,
@@ -828,6 +877,7 @@ func (a *Aggregator) upsertDayStatus(date time.Time, status string, sessionCount
 			"session_count":      row.SessionCount,
 			"success_count":      row.SuccessCount,
 			"fail_count":         row.FailCount,
+			"retry_count":        row.RetryCount,
 			"list_total":         row.ListTotal,
 			"fetch_concurrency":  row.FetchConcurrency,
 			"last_error":         row.LastError,
@@ -994,6 +1044,9 @@ func (a *Aggregator) PersistBundle(src model.StgSessionSource, bundle apiSession
 	}
 	if src.SessionID == "" {
 		return fmt.Errorf("empty session id")
+	}
+	if !isSupportedSessionID(src.SessionID) {
+		return nil
 	}
 	date := aggregateDateForBundle(src, bundle)
 	m := extractCachedMetrics(bundle)

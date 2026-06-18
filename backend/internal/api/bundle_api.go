@@ -205,7 +205,12 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
 		})
 		if err != nil {
-			if isUpstreamAuthMissing(err) && respondWithCachedAggregates("upstream_auth_missing") {
+			reason := fmt.Sprintf("upstream_list_%s_failed", attempt.status)
+			if isUpstreamAuthMissing(err) {
+				reason = "upstream_auth_missing"
+			}
+			log.Printf("bundle list: upstream list failed status=%s err=%v", attempt.status, err)
+			if respondWithCachedAggregates(reason) {
 				return
 			}
 			fail(c, fmt.Errorf("upstream list %s: %w", attempt.status, err))
@@ -287,6 +292,9 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 						log.Printf("session detail indexed persist panic session=%s: %v", src.SessionID, r)
 					}
 				}()
+				if !isSupportedSessionID(src.SessionID) {
+					return
+				}
 				if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 					log.Printf("session detail indexed persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 				}
@@ -420,6 +428,9 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 					log.Printf("session detail persist panic session=%s: %v", src.SessionID, r)
 				}
 			}()
+			if !isSupportedSessionID(src.SessionID) {
+				return
+			}
 			if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 				log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 			}
