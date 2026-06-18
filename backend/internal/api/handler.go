@@ -214,6 +214,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
 		g.POST("/backfill-range", h.backfillRange)
+		g.POST("/backfill-issue-flags", h.backfillIssueFlags)
 		g.POST("/ai-diagnose", h.diagnose)
 		g.POST("/llm-judge", h.llmJudgeEvaluate)
 		g.POST("/llm-judge/async", h.llmJudgeAsyncStart)
