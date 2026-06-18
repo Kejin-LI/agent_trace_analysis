@@ -130,6 +130,9 @@ func (h *Handler) backfillAllMetrics() {
 	sem := make(chan struct{}, 4)
 	var done int64
 	for _, src := range rows {
+		if !isSupportedSessionID(src.SessionID) {
+			continue
+		}
 		// 已有 cached_metrics 且 chip 字段非空的跳过（避免老缓存只有 features 没 chip 的情况）
 		if m, ok := readCachedMetrics(src.Extra); ok && len(m.Rules) > 0 {
 			continue

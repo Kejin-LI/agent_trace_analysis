@@ -292,6 +292,9 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 						log.Printf("session detail indexed persist panic session=%s: %v", src.SessionID, r)
 					}
 				}()
+				if !isSupportedSessionID(src.SessionID) {
+					return
+				}
 				if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 					log.Printf("session detail indexed persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 				}
@@ -425,6 +428,9 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 					log.Printf("session detail persist panic session=%s: %v", src.SessionID, r)
 				}
 			}()
+			if !isSupportedSessionID(src.SessionID) {
+				return
+			}
 			if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 				log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 			}
