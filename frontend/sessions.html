@@ -371,8 +371,8 @@
       <p class="text-[13px] text-[--text-secondary] mt-1">
         共 <span class="font-medium text-[--text-primary] num-mono" id="total-count">--</span> 个 session，按时间由近到远排序，便于查看最新记录。
       </p>
-      <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">
-        ⚠️ 数据量较大，当前仅分析最新的 5000 个 session，更早的记录及其统计指标未纳入，请缩小时间范围查看完整数据。
+      <p class="text-[12px] text-[--apple-orange] mt-2 px-3 py-2 rounded-xl bg-[--apple-orange]/10 border border-[--apple-orange]/20 hidden" id="cap-hint">
+        ⚠️ 当前仅展示最新 2000 条 session；筛选、搜索和统计也仅基于这 2000 条。请缩小时间范围查看完整数据。
       </p>
     </div>
   </section>
@@ -703,6 +703,7 @@
       datasetVersion: 0,
       filteredCacheKey: '',
       filteredCacheList: [],
+      sourceTotal: 0,
       stats: { total: 0, anomaly: 0, healthy: 0 },
       anomalyCounts: new Map(),
     };
@@ -864,6 +865,7 @@
       state.all = [];
       state.filteredCacheKey = '';
       state.filteredCacheList = [];
+      state.sourceTotal = 0;
       state.stats = { total: 0, anomaly: 0, healthy: 0 };
       state.anomalyCounts = new Map();
       setStatusCountPlaceholders();
@@ -892,13 +894,22 @@
 
     function applySessionsPayload(d) {
       state.all = d.sessions || [];
+      state.sourceTotal = Number(d?.total || 0) || state.all.length;
       applyPendingSessionQualityUpdate();
       state.datasetVersion++;
       state.filteredCacheKey = '';
       state.filteredCacheList = [];
       precomputeSessionMeta();
       const capHintEl = document.getElementById('cap-hint');
-      if (capHintEl) capHintEl.classList.toggle('hidden', state.all.length < 5000);
+      if (capHintEl) {
+        const loaded = state.all.length;
+        const sourceTotal = Math.max(state.sourceTotal, loaded);
+        const truncated = sourceTotal > loaded;
+        capHintEl.classList.toggle('hidden', !truncated);
+        if (truncated) {
+          capHintEl.innerHTML = `⚠️ 当前时间范围内共 <span class="num-mono">${sourceTotal.toLocaleString()}</span> 条 session，页面仅展示最新 <span class="num-mono">${loaded.toLocaleString()}</span> 条；筛选、搜索和统计也仅基于这 <span class="num-mono">${loaded.toLocaleString()}</span> 条。请缩小时间范围查看完整数据。`;
+        }
+      }
       buildDynamicDropdowns();
       if (!tooltipReady) {
         setupCellTooltip();

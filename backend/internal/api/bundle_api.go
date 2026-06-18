@@ -205,7 +205,12 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
 		})
 		if err != nil {
-			if isUpstreamAuthMissing(err) && respondWithCachedAggregates("upstream_auth_missing") {
+			reason := fmt.Sprintf("upstream_list_%s_failed", attempt.status)
+			if isUpstreamAuthMissing(err) {
+				reason = "upstream_auth_missing"
+			}
+			log.Printf("bundle list: upstream list failed status=%s err=%v", attempt.status, err)
+			if respondWithCachedAggregates(reason) {
 				return
 			}
 			fail(c, fmt.Errorf("upstream list %s: %w", attempt.status, err))
