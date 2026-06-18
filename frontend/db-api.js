@@ -1,4 +1,7 @@
 (function () {
+  const DEFAULT_SESSION_LIST_LIMIT = 2000;
+  const MAX_SESSION_LIST_LIMIT = 2000;
+
   function uniq(arr) {
     return [...new Set(arr.filter(Boolean))];
   }
@@ -332,8 +335,8 @@
   async function loadSessions(opts) {
     const requestedLimit = Number(opts && opts.limit);
     const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(5000, Math.round(requestedLimit)))
-      : 5000;
+      ? Math.max(1, Math.min(MAX_SESSION_LIST_LIMIT, Math.round(requestedLimit)))
+      : DEFAULT_SESSION_LIST_LIMIT;
     const params = new URLSearchParams({ limit: String(limit) });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
