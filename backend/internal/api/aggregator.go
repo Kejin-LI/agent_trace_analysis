@@ -585,6 +585,9 @@ func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, t
 			continue
 		}
 		for _, s := range resp.Data {
+			if !isSupportedSessionID(s.SessionID) {
+				continue
+			}
 			key := aggregateSessionKey(s)
 			if key != "" {
 				if _, ok := seen[key]; ok {
@@ -1041,6 +1044,9 @@ func (a *Aggregator) PersistBundle(src model.StgSessionSource, bundle apiSession
 	}
 	if src.SessionID == "" {
 		return fmt.Errorf("empty session id")
+	}
+	if !isSupportedSessionID(src.SessionID) {
+		return nil
 	}
 	date := aggregateDateForBundle(src, bundle)
 	m := extractCachedMetrics(bundle)

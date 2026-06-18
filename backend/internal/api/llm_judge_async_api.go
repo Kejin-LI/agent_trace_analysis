@@ -58,6 +58,10 @@ func (h *Handler) llmJudgeAsyncStart(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id 为空"})
 		return
 	}
+	if !isSupportedSessionID(sid) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持 session_id 以 ses_ 开头的会话"})
+		return
+	}
 	system := strings.TrimSpace(req.SystemPrompt)
 	if system == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "system_prompt 为空"})
