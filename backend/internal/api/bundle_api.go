@@ -801,6 +801,8 @@ func sessionToStgSource(s modellog.Session) model.StgSessionSource {
 	}
 	if t := parseUpstreamTime(s.CreateAt); !t.IsZero() {
 		src.SourceCreatedAt = &t
+	} else if t := parseUpstreamFileTimestamp(s); !t.IsZero() {
+		src.SourceCreatedAt = &t
 	}
 	if t := parseUpstreamTime(s.UpdateAt); !t.IsZero() {
 		src.SourceUpdatedAt = &t
@@ -810,15 +812,23 @@ func sessionToStgSource(s modellog.Session) model.StgSessionSource {
 
 // lightBundleFromAPI 列表项概览：与 lightBundleFromSource 等价，只是字段来源不同。
 //
-// started_at_ms 三级兜底：
-//  1. 上游 create_at（最准确）
-//  2. session_id 自带时间戳（OpenCode 之外的格式如 20260608_095347_*）
-//  3. 0（让前端按"未知时间"渲染）
+// started_at_ms 四级兜底：
+//  1. ses_* 优先取 file_list URL 文件名里的时间戳（如 ses_xxx_20260618122215.jsonl）
+//  2. 上游 create_at
+//  3. 老格式 session_id 自带时间戳（如 20260608_095347_*）
+//  4. 0（让前端按"未知时间"渲染）
+//
+// 后续如命中 JSONL 解析/聚合缓存，applyCachedMetricsToBundle 会用解析出的 StartedAtMs 覆盖这里的兜底时间。
 func lightBundleFromAPI(s modellog.Session) apiSessionBundle {
 	startedAt := parseUpstreamTime(s.CreateAt)
 	endedAt := parseUpstreamTime(s.UpdateAt)
 	startedMs, endedMs := int64(0), int64(0)
-	if !startedAt.IsZero() {
+	if strings.HasPrefix(strings.TrimSpace(s.SessionID), "ses_") {
+		if t := parseUpstreamFileTimestamp(s); !t.IsZero() {
+			startedMs = t.UnixMilli()
+		}
+	}
+	if startedMs == 0 && !startedAt.IsZero() {
 		startedMs = startedAt.UnixMilli()
 	}
 	if !endedAt.IsZero() {
@@ -827,6 +837,11 @@ func lightBundleFromAPI(s modellog.Session) apiSessionBundle {
 	if startedMs == 0 {
 		if ts := parseSessionIDTimestamp(s.SessionID); ts > 0 {
 			startedMs = ts
+		}
+	}
+	if startedMs == 0 {
+		if t := parseUpstreamFileTimestamp(s); !t.IsZero() {
+			startedMs = t.UnixMilli()
 		}
 	}
 	dur := endedMs - startedMs
@@ -863,13 +878,37 @@ func daysFromQueryRange(tr modellog.TimeRange) []string {
 	return rangeDays(st.UnixMilli(), et.UnixMilli())
 }
 
-// parseUpstreamTime 兼容上游可能的时间格式：RFC3339 / "YYYY-MM-DD HH:mm:ss" / 毫秒时间戳字符串。
+// parseUpstreamTime 兼容上游可能的时间格式：RFC3339 / 常见本地时间字符串 / 秒或毫秒时间戳字符串。
 func parseUpstreamTime(s string) time.Time {
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}
 	}
-	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
 		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	for _, layout := range []string{
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05.999",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05.999",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006/01/02 15:04:05.999999999",
+		"2006/01/02 15:04:05.999999",
+		"2006/01/02 15:04:05.999",
+		"2006/01/02 15:04:05",
+		"2006/01/02 15:04",
+		"2006/01/02",
+	} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
 			return t
 		}
 	}
@@ -880,4 +919,37 @@ func parseUpstreamTime(s string) time.Time {
 		return time.Unix(v, 0)
 	}
 	return time.Time{}
+}
+
+func parseUpstreamFileTimestamp(s modellog.Session) time.Time {
+	for _, f := range s.FileList {
+		if t := parseTimestampFromFileURL(f.URL); !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func parseTimestampFromFileURL(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+	if idx := strings.IndexAny(raw, "?#"); idx >= 0 {
+		raw = raw[:idx]
+	}
+	if idx := strings.LastIndex(raw, "/"); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	raw = strings.TrimSuffix(raw, ".jsonl")
+	idx := strings.LastIndex(raw, "_")
+	if idx < 0 || idx+15 > len(raw) {
+		return time.Time{}
+	}
+	candidate := raw[idx+1 : idx+15]
+	t, err := time.ParseInLocation("20060102150405", candidate, time.Local)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

@@ -26,6 +26,7 @@ type cachedMetrics struct {
 	HasLoop            bool     `json:"has_loop"`
 	Turns              int      `json:"turns"`
 	TraceCount         int      `json:"trace_count"`
+	StartedAtMs        int64    `json:"started_at_ms"`
 	DurationMs         int64    `json:"duration_ms"`
 	InputTokens        int64    `json:"input_tokens"`
 	OutputTokens       int64    `json:"output_tokens"`
@@ -63,6 +64,7 @@ func extractCachedMetrics(b apiSessionBundle) cachedMetrics {
 		HasLoop:            b.Features.HasLoop,
 		Turns:              b.Turns,
 		TraceCount:         b.TraceCount,
+		StartedAtMs:        b.StartedAtMs,
 		DurationMs:         b.DurationMs,
 		InputTokens:        b.InputTokens,
 		OutputTokens:       b.OutputTokens,

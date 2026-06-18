@@ -1056,6 +1056,7 @@ func aggregateRowToCachedMetrics(row model.APISessionAggregate) cachedMetrics {
 		HasLoop:            row.HasLoop,
 		Turns:              row.Turns,
 		TraceCount:         row.TraceCount,
+		StartedAtMs:        row.StartedAtMs,
 		DurationMs:         row.DurationMs,
 		InputTokens:        row.InputTokens,
 		OutputTokens:       row.OutputTokens,
@@ -1183,9 +1184,13 @@ func parseSessionIDTimestamp(sid string) int64 {
 	return t.UnixMilli()
 }
 
-// applyCachedMetricsToBundle 把日聚合的指标 join 到 bundle 上，覆盖空字段。
-// 起始时间不从缓存恢复（缓存里没存），由 lightBundleFromAPI 优先从 session_id 推算。
+// applyCachedMetricsToBundle 把日聚合的指标 join 到 bundle 上，覆盖轻量列表字段。
+// 起始时间以 JSONL 解析/聚合缓存为准；轻量列表里的文件名时间只作为聚合前兜底。
 func applyCachedMetricsToBundle(b apiSessionBundle, m cachedMetrics) apiSessionBundle {
+	if m.StartedAtMs > 0 {
+		b.StartedAtMs = m.StartedAtMs
+		b.StartedAt = msToString(m.StartedAtMs)
+	}
 	if m.DurationMs > 0 {
 		b.DurationMs = m.DurationMs
 	}
