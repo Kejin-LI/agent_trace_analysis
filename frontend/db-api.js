@@ -31,6 +31,9 @@
     if (uniqueErrors.every(e => /failed to fetch/i.test(e))) {
       return '接口连接失败，请确认已登录并使用线上同域页面访问';
     }
+    if (uniqueErrors.every(e => /请求超时|timeout|aborted/i.test(e))) {
+      return '接口响应超时，请稍后重试或缩小时间范围';
+    }
     if (uniqueErrors.some(e => /non-json response/i.test(e))) {
       return '接口返回了登录页或非 JSON 数据，请确认登录状态';
     }
@@ -96,7 +99,26 @@
 
   let resolvedBase = null;
 
-  async function fetchJSON(path) {
+  // 单次请求超时（毫秒）：后端读路径已带 4s DB 超时，前端留出网关/网络余量取 12s。
+  // 超时用 AbortController 主动断开，避免后端异常时页面无限 pending（永远转圈）。
+  const DEFAULT_FETCH_TIMEOUT_MS = 12000;
+
+  function fetchWithTimeout(url, options, timeoutMs) {
+    const ms = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_FETCH_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(url, { ...options, signal: controller.signal })
+      .catch(err => {
+        if (err && err.name === 'AbortError') {
+          throw new Error('请求超时（' + Math.round(ms / 1000) + 's）@ ' + url);
+        }
+        throw err;
+      })
+      .finally(() => clearTimeout(timer));
+  }
+
+  async function fetchJSON(path, opts) {
+    const timeoutMs = opts && opts.timeoutMs;
     const errors = [];
     const bases = resolvedBase ? [resolvedBase] : candidateBases();
     // 把 "/api/x" 转成 "<basePath>api/x"，复用浏览器原生 URL 解析。
@@ -106,7 +128,7 @@
       try {
         // same-origin 请求需要带 cookie 才能透传到上游 SSO。
         const isCrossOrigin = new URL(url, window.location.href).origin !== window.location.origin;
-        const resp = await fetch(url, { cache: 'no-store', credentials: isCrossOrigin ? 'include' : 'same-origin' });
+        const resp = await fetchWithTimeout(url, { cache: 'no-store', credentials: isCrossOrigin ? 'include' : 'same-origin' }, timeoutMs);
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ' + url);
         // 204 No Content 或空 body：视为"暂无数据"，返回 null 而非解析空 body 报错。
         if (resp.status === 204) return null;
@@ -402,7 +424,7 @@
     const params = new URLSearchParams({ limit: String(limit) });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
-    const payload = await fetchJSON('/api/session-bundles?' + params.toString());
+    const payload = await fetchJSON('/api/session-bundles?' + params.toString(), { timeoutMs: 12000 });
     const sessions = (payload?.data || []).map(normalizeSession);
     return {
       sessions,

@@ -23,6 +23,10 @@ const (
 	artifactStatusUnpublished = "unpublished"
 )
 
+// listReadTimeout 限定列表/大盘等读路径单次 DB 查询的最长等待时间。
+// DB 慢查询或锁等待时快速失败，返回明确错误而非让 HTTP 请求永久 pending。
+const listReadTimeout = 4 * time.Second
+
 func normalizeArtifactStatus(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case artifactStatusPublished:
@@ -139,7 +143,9 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	sid := c.Query("session_id")
 	aid := c.Query("artifact_id")
 	respondWithCachedAggregates := func(reason string) bool {
-		bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset)
+		dbCtx, dbCancel := context.WithTimeout(c.Request.Context(), listReadTimeout)
+		defer dbCancel()
+		bundles, total, ok, err := h.listSessionBundlesFromDB(dbCtx, tr, uid, uname, sid, aid, limit, offset)
 		if err != nil {
 			fail(c, fmt.Errorf("list cached session bundles: %w", err))
 			return true
@@ -303,6 +309,11 @@ func (h *Handler) listSessionBundlesAPI(c *gin.Context) {
 	})
 }
 
+// listSessionBundlesDBFirst 列表主路径：只读 DB，保证快速、可超时、不悬挂。
+//
+// 读路径不做任何上游调用或同步补库——补库（EnsureDays）放到后台 goroutine，
+// 即便它内部要查“当天是否已聚合”也不会拖慢本次响应。DB 查询带 listReadTimeout，
+// 超时立刻返回明确错误，由前端展示“加载失败”而非永久 pending。
 func (h *Handler) listSessionBundlesDBFirst(c *gin.Context) {
 	tr := timeRangeFromQuery(c)
 	limit, offset := bundlePaginationDefault(c, 50)
@@ -311,7 +322,10 @@ func (h *Handler) listSessionBundlesDBFirst(c *gin.Context) {
 	sid := c.Query("session_id")
 	aid := c.Query("artifact_id")
 
-	bundles, total, ok, err := h.listSessionBundlesFromDB(tr, uid, uname, sid, aid, limit, offset)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), listReadTimeout)
+	defer cancel()
+
+	bundles, total, ok, err := h.listSessionBundlesFromDB(ctx, tr, uid, uname, sid, aid, limit, offset)
 	if err != nil {
 		fail(c, fmt.Errorf("list session bundles from db: %w", err))
 		return
@@ -330,8 +344,18 @@ func (h *Handler) listSessionBundlesDBFirst(c *gin.Context) {
 		})
 		return
 	}
+	// 补库异步触发：从请求上下文取出 Cookie 后丢给后台，绝不阻塞列表响应。
 	if h.aggregator != nil {
-		h.aggregator.EnsureDays(h.effectiveCookie(c), daysFromQueryRange(tr))
+		cookie := h.effectiveCookie(c)
+		days := daysFromQueryRange(tr)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("list ensure days panic: %v", r)
+				}
+			}()
+			h.aggregator.EnsureDays(cookie, days)
+		}()
 	}
 	bundles = h.applyQualityEvaluations(bundles)
 	c.JSON(http.StatusOK, gin.H{
@@ -500,7 +524,18 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	c.JSON(http.StatusOK, h.applyQualityEvaluation(bundle))
 }
 
-func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, sid, aid string, limit, offset int) ([]apiSessionBundle, int64, bool, error) {
+// listSessionBundlesFromDB 列表读路径：必须保证“快、走索引、不挂死”。
+//
+// 关键设计（避免页面长时间 pending）：
+//  1. session_id 前缀过滤用 LIKE 'ses\_%' 而非 LEFT(session_id,4)，
+//     不再对列套函数，保留 session_id 索引可用性，仅作残差判断。
+//  2. 时间窗收敛为单列 started_at_ms BETWEEN，配合 ORDER BY started_at_ms DESC
+//     直接走 idx_started_at_ms 做有序范围扫描，无 filesort、无跨列 OR 全表扫。
+//     started_at_ms=0 的“未知时间”行本就无法落到时间窗内，不在列表展示更符合口径。
+//  3. 不做全表 Count()：多取 1 条（limit+1）判断是否被截断，total 从
+//     api_daily_summary 的日汇总累加（O(天数)），既便宜又能给出有意义的提示。
+//  4. ctx 带超时：DB 慢/锁等待时快速失败返回明确错误，绝不让 HTTP 请求悬挂。
+func (h *Handler) listSessionBundlesFromDB(ctx context.Context, tr modellog.TimeRange, uid, uname, sid, aid string, limit, offset int) ([]apiSessionBundle, int64, bool, error) {
 	if h == nil || h.db == nil {
 		return nil, 0, false, nil
 	}
@@ -508,16 +543,9 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 	if !ok {
 		return nil, 0, false, nil
 	}
-	startDate := startOfLocalDay(startAt)
-	endDate := startOfLocalDay(endAt)
-	q := h.db.Model(&model.APISessionAggregate{}).
-		Where("LEFT(session_id, 4) = ?", "ses_").
-		Where(
-			"(started_at_ms BETWEEN ? AND ?) OR "+
-				"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
-				"(started_at_ms = 0 AND started_at IS NULL AND aggregate_date BETWEEN ? AND ?)",
-			startAt.UnixMilli(), endAt.UnixMilli(), startAt, endAt, startDate, endDate,
-		)
+	q := h.db.WithContext(ctx).Model(&model.APISessionAggregate{}).
+		Where("session_id LIKE ?", "ses\\_%").
+		Where("started_at_ms BETWEEN ? AND ?", startAt.UnixMilli(), endAt.UnixMilli())
 	if uid != "" {
 		q = q.Where("user_id = ?", uid)
 	}
@@ -529,13 +557,6 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 	}
 	if aid != "" {
 		q = q.Where("artifact_id = ?", aid)
-	}
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, false, err
-	}
-	if total == 0 {
-		return nil, 0, true, nil
 	}
 	var rows []model.APISessionAggregate
 	if err := q.
@@ -578,14 +599,45 @@ func (h *Handler) listSessionBundlesFromDB(tr modellog.TimeRange, uid, uname, si
 			"created_at",
 			"updated_at",
 		}).
-		Order("started_at_ms DESC, updated_at DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		Order("started_at_ms DESC, id DESC").Limit(limit + 1).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, 0, false, err
+	}
+	truncated := len(rows) > limit
+	if truncated {
+		rows = rows[:limit]
 	}
 	bundles := make([]apiSessionBundle, 0, len(rows))
 	for _, row := range rows {
 		bundles = append(bundles, buildBundleFromAggregateRow(row))
 	}
-	return bundles, int64(normalizeBundleListTotal(int(total), len(bundles), limit, offset)), true, nil
+	total := offset + len(bundles)
+	if truncated {
+		// 还有更多数据：优先用日汇总给出范围内真实总量，拿不到再退化为“至少 +1”。
+		if summed := h.countSessionsFromDailySummary(ctx, startAt, endAt); summed > total {
+			total = summed
+		} else if total <= offset+limit {
+			total = offset + limit + 1
+		}
+	}
+	return bundles, int64(total), true, nil
+}
+
+// countSessionsFromDailySummary 用 api_daily_summary 的日级 session_count 累加，
+// 给列表截断提示一个范围内的近似总量。仅扫天级聚合，命中 uk_aggregate_date，开销极小。
+func (h *Handler) countSessionsFromDailySummary(ctx context.Context, startAt, endAt time.Time) int {
+	if h == nil || h.db == nil {
+		return 0
+	}
+	startDate := startOfLocalDay(startAt)
+	endDate := startOfLocalDay(endAt)
+	var total int64
+	if err := h.db.WithContext(ctx).Model(&model.APIDailySummary{}).
+		Where("aggregate_date BETWEEN ? AND ?", startDate, endDate).
+		Select("COALESCE(SUM(session_count), 0)").
+		Scan(&total).Error; err != nil {
+		return 0
+	}
+	return int(total)
 }
 
 func (h *Handler) getCachedSessionBundle(key, statusHint string) (apiSessionBundle, bool, error) {
