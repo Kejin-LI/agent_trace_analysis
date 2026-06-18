@@ -1258,12 +1258,9 @@
       const cacheKey = getFilterCacheKey();
       if (state.filteredCacheKey === cacheKey) return state.filteredCacheList;
       const f = state.filter;
-      const kw = f.keyword.trim().toLowerCase();
 
       let arr = state.all.filter(s => {
         const meta = getSessionMeta(s);
-        const ano = meta.anomaly;
-        const score = meta.score;
         // 是否「异常」：只看规则 / GPT 问题标签；低分但无标签不算异常。
         // 「健康」仍以健康度档位（≥85，绿色）服务列表筛选。
         const isHealthy = meta.isHealthy;
@@ -1271,18 +1268,7 @@
         // 状态分段
         if (f.status === 'anomaly' && !hasAnomaly) return false;
         if (f.status === 'healthy' && (!isHealthy || hasAnomaly)) return false;
-        // 异常类型
-        if (f.anomalyType !== 'all') {
-          if (!ano) return false;
-          if (!ano.list.some(it => it.label === f.anomalyType)) return false;
-        }
-        // 健康度档位
-        if (f.score !== 'all') {
-          if (meta.scoreBand !== f.score) return false;
-        }
-        // 关键字模糊搜索：真实 session_id / 展示ID / artifact_id / trace_id / 标题 / 用户
-        if (kw && !meta.searchText.includes(kw)) return false;
-        return true;
+        return matchesNonStatusFilters(meta);
       });
 
       // 排序
@@ -1297,6 +1283,20 @@
       state.filteredCacheKey = cacheKey;
       state.filteredCacheList = arr;
       return arr;
+    }
+
+    function matchesNonStatusFilters(meta) {
+      const f = state.filter;
+      const kw = f.keyword.trim().toLowerCase();
+      const ano = meta.anomaly;
+      if (f.anomalyType !== 'all') {
+        if (!ano) return false;
+        if (!ano.list.some(it => it.label === f.anomalyType)) return false;
+      }
+      if (f.score !== 'all' && meta.scoreBand !== f.score) {
+        return false;
+      }
+      return !(kw && !meta.searchText.includes(kw));
     }
 
     // ----- 渲染表格 + 分页 -----
@@ -1410,7 +1410,20 @@
     }
 
     function refreshStatusCount() {
-      const { total, anomaly, healthy } = state.stats;
+      let total = 0;
+      let anomaly = 0;
+      let healthy = 0;
+      state.all.forEach(s => {
+        const meta = getSessionMeta(s);
+        if (!matchesNonStatusFilters(meta)) return;
+        total++;
+        const hasAnomaly = hasVisibleAnomaly(meta);
+        if (hasAnomaly) {
+          anomaly++;
+        } else if (meta.score !== null && meta.isHealthy) {
+          healthy++;
+        }
+      });
       statusSeg.querySelector('[data-count="all"]').textContent = total.toLocaleString();
       statusSeg.querySelector('[data-count="anomaly"]').textContent = anomaly.toLocaleString();
       statusSeg.querySelector('[data-count="healthy"]').textContent = healthy.toLocaleString();

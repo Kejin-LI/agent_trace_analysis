@@ -327,6 +327,22 @@ func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, sca
 	if scanLimit < limit {
 		scanLimit = limit
 	}
+	if apiSessionAggregateHasIssueColumn(h.db) {
+		rows, total, err := h.loadDashboardIssueRows(tr, limit)
+		if err != nil {
+			return nil, 0, stats, err
+		}
+		bundles := make([]apiSessionBundle, 0, len(rows))
+		for _, row := range rows {
+			bundles = append(bundles, buildBundleFromAggregateRow(row))
+		}
+		bundles = h.applyQualityEvaluations(bundles)
+		sortDashboardAnomalyCandidates(bundles)
+		stats.filteredTotal = total
+		stats.candidateTotal = total
+		stats.truncated = false
+		return bundles, total, stats, nil
+	}
 	rows, candidateTotal, err := h.loadDashboardAnomalyCandidateRows(tr, scanLimit)
 	if err != nil {
 		return nil, 0, stats, err
@@ -356,19 +372,58 @@ func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, sca
 	return candidates, total, stats, nil
 }
 
+func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]model.APISessionAggregate, int, error) {
+	q, ok := h.dashboardAggregateRangeQuery(tr)
+	if !ok {
+		return nil, 0, nil
+	}
+	q = q.Where("session_id LIKE ?", "ses\\_%").Where("has_issue = ?", true)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []model.APISessionAggregate
+	if err := q.Select(dashboardAggregateRowSelectColumns()).
+		Order("score ASC").
+		Order("started_at_ms DESC").
+		Order("id DESC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, int(total), nil
+}
+
 func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int) ([]model.APISessionAggregate, int, error) {
 	q, ok := h.dashboardAggregateRangeQuery(tr)
 	if !ok {
 		return nil, 0, nil
 	}
-	q = q.Where("LEFT(session_id, 4) = ?", "ses_").
+	q = q.Where("session_id LIKE ?", "ses\\_%").
 		Where("(abnormal_level > 0 OR has_root_fail = ? OR has_loop = ? OR score < ? OR COALESCE(chip, '') <> '')", true, true, 85)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var rows []model.APISessionAggregate
-	if err := q.Select([]string{
+	cols := dashboardAggregateRowSelectColumns()
+	if !apiSessionAggregateHasIssueColumn(h.db) {
+		cols = removeString(cols, "has_issue")
+	}
+	if err := q.Select(cols).
+		Order("abnormal_level DESC").
+		Order("score ASC").
+		Order("started_at_ms DESC").
+		Order("id DESC").
+		Limit(scanLimit).
+		Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, int(total), nil
+}
+
+func dashboardAggregateRowSelectColumns() []string {
+	return []string{
 		"id",
 		"session_id",
 		"artifact_id",
@@ -402,20 +457,12 @@ func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanL
 		"resource_score",
 		"orchestration_score",
 		"abnormal_level",
+		"has_issue",
 		"rules_json",
 		"features_json",
 		"created_at",
 		"updated_at",
-	}).
-		Order("abnormal_level DESC").
-		Order("score ASC").
-		Order("started_at_ms DESC").
-		Order("id DESC").
-		Limit(scanLimit).
-		Find(&rows).Error; err != nil {
-		return nil, 0, err
 	}
-	return rows, int(total), nil
 }
 
 func (h *Handler) dashboardAggregateRangeQuery(tr modellog.TimeRange) (*gorm.DB, bool) {
@@ -426,14 +473,8 @@ func (h *Handler) dashboardAggregateRangeQuery(tr modellog.TimeRange) (*gorm.DB,
 	if !ok {
 		return nil, false
 	}
-	startDate := startOfLocalDay(startAt)
-	endDate := startOfLocalDay(endAt)
-	q := h.db.Model(&model.APISessionAggregate{}).Where(
-		"(started_at_ms BETWEEN ? AND ?) OR "+
-			"(started_at_ms = 0 AND started_at BETWEEN ? AND ?) OR "+
-			"(started_at_ms = 0 AND started_at IS NULL AND aggregate_date BETWEEN ? AND ?)",
-		startAt.UnixMilli(), endAt.UnixMilli(), startAt, endAt, startDate, endDate,
-	)
+	q := h.db.Model(&model.APISessionAggregate{}).
+		Where("started_at_ms BETWEEN ? AND ?", startAt.UnixMilli(), endAt.UnixMilli())
 	return q, true
 }
 

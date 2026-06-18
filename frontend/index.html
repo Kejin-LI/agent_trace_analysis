@@ -1076,7 +1076,7 @@
 
 <script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
 <script src="./tag-system.js?v=20260616-fix-score-cache"></script>
-<script src="./db-api.js?v=20260618-list-readpath-harden"></script>
+<script src="./db-api.js?v=20260618-issue-count-unified"></script>
 <script>
   // ===== 数据驱动：从 sessions.json 生成 H1 / 雷达 / 核心指标 / 最近 Session 表 =====
   (async function () {
@@ -1394,15 +1394,6 @@
         </td>
       </tr>`;
       document.getElementById('risk-pg-info').textContent = '0 / 0';
-      
-      // Empty other KPIs
-      document.getElementById('hdr-issue-count').textContent = '0 个';
-      const avgScoreEl = document.getElementById('hdr-avg-score');
-      if (avgScoreEl) avgScoreEl.textContent = '-';
-      document.getElementById('hdr-total').textContent = '0';
-      document.getElementById('hdr-anomaly').textContent = '0';
-      const topIssueEl = document.getElementById('hdr-top-issue');
-      if (topIssueEl) topIssueEl.textContent = '没有数据可供分析。';
       
       ['radar-total','radar-n','kpi-total','kpi-combined-score','kpi-rule-score','kpi-llm-score','kpi-llm-coverage','llm-evaluated-n','kpi-p95','kpi-p50','band-green','band-orange','band-purple','band-red','kpi-cost','kpi-tokens'].forEach(id => {
         const el = document.getElementById(id);
@@ -1732,6 +1723,8 @@
           const sourceText = meta.source === 'llm' ? 'GPT-5.5' : '规则评估';
           const color = meta.color || (meta.source === 'llm' ? 'purple' : 'blue');
           topIssueEl.innerHTML = `最常见的问题是「<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium" style="background:color-mix(in srgb, var(--apple-${color}) 10%, transparent);color:var(--apple-${color})">${escapeHtml(label)}</span>」，来源 <span style="color:var(--apple-${color})">${sourceText}</span>，命中 <span class="num-mono">${meta.count}</span> 次。${pendingHint}`;
+        } else if (anomalyCount > 0) {
+          topIssueEl.innerHTML = `共有 <span class="num-mono">${anomalyCount}</span> 个异常会话，明细列表仍在加载或当前返回批次无可聚类标签。${pendingHint}`;
         } else if (analyzedTotal) {
           topIssueEl.innerHTML = `已分析的 session 均处于健康档位。${pendingHint}`;
         } else {

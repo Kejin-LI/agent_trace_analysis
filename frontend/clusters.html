@@ -354,7 +354,7 @@
 
 <script src="./efficiency-helper.js"></script>
 <script src="./tag-system.js"></script>
-<script src="./db-api.js?v=20260618-list-readpath-harden"></script>
+<script src="./db-api.js?v=20260618-issue-count-unified"></script>
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
  * 数据源：接口实时返回的 session 列表（与大盘 / 明细共用）
@@ -370,6 +370,7 @@ const STATE = {
   customFrom: parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null,
   customTo: parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null,
   summary: null,
+  anomalyTotal: 0,
   loadedKey: '',
   requestSeq: 0,
 };
@@ -807,7 +808,8 @@ function render() {
 
   // 概览
   const clusters = buildClusters(effective);
-  const affectedCount = countAffectedSessionsFromClusters(clusters);
+  const loadedAffectedCount = countAffectedSessionsFromClusters(clusters);
+  const affectedCount = Number(STATE.anomalyTotal || 0) || loadedAffectedCount;
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
   document.getElementById('ovw-total').textContent = affectedCount;
@@ -889,6 +891,7 @@ function renderLoadingState(label) {
     if (seq !== STATE.requestSeq) return;
     STATE.loadedKey = key;
     ALL_SESSIONS = d.sessions || [];
+    STATE.anomalyTotal = Number(d.total || 0) || ALL_SESSIONS.length;
     const capHintEl = document.getElementById('cap-hint');
     if (capHintEl) capHintEl.classList.toggle('hidden', !(d.truncated || ((d.total || 0) > ALL_SESSIONS.length)));
     render();

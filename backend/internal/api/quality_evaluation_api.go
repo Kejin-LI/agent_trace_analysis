@@ -390,6 +390,7 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.refreshAggregateIssueForQualityEvaluation(row)
 	c.JSON(http.StatusOK, qualityEvaluationResponse(row))
 }
 
