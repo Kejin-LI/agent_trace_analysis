@@ -209,9 +209,11 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
 		g.GET("/dashboard-summary", h.getDashboardSummary)
 		g.GET("/top-anomaly-sessions", h.getTopAnomalySessions)
+		g.GET("/anomaly-sessions", h.getAnomalySessions)
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
+		g.POST("/backfill-range", h.backfillRange)
 		g.POST("/ai-diagnose", h.diagnose)
 		g.POST("/llm-judge", h.llmJudgeEvaluate)
 		g.POST("/llm-judge/async", h.llmJudgeAsyncStart)
@@ -362,6 +364,10 @@ func (h *Handler) listSessions(c *gin.Context) {
 func (h *Handler) listSessionBundles(c *gin.Context) {
 	switch dataSourceMode() {
 	case "api":
+		if h.db != nil {
+			h.listSessionBundlesDBFirst(c)
+			return
+		}
 		h.listSessionBundlesAPI(c)
 		return
 	case "tos":

@@ -437,6 +437,34 @@ func (a *Aggregator) EnsureDays(cookie string, dates []string) {
 	}
 }
 
+func (a *Aggregator) ForceQueueDays(cookie string, dates []string) (queued []string, alreadyRunning []string, skipped []string) {
+	if a == nil || a.db == nil || strings.TrimSpace(cookie) == "" {
+		return nil, nil, normalizedDaysDesc(dates)
+	}
+	a.rememberCookie(cookie)
+	for _, date := range normalizedDaysDesc(dates) {
+		priority, ok := aggregatePriorityForDate(date)
+		if !ok {
+			skipped = append(skipped, date)
+			continue
+		}
+		if !a.acquireDateFlight(date) {
+			alreadyRunning = append(alreadyRunning, date)
+			continue
+		}
+		if a.enqueueJob(aggregateJob{cookie: cookie, date: date, includePublished: true}, priority) {
+			queued = append(queued, date)
+			continue
+		}
+		a.releaseDateFlight(date)
+		skipped = append(skipped, date)
+	}
+	if len(queued) > 0 || len(alreadyRunning) > 0 || len(skipped) > 0 {
+		log.Printf("aggregator: manual refresh queued=%v running=%v skipped=%v", queued, alreadyRunning, skipped)
+	}
+	return queued, alreadyRunning, skipped
+}
+
 func (a *Aggregator) enqueueJob(job aggregateJob, priority aggregatePriority) bool {
 	if a == nil {
 		return false

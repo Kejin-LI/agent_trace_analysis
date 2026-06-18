@@ -109,6 +109,24 @@
   .with-tip > .tip .tip-row > span:last-child { color: #fff; text-align: right; }
   .with-tip:hover { z-index: 9999; }
   .with-tip:hover > .tip { opacity: 1; transform: translateY(0); }
+  .refresh-icon-btn {
+    width: 28px; height: 28px; border-radius: 9999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; color: var(--text-tertiary);
+    transition: background .15s ease, color .15s ease, transform .15s ease;
+  }
+  .refresh-icon-btn:hover { background: rgba(0,0,0,0.06); color: var(--text-secondary); }
+  .refresh-icon-btn:disabled { opacity: 1; cursor: default; }
+  .refresh-icon-btn .refresh-icon {
+    width: 14px; height: 14px;
+    transition: transform .15s ease;
+  }
+  .refresh-icon-btn.is-spinning .refresh-icon {
+    animation: pending-spin 0.9s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-icon-btn.is-spinning .refresh-icon { animation: none; }
+  }
   /* 筛选条只高于表格内容，不能盖住顶部导航栏及其菜单 */
   .filter-bar { position: relative; z-index: 20; overflow: visible !important; }
   .filter-bar .seg { overflow: visible; }
@@ -434,6 +452,20 @@
     </div>
 
     <div class="ml-auto text-[12px] text-[--text-secondary] flex items-center gap-2">
+      <button
+        id="refresh-range-btn"
+        class="refresh-icon-btn with-tip"
+        type="button"
+        aria-label="只同步最近24h"
+      >
+        <svg class="refresh-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 10-2.34 5.66M20 4v7h-7"/>
+        </svg>
+        <span class="tip">
+          <span class="tip-title">刷新最近24h</span>
+          只同步最近24h，避免一次性拉取过大范围导致内存压力升高。
+        </span>
+      </button>
       <span>排序：</span>
       <div class="dd" data-key="sort">
         <button class="dd-btn is-active"><span class="dd-label">开始时间 ↓</span><svg class="caret" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>
@@ -503,7 +535,7 @@
 
 </main>
 
-<script src="./db-api.js?v=20260618-menu-load-fix"></script>
+<script src="./db-api.js?v=20260618-dashboard-dbfirst-refresh"></script>
 <script src="./range-picker.js"></script>
 <script>
   // ===== 数据驱动：sessions.json -> 筛选 / 搜索 / 排序 / 分页 =====
@@ -517,6 +549,7 @@
     const ddAnomaly = document.getElementById('dd-anomaly-type');
     const ddScore = document.getElementById('dd-score');
     const ddSort = document.getElementById('dd-sort');
+    const refreshRangeBtn = document.getElementById('refresh-range-btn');
     const pgInfo = document.getElementById('pagination-info');
     const pgPages = document.getElementById('pagination-pages');
     if (!tbody) return;
@@ -710,12 +743,18 @@
 
     // 时间范围对应的毫秒数：与后端请求保持一致，均以当前系统时间为基准。
     const RANGE_MS = { '24h': 24*3600e3, '7d': 7*86400e3, '30d': 30*86400e3 };
+    const DISPLAY_CAP = 2000;
+    const REFRESH_POLL_INTERVAL_MS = 5000;
+    const REFRESH_POLL_MAX_ROUNDS = 18;
+    const REFRESH_POLL_MIN_ROUNDS = 2;
     let tooltipReady = false;
     let loadSeq = 0;
     const SESSIONS_CACHE_TTL_MS = 2 * 60 * 1000;
-    const SESSIONS_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v2:';
+    const SESSIONS_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v3:';
     const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
     const sessionsRangeCache = new Map();
+    let refreshRangePollToken = 0;
+    let refreshRangeStatusTimer = 0;
 
     function readSessionsCache(key) {
       if (sessionsRangeCache.has(key)) return sessionsRangeCache.get(key);
@@ -738,6 +777,13 @@
       } catch {
         // 列表数据较大时可能超过浏览器容量，内存缓存仍可加速当前页面切换。
       }
+    }
+
+    function clearSessionsCache(key) {
+      sessionsRangeCache.delete(key);
+      try {
+        sessionStorage.removeItem(SESSIONS_CACHE_PREFIX + key);
+      } catch {}
     }
 
     function readPendingSessionQualityUpdate() {
@@ -827,6 +873,32 @@
       };
     }
 
+    function rangeDatesFromQuery(query) {
+      if (!query.startTime || !query.endTime) return [];
+      const start = new Date(query.startTime.replace(' ', 'T'));
+      const end = new Date(query.endTime.replace(' ', 'T'));
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+      const dates = [];
+      const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      while (cursor <= last) {
+        dates.push(`${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}`);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return dates.reverse();
+    }
+
+    function setRefreshRangeStatus() {}
+
+    function scheduleRefreshRangeStatusClear() {}
+
+    function setRefreshRangeButtonLoading(loading) {
+      if (!refreshRangeBtn) return;
+      refreshRangeBtn.disabled = !!loading;
+      refreshRangeBtn.classList.toggle('is-spinning', !!loading);
+      refreshRangeBtn.setAttribute('aria-label', loading ? '最近24h同步中' : '只同步最近24h');
+    }
+
     const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
 
     function buildDetailSeed(session) {
@@ -904,7 +976,7 @@
       if (capHintEl) {
         const loaded = state.all.length;
         const sourceTotal = Math.max(state.sourceTotal, loaded);
-        const truncated = sourceTotal > loaded;
+        const truncated = loaded >= DISPLAY_CAP && sourceTotal > loaded;
         capHintEl.classList.toggle('hidden', !truncated);
         if (truncated) {
           capHintEl.innerHTML = `⚠️ 当前时间范围内共 <span class="num-mono">${sourceTotal.toLocaleString()}</span> 条 session，页面仅展示最新 <span class="num-mono">${loaded.toLocaleString()}</span> 条；筛选、搜索和统计也仅基于这 <span class="num-mono">${loaded.toLocaleString()}</span> 条。请缩小时间范围查看完整数据。`;
@@ -920,15 +992,16 @@
       if (gl) hideGlobalLoader();
     }
 
-    async function reloadSessions() {
+    async function reloadSessions(opts = {}) {
       const { query, key } = currentRangeQuery();
       const seq = ++loadSeq;
       const cached = readSessionsCache(key);
       const cacheAge = cached ? Date.now() - cached.ts : Infinity;
       const hasFreshCache = cacheAge <= SESSIONS_CACHE_TTL_MS;
+      const force = !!opts.force;
       if (cached) {
         applySessionsPayload(cached.payload);
-        if (hasFreshCache) return;
+        if (hasFreshCache && !force) return;
       } else {
         setSessionsLoadingState();
       }
@@ -942,6 +1015,82 @@
       if (seq !== loadSeq) return;
       writeSessionsCache(key, { ts: Date.now(), payload: d });
       applySessionsPayload(d);
+    }
+
+    function shouldContinueRangePolling(targetDates, statusRows, refreshStartedAt, round) {
+      if (round < REFRESH_POLL_MIN_ROUNDS) return true;
+      const rows = Array.isArray(statusRows) ? statusRows : [];
+      const byDate = new Map(rows.map(row => [String(row.aggregate_date || ''), row]));
+      return targetDates.some(date => {
+        const row = byDate.get(date);
+        if (!row) return true;
+        if (String(row.status || '').toLowerCase() === 'running') return true;
+        const refreshedAt = Date.parse(row.last_aggregated_at || row.finished_at || '');
+        if (!Number.isFinite(refreshedAt)) return true;
+        return refreshedAt + 1000 < refreshStartedAt;
+      });
+    }
+
+    async function pollRefreshRange(targetDates, refreshStartedAt, round, token) {
+      if (token !== refreshRangePollToken) return;
+      clearSessionsCache(currentRangeQuery().key);
+      try {
+        await reloadSessions({ force: true });
+      } catch {}
+      if (token !== refreshRangePollToken) return;
+      if (round >= REFRESH_POLL_MAX_ROUNDS) {
+        setRefreshRangeButtonLoading(false);
+        setRefreshRangeStatus('补算已触发，数据可能仍在后台陆续更新', 'warn');
+        scheduleRefreshRangeStatusClear(8000);
+        return;
+      }
+      try {
+        const statusPayload = await window.AgentTraceDB.loadAggregateStatus({ limit: Math.max(7, targetDates.length) });
+        if (!shouldContinueRangePolling(targetDates, statusPayload?.data || [], refreshStartedAt, round)) {
+          setRefreshRangeButtonLoading(false);
+          setRefreshRangeStatus('当前范围补算完成，列表已刷新', 'muted');
+          scheduleRefreshRangeStatusClear(5000);
+          return;
+        }
+      } catch {}
+      window.setTimeout(() => pollRefreshRange(targetDates, refreshStartedAt, round + 1, token), REFRESH_POLL_INTERVAL_MS);
+    }
+
+    async function triggerRefreshRange() {
+      if (!refreshRangeBtn) return;
+      const end = Date.now();
+      const query = {
+        startTime: fmtQueryTime(end - RANGE_MS['24h']),
+        endTime: fmtQueryTime(end),
+      };
+      const { key } = currentRangeQuery();
+      if (!query.startTime || !query.endTime) {
+        setRefreshRangeStatus('请先选定完整时间范围', 'warn');
+        scheduleRefreshRangeStatusClear();
+        return;
+      }
+      const targetDates = rangeDatesFromQuery(query);
+      setRefreshRangeButtonLoading(true);
+      setRefreshRangeStatus('已触发最近 24h 补算，数据会陆续更新', 'loading');
+      const refreshStartedAt = Date.now();
+      try {
+        const payload = await window.AgentTraceDB.backfillRange(query);
+        const queuedDays = Array.isArray(payload?.started_days) ? payload.started_days : targetDates;
+        const runningDays = Array.isArray(payload?.already_running_days) ? payload.already_running_days : [];
+        if (!queuedDays.length && !runningDays.length) {
+          setRefreshRangeButtonLoading(false);
+          setRefreshRangeStatus('当前范围暂无可补算日期', 'muted');
+          scheduleRefreshRangeStatusClear();
+          return;
+        }
+        clearSessionsCache(key);
+        refreshRangePollToken += 1;
+        pollRefreshRange(targetDates, refreshStartedAt, 0, refreshRangePollToken);
+      } catch (err) {
+        setRefreshRangeButtonLoading(false);
+        setRefreshRangeStatus(err?.message || '触发补算失败，请稍后重试', 'error');
+        scheduleRefreshRangeStatusClear(8000);
+      }
     }
 
     function getSessionMeta(s) {
@@ -1308,6 +1457,7 @@
       renderAll();
       searchInput.focus();
     });
+    refreshRangeBtn?.addEventListener('click', triggerRefreshRange);
 
     // ----- 通用下拉交互 -----
     function setupDropdown(dd) {
@@ -1384,6 +1534,9 @@
       window.mountRangePicker({
         container: document.getElementById('global-range'),
         onChange: async (range, customFrom, customTo) => {
+          refreshRangePollToken += 1;
+          setRefreshRangeButtonLoading(false);
+          setRefreshRangeStatus('');
           state.filter.range = range;
           if (range === 'custom') {
             state.filter.customFrom = customFrom || null;

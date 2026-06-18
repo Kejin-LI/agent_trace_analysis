@@ -130,6 +130,43 @@
     throw new Error(friendlyFetchError(path, errors));
   }
 
+  async function postJSON(path, body) {
+    const errors = [];
+    const bases = resolvedBase ? [resolvedBase] : candidateBases();
+    const finalPath = path.startsWith('/') ? basePath() + path.slice(1) : path;
+    for (const base of bases) {
+      const url = base.replace(/\/$/, '') + finalPath;
+      try {
+        const isCrossOrigin = new URL(url, window.location.href).origin !== window.location.origin;
+        const resp = await fetch(url, {
+          method: 'POST',
+          cache: 'no-store',
+          credentials: isCrossOrigin ? 'include' : 'same-origin',
+          headers: body ? { 'Content-Type': 'application/json' } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ' + url);
+        if (resp.status === 204) return null;
+        const text = await resp.text();
+        if (!text) return null;
+        const trimmed = text.trim();
+        if (trimmed.startsWith('<')) {
+          if (isLocalEnv() && localStorage.getItem('agenttrace.apiBase') === base) {
+            localStorage.removeItem('agenttrace.apiBase');
+          }
+          throw new Error('Non-JSON response @ ' + url);
+        }
+        const json = JSON.parse(text);
+        resolvedBase = base;
+        if (isLocalEnv()) localStorage.setItem('agenttrace.apiBase', base);
+        return json;
+      } catch (err) {
+        errors.push(err.message || String(err));
+      }
+    }
+    throw new Error(friendlyFetchError(path, errors));
+  }
+
   function scoreBand(score) {
     if (score >= 85) return 'green';
     if (score >= 70) return 'orange';
@@ -405,6 +442,43 @@
     };
   }
 
+  async function loadAnomalySessions(opts) {
+    const requestedLimit = Number(opts && opts.limit);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(800, Math.round(requestedLimit)))
+      : 600;
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    const payload = await fetchJSON('/api/anomaly-sessions?' + params.toString());
+    const sessions = (payload?.data || []).map(normalizeSession);
+    return {
+      sessions,
+      total: Number(payload?.filtered_total ?? payload?.total ?? sessions.length) || sessions.length,
+      candidateTotal: Number(payload?.candidate_total || 0) || sessions.length,
+      truncated: Boolean(payload?.truncated),
+      limit: payload?.limit || 0,
+      offset: payload?.offset || 0,
+      anomalyOnly: true,
+      apiBase: resolvedBase,
+    };
+  }
+
+  async function loadAggregateStatus(opts) {
+    const requestedLimit = Number(opts && opts.limit);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(31, Math.round(requestedLimit)))
+      : 7;
+    return await fetchJSON('/api/aggregate-status?limit=' + String(limit));
+  }
+
+  async function backfillRange(opts) {
+    const params = new URLSearchParams();
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    return await postJSON('/api/backfill-range' + (params.toString() ? '?' + params.toString() : ''), null);
+  }
+
   async function loadSession(sessionId, opts) {
     const metaOnly = opts && opts.metaOnly;
     const params = new URLSearchParams();
@@ -423,6 +497,9 @@
     loadSessions,
     loadDashboardSummary,
     loadTopAnomalySessions,
+    loadAnomalySessions,
+    loadAggregateStatus,
+    backfillRange,
     loadSession,
     getApiBase: function () { return resolvedBase || candidateBases()[0] || ''; },
     // buildUrl 把 "/api/x" 解析成与 fetchJSON 完全一致的最终 URL（含网关前缀），
