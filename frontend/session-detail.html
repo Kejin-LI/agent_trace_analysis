@@ -783,17 +783,30 @@
     background: rgba(120,120,128,0.05);
     border-radius: 0 8px 8px 0;
   }
+  .inj-ctx.inj-ctx-synthetic-title {
+    border-left-color: rgba(191,90,242,0.42);
+    background: rgba(191,90,242,0.08);
+  }
   .inj-ctx-head {
     display: flex; align-items: center; gap: 5px;
     padding: 4px 8px; cursor: pointer; user-select: none;
     font-size: 10.5px; color: var(--text-tertiary);
   }
   .inj-ctx-head:hover { color: var(--text-secondary); }
+  .inj-ctx.inj-ctx-synthetic-title .inj-ctx-head {
+    color: #6D28D9;
+    font-weight: 600;
+  }
+  .inj-ctx.inj-ctx-synthetic-title .inj-ctx-head:hover { color: #5B21B6; }
   .inj-ctx-caret { font-size: 9px; width: 10px; flex: none; }
   .inj-ctx-tag {
     margin-left: auto; padding: 0 6px; border-radius: 6px;
     font-size: 9.5px; color: var(--text-tertiary);
     background: rgba(120,120,128,0.1);
+  }
+  .inj-ctx.inj-ctx-synthetic-title .inj-ctx-tag {
+    color: #6D28D9;
+    background: rgba(191,90,242,0.14);
   }
   .inj-ctx-body {
     padding: 6px 10px 8px; margin: 0;
@@ -801,6 +814,12 @@
     white-space: pre-wrap; word-break: break-word;
     max-height: 320px; overflow: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .inj-ctx.inj-ctx-synthetic-title .inj-ctx-body {
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--text-primary);
+    font-family: inherit;
   }
   .clarify-reply {
     margin-top: 7px; padding: 7px 9px;
@@ -4834,6 +4853,15 @@
     ].includes(compact);
   }
 
+  function isTitleGenerationPrompt(text) {
+    const normalized = normalizePromptText(text).toLowerCase();
+    return /^generate a title for this conversation:?$/.test(normalized)
+      || /^write a title for this conversation:?$/.test(normalized)
+      || /^summarize this conversation in a title:?$/.test(normalized)
+      || /^generate a concise title for this conversation:?$/.test(normalized)
+      || /^write a concise title for this conversation:?$/.test(normalized);
+  }
+
   // 工具回填的"合成 user 消息"签名：web_fetch / web_search 等工具执行后，
   // 框架会以 user 角色把结果回填给模型（如 "The user requested the following: ...
   // I was unable to access the URL... I have fetched the raw content ..."）。
@@ -4849,6 +4877,9 @@
     const strippedQuestionAnswer = stripQuestionAnswerResultPayload(t);
     if (strippedQuestionAnswer.trim() === '' && findQuestionAnswerResultPayload(t)) {
       return { kind: 'clarify_answer_result', label: '澄清答案回填', desc: '意图澄清组件提交的结构化答案，非原始用户输入' };
+    }
+    if (isTitleGenerationPrompt(t)) {
+      return { kind: 'title_generation', label: '标题生成任务', desc: '系统为已有对话自动生成会话标题的内部任务，不代表用户发起了新一轮提问' };
     }
     if (/The user requested the following/i.test(t)
       || /I have fetched the raw content/i.test(t)
@@ -5038,14 +5069,19 @@
   function renderSyntheticPromptBlock(info, rawText) {
     if (!info) return '';
     const id = 'synprm-' + (++__synSeq);
+    const kind = String(info.kind || '');
     const label = info.label || '框架内部消息';
     const desc = info.desc || '由 Agent 框架以 role:user 通道发送，并非真实用户输入';
+    const title = kind === 'title_generation'
+      ? '📝 会话标题生成任务（非用户输入）'
+      : '🛠 框架内部 prompt（非用户输入）';
+    const cls = kind === 'title_generation' ? 'inj-ctx inj-ctx-synthetic-title' : 'inj-ctx';
     const safeRaw = escapeHTML(String(rawText || '').trim());
     return `
-      <div class="inj-ctx" style="margin-left:0;margin-right:0;max-width:100%">
+      <div class="${cls}" style="margin-left:0;margin-right:0;max-width:100%">
         <div class="inj-ctx-head" onclick="(function(el){var b=el.parentNode.querySelector('.inj-ctx-body');var c=el.querySelector('.inj-ctx-caret');var open=b.style.display==='block';b.style.display=open?'none':'block';c.textContent=open?'▸':'▾';})(this)">
           <span class="inj-ctx-caret">▸</span>
-          <span>🛠 框架内部 prompt（非用户输入）</span>
+          <span>${title}</span>
           <span class="inj-ctx-tag">${escapeHTML(label)}</span>
         </div>
         <div class="inj-ctx-body" id="${id}" style="display:none">

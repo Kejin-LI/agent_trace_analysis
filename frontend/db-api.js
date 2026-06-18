@@ -44,6 +44,24 @@
     return {};
   }
 
+  function normalizeObjectLike(value, fallback) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = safeJSON(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    }
+    return fallback;
+  }
+
+  function normalizeArrayLike(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = safeJSON(value);
+      if (Array.isArray(parsed)) return parsed;
+    }
+    return [];
+  }
+
   // 部署在 agentic-aidp.bytedance.net 这种带网关前缀的环境下，本地回环兜底毫无意义且会污染缓存，
   // 因此仅在 localhost / 内网开发地址下才尝试 127.0.0.1。
   function isLocalEnv() {
@@ -264,7 +282,11 @@
   }
 
   function normalizeSession(raw) {
-    const traces = (raw.traces || []).map(normalizeTrace);
+    const tracesRaw = normalizeArrayLike(raw.traces);
+    const rulesRaw = normalizeArrayLike(raw.rules);
+    const featuresRaw = normalizeObjectLike(raw.features, {});
+    const rawRadar = normalizeObjectLike(raw.radar, null);
+    const traces = tracesRaw.map(normalizeTrace);
     const allSpans = traces.flatMap(t => t.spans || []);
     const modelSpans = allSpans.filter(sp => sp.span_type === 'model');
     const turns = modelSpans.length || Number(raw.turns || 0) || traces.length;
@@ -275,7 +297,6 @@
     const helper = window.AgentTraceEfficiency;
     const llmJudgeResult = raw.llm_judge_result || raw.llmJudgeResult || raw.llm_judge || raw.gpt55_judge_result || null;
     const persistedScore = parseOptionalScore(raw.score);
-    const rawRadar = raw.radar && typeof raw.radar === 'object' ? raw.radar : null;
     const hasRadarEvidence = rawRadar && ['response', 'stability', 'thinking', 'resource', 'orchestration']
       .some(key => typeof rawRadar[key] === 'number' && !Number.isNaN(rawRadar[key]));
 
@@ -295,9 +316,9 @@
       output_tokens: outputTokens,
       trace_count: Number(raw.trace_count || 0) || traces.length,
       turns,
-      tool_calls: Number(raw.tool_calls || 0) || Number(raw.features?.tool_calls || 0),
-      features: raw.features || {},
-      rules: raw.rules || [],
+      tool_calls: Number(raw.tool_calls || 0) || Number(featuresRaw.tool_calls || 0),
+      features: featuresRaw,
+      rules: rulesRaw,
       radar: rawRadar,
       traces,
       terminated_by: raw.terminated_by || '',
