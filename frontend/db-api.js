@@ -15,14 +15,18 @@
     try { return JSON.parse(v); } catch { return null; }
   }
 
-  function friendlyFetchError(errors) {
+  function friendlyFetchError(path, errors) {
     const uniqueErrors = uniq(errors.map(e => String(e || '').trim()).filter(Boolean));
     if (!uniqueErrors.length) return '接口请求失败';
     if (uniqueErrors.some(e => /http 401\b|http 403\b/i.test(e))) {
       return '接口鉴权失败，请重新登录后重试';
     }
     if (uniqueErrors.some(e => /http 404\b/i.test(e))) {
-      return '未找到该会话详情';
+      const cleanPath = String(path || '');
+      if (/^\/api\/session-bundles\/[^/?]+(?:\?|$)/.test(cleanPath)) {
+        return '未找到该会话详情';
+      }
+      return '接口地址不存在（404），请检查服务是否已发布最新后端';
     }
     if (uniqueErrors.every(e => /failed to fetch/i.test(e))) {
       return '接口连接失败，请确认已登录并使用线上同域页面访问';
@@ -105,7 +109,7 @@
         errors.push(err.message || String(err));
       }
     }
-    throw new Error(friendlyFetchError(errors));
+    throw new Error(friendlyFetchError(path, errors));
   }
 
   function scoreBand(score) {

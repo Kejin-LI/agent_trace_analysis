@@ -715,6 +715,7 @@
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     };
     let applySeq = 0;
+    let currentAppliedRange = localStorage.getItem('agenttrace.range') || '24h';
     let appliedRangeKey = '';
     const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
     const DASHBOARD_CACHE_PREFIX = 'agenttrace.dashboard.rangeCache.v1:';
@@ -941,6 +942,7 @@
     }
 
     async function apply(range) {
+      currentAppliedRange = range || '24h';
       const { query, customFrom, customTo, key } = currentRangeQuery(range);
       const label = (range === 'custom' && customFrom && customTo)
         ? fmtCustom(customFrom, customTo)
@@ -1483,7 +1485,7 @@
       }
 
       const detailParams = new URLSearchParams({ id: String(s.id || ''), artifact_status: 'unpublished' });
-      const detailRange = currentRangeQuery(state.range).query || {};
+      const detailRange = currentRangeQuery(currentAppliedRange).query || {};
       if (detailRange.startTime) detailParams.set('start_time', detailRange.startTime);
       if (detailRange.endTime) detailParams.set('end_time', detailRange.endTime);
       const detailHref = `./session-detail?${detailParams.toString()}`;
