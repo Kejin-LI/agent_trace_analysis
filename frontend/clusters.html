@@ -373,6 +373,7 @@ const STATE = {
   anomalyTotal: 0,
   loadedKey: '',
   requestSeq: 0,
+    rangeCache: Object.create(null),
 };
 
 function fmtQueryTime(ms) {
@@ -746,6 +747,18 @@ function clampHitSessionRows(card, maxRows) {
   }
 }
 
+function scheduleClampHitSessionRows(card, maxRows) {
+  if (!card) return;
+  clampHitSessionRows(card, maxRows);
+  window.requestAnimationFrame(() => {
+    clampHitSessionRows(card, maxRows);
+    window.requestAnimationFrame(() => clampHitSessionRows(card, maxRows));
+  });
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+    document.fonts.ready.then(() => clampHitSessionRows(card, maxRows)).catch(() => {});
+  }
+}
+
 /* ============== sparkline ============== */
 function drawSpark(card, series, buckets, color) {
   const svg = card.querySelector('.spark');
@@ -876,7 +889,7 @@ function render() {
     const cluster = clusters[i];
     const seriesStats = genSeriesStats(cluster, buckets);
     drawSpark(card, seriesStats.series, seriesStats.buckets, COLOR[cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue')] || COLOR.blue);
-    clampHitSessionRows(card, 3);
+    scheduleClampHitSessionRows(card, 3);
   });
 }
 
@@ -927,7 +940,14 @@ function renderLoadingState(label) {
       STATE.customTo = null;
     }
     const { query, key } = currentRangeQuery();
-    if (STATE.loadedKey === key) {
+    const cached = STATE.rangeCache[key];
+    if (cached) {
+      STATE.loadedKey = key;
+      ALL_SESSIONS = cached.sessions || [];
+      STATE.summary = cached.summary || null;
+      STATE.anomalyTotal = Number(cached.anomalyTotal || 0) || ALL_SESSIONS.length;
+      const capHintEl = document.getElementById('cap-hint');
+      if (capHintEl) capHintEl.classList.toggle('hidden', !cached.truncated);
       render();
       return;
     }
@@ -945,8 +965,14 @@ function renderLoadingState(label) {
     ALL_SESSIONS = d.sessions || [];
     STATE.summary = summary;
     STATE.anomalyTotal = Number(d.total || 0) || ALL_SESSIONS.length;
+    STATE.rangeCache[key] = {
+      sessions: ALL_SESSIONS.slice(),
+      summary,
+      anomalyTotal: STATE.anomalyTotal,
+      truncated: Boolean(d.truncated || ((d.total || 0) > ALL_SESSIONS.length)),
+    };
     const capHintEl = document.getElementById('cap-hint');
-    if (capHintEl) capHintEl.classList.toggle('hidden', !(d.truncated || ((d.total || 0) > ALL_SESSIONS.length)));
+    if (capHintEl) capHintEl.classList.toggle('hidden', !STATE.rangeCache[key].truncated);
     render();
   }
   try {
