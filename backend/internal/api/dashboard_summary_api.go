@@ -130,10 +130,29 @@ func (h *Handler) buildDashboardSummaryOptimized(tr modellog.TimeRange) (apiDash
 	if err != nil {
 		return apiDashboardSummary{}, err
 	}
+	exactAnomalyCount := -1
+	if apiSessionAggregateHasIssueColumn(h.db) {
+		exactAnomalyCount, err = h.countDashboardIssueSessions(tr)
+		if err != nil {
+			return apiDashboardSummary{}, err
+		}
+	}
 	if summary.AnalyzedCount > 0 || summary.AnomalyCount > 0 || summary.LLMEvaluatedCount > 0 {
+		if exactAnomalyCount >= 0 {
+			// 大盘整体摘要仍优先走日汇总以控制延迟，但异常数必须与异常页保持同一
+			// 「精确时间窗 + has_issue」口径，避免 24h/自定义窗口被自然日汇总放大。
+			summary.AnomalyCount = exactAnomalyCount
+		}
 		return summary, nil
 	}
-	return h.buildDashboardSummaryFromAggregates(tr)
+	summary, err = h.buildDashboardSummaryFromAggregates(tr)
+	if err != nil {
+		return apiDashboardSummary{}, err
+	}
+	if exactAnomalyCount >= 0 {
+		summary.AnomalyCount = exactAnomalyCount
+	}
+	return summary, nil
 }
 
 func (h *Handler) buildDashboardSummaryFromDailySummaries(tr modellog.TimeRange) (apiDashboardSummary, error) {
@@ -396,6 +415,19 @@ func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]mo
 		return nil, 0, err
 	}
 	return rows, int(total), nil
+}
+
+func (h *Handler) countDashboardIssueSessions(tr modellog.TimeRange) (int, error) {
+	q, ok := h.dashboardAggregateRangeQuery(tr)
+	if !ok {
+		return 0, nil
+	}
+	q = q.Where("session_id LIKE ?", "ses\\_%").Where("has_issue = ?", true)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return int(total), nil
 }
 
 func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int) ([]model.APISessionAggregate, int, error) {

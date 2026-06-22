@@ -333,8 +333,8 @@
         <span class="help">受影响 Session
           <div class="help-tip">
             <div class="tip-title">受影响 Session</div>
-            当前卡片中，被任意一类异常命中过的 session 去重总数（一个 session 可能命中多类，只算 1 次）。分母为大盘同口径的异常 Session 总数。
-            <div class="tip-formula">count(distinct session_id where any rule/GPT tag failed)</div>
+            当前卡片中，被任意一类异常命中过的 session 去重总数（一个 session 可能命中多类，只算 1 次）。分母为当前筛选范围内的总 session 数，与大盘总数保持一致。
+            <div class="tip-formula">count(distinct session_id where any rule/GPT tag failed) / count(distinct session_id in range)</div>
           </div>
         </span>
       </div>
@@ -855,9 +855,10 @@ function render() {
   const clusters = buildClusters(effective);
   const loadedAffectedCount = countAffectedSessionsFromClusters(clusters);
   const affectedCount = Number(STATE.anomalyTotal || 0) || loadedAffectedCount;
+  const totalCount = Number(STATE.summary?.total || 0) || ALL_SESSIONS.length || affectedCount;
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
-  document.getElementById('ovw-total').textContent = affectedCount;
+  document.getElementById('ovw-total').textContent = totalCount;
   // 卡片
   if (!clusters.length) {
     grid.innerHTML = renderGlobalEmpty();
@@ -931,12 +932,18 @@ function renderLoadingState(label) {
       return;
     }
     renderLoadingState(rangeLabel(STATE.range, STATE.customFrom, STATE.customTo));
-    const d = await (window.AgentTraceDB.loadAnomalySessions
-      ? window.AgentTraceDB.loadAnomalySessions(query)
-      : window.AgentTraceDB.loadTopAnomalySessions(query));
+    const [d, summary] = await Promise.all([
+        window.AgentTraceDB.loadAnomalySessions
+          ? window.AgentTraceDB.loadAnomalySessions(query)
+          : window.AgentTraceDB.loadTopAnomalySessions(query),
+        window.AgentTraceDB.loadDashboardSummary
+          ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
+          : Promise.resolve(null),
+    ]);
     if (seq !== STATE.requestSeq) return;
     STATE.loadedKey = key;
     ALL_SESSIONS = d.sessions || [];
+    STATE.summary = summary;
     STATE.anomalyTotal = Number(d.total || 0) || ALL_SESSIONS.length;
     const capHintEl = document.getElementById('cap-hint');
     if (capHintEl) capHintEl.classList.toggle('hidden', !(d.truncated || ((d.total || 0) > ALL_SESSIONS.length)));
