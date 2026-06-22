@@ -765,6 +765,7 @@
         key: range,
       };
     }
+    window.currentRangeQuery = currentRangeQuery;
 
     const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
 
@@ -785,6 +786,7 @@
         chip: String(topTag || (scoreValue === null ? '--' : scoreValue >= 85 ? '健康' : scoreValue >= 70 ? '注意' : scoreValue >= 50 ? '亚健康' : '严重')),
       };
     }
+    window.buildDetailSeed = buildDetailSeed;
 
     function persistDetailSeed(seed) {
       if (!seed || !seed.id) return;
@@ -799,6 +801,7 @@
         persistDetailSeed(JSON.parse(decodeURIComponent(tr.dataset.detailSeed)));
       } catch {}
     }
+    window.persistDetailSeedFromRow = persistDetailSeedFromRow;
 
     function setDashboardLoadingState(label) {
       const issueCountEl = document.getElementById('hdr-issue-count');
@@ -1479,11 +1482,13 @@
       }
 
       const detailParams = new URLSearchParams({ id: String(s.id || ''), artifact_status: 'unpublished' });
-      const detailRange = currentRangeQuery(currentAppliedRange).query || {};
+      const detailRange = (typeof window.currentRangeQuery === 'function'
+        ? window.currentRangeQuery(currentAppliedRange)
+        : { query: {} }).query || {};
       if (detailRange.startTime) detailParams.set('start_time', detailRange.startTime);
       if (detailRange.endTime) detailParams.set('end_time', detailRange.endTime);
       const detailHref = `./session-detail?${detailParams.toString()}`;
-      const detailSeed = encodeURIComponent(JSON.stringify(buildDetailSeed(s)));
+      const detailSeed = encodeURIComponent(JSON.stringify(window.buildDetailSeed ? window.buildDetailSeed(s) : {}));
       return `<tr class="hover:bg-white/40 cursor-pointer transition-colors" data-href="${detailHref}" data-detail-seed="${detailSeed}">
         <td class="px-5 py-3.5">
           ${hasDisplayScore
@@ -1513,7 +1518,7 @@
     tbody.addEventListener('click', e => {
       const tr = e.target.closest('tr[data-href]');
       if (!tr || !tbody.contains(tr)) return;
-      persistDetailSeedFromRow(tr);
+      if (window.persistDetailSeedFromRow) window.persistDetailSeedFromRow(tr);
       if (e.target.closest('a')) return;
       window.location.href = tr.dataset.href;
     });
