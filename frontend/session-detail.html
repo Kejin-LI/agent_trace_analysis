@@ -4361,7 +4361,10 @@
     if (titleNode) chipContainer.appendChild(titleNode);
     const ruleTags = window.__statusRuleTags || [];
     const llmTags = window.AgentTraceTags ? window.AgentTraceTags.collectLLMTags(window.__llmJudgeResult) : [];
-    const tags = window.AgentTraceTags ? window.AgentTraceTags.mergeTags(ruleTags.concat(llmTags), 3) : ruleTags.slice(0, 3);
+    // 不再截断到前 3：mergeTags 会把 GPT 的 bad 标签排在规则 warn 标签之前，
+    // 一旦 GPT 占满 3 个名额，规则类标签（如「长上下文超限」）就会被挤掉，与异常菜单口径不一致。
+    // 异常菜单 mergeTags 不设上限，这里保持一致，规则 + GPT 标签全部展示。
+    const tags = window.AgentTraceTags ? window.AgentTraceTags.mergeTags(ruleTags.concat(llmTags)) : ruleTags;
     const finalTags = tags.length ? tags : [{ label: '健康', color: 'green', source: 'system', detail: '' }];
     finalTags.forEach(t => {
       const color = t.color || 'orange';

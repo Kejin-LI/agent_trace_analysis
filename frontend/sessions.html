@@ -903,10 +903,10 @@
 
     function buildDetailSeed(session) {
       if (!session || !session.id) return null;
-      const quality = getSessionQualityMeta(session);
-      const combinedScore = quality.combinedScore;
-      const scoreValue = Number.isFinite(Number(combinedScore)) ? Math.round(Number(combinedScore)) : null;
-      const scoreColor = scoreValue === null ? '' : scoreBand(scoreValue);
+      const meta = getSessionMeta(session);
+      const scoreValue = Number.isFinite(Number(meta.score)) ? Math.round(Number(meta.score)) : null;
+      const scoreColor = scoreValue === null ? '' : (meta.scoreBand || scoreBand(scoreValue));
+      const topTag = meta.anomaly && meta.anomaly.list && meta.anomaly.list[0] ? meta.anomaly.list[0].label : '';
       return {
         id: String(session.id || ''),
         title: String(session.title || ('Session ' + displayId(session.id))),
@@ -915,7 +915,7 @@
         startedAtMs: Number(session.started_at_ms || 0),
         score: scoreValue,
         scoreColor,
-        chip: String((quality.anomaly.list[0] && quality.anomaly.list[0].label) || (scoreValue === null ? '--' : scoreValue >= 85 ? '健康' : scoreValue >= 70 ? '注意' : scoreValue >= 50 ? '亚健康' : '严重')),
+        chip: String(topTag || (scoreValue === null ? '--' : scoreValue >= 85 ? '健康' : scoreValue >= 70 ? '注意' : scoreValue >= 50 ? '亚健康' : '严重')),
       };
     }
 

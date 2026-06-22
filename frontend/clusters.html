@@ -654,7 +654,10 @@ function renderCard(cluster, buckets) {
   const inWindow = seriesStats.inWindow;
   const unknownTime = seriesStats.unknownTime;
   const seriesTotal = seriesStats.total;
-  const previewSessions = cluster.sessions.slice(0, 3);
+  // 优先展示该卡片问题分数最低的 session（升序）。最多渲染 12 个候选，
+  // 真正展示几排由 clampHitSessionRows 在挂载后按实际占用行数裁剪（最多 3 排）。
+  const sortedSessions = [...cluster.sessions].sort((a, b) => clusterSessionScore(a) - clusterSessionScore(b));
+  const previewSessions = sortedSessions.slice(0, 12);
   const tooltipHtml = issueTooltipHtml(cluster);
 
   return `
@@ -683,15 +686,15 @@ function renderCard(cluster, buckets) {
       </div>
       <div class="pt-3 border-t border-black/5">
         <div class="text-[10.5px] text-[--text-tertiary] mb-1.5">命中 Session</div>
-        <div class="flex items-center gap-1.5 flex-wrap">
+        <div class="flex items-center gap-1.5 flex-wrap hit-session-wrap" data-total="${total}">
           ${previewSessions.map(s => {
             const qs = new URLSearchParams({ id: s.id || s.session_id || '' });
             if (s.artifact_publication_status) qs.set('artifact_status', s.artifact_publication_status);
             const href = `./session-detail?${qs.toString()}`;
             const text = s.id || s.session_id || '-';
-            return `<a href="${href}" class="text-[11px] num-mono px-1.5 py-0.5 rounded bg-black/5 hover:bg-[--apple-blue] hover:text-white transition-colors">${escapeHtml(text)}</a>`;
+            return `<a href="${href}" class="hit-session-chip text-[11px] num-mono px-1.5 py-0.5 rounded bg-black/5 hover:bg-[--apple-blue] hover:text-white transition-colors">${escapeHtml(text)}</a>`;
           }).join('')}
-          ${total > 3 ? `<span class="text-[10.5px] text-[--text-tertiary] num-mono">+${total - 3}</span>` : ''}
+          <span class="hit-session-more text-[10.5px] text-[--text-tertiary] num-mono" style="display:none;"></span>
         </div>
       </div>
     </div>
@@ -700,6 +703,48 @@ function renderCard(cluster, buckets) {
 
 function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function escapeAttr(s){ return escapeHtml(s).replace(/'/g, '&#39;'); }
+
+/* 命中 Session 区域：最多展示 3 排。卡片已按问题分数升序渲染（最低分在前），
+ * 这里在挂载后按实际占用行数裁剪：超出 3 排的 chip 隐藏，并用「+N」表示剩余命中数。
+ * N 以整簇命中总数为分母，而非仅已渲染的候选数。 */
+function clampHitSessionRows(card, maxRows) {
+  const wrap = card.querySelector('.hit-session-wrap');
+  if (!wrap) return;
+  const total = parseInt(wrap.getAttribute('data-total'), 10) || 0;
+  const chips = Array.prototype.slice.call(wrap.querySelectorAll('.hit-session-chip'));
+  const more = wrap.querySelector('.hit-session-more');
+  if (!chips.length) { if (more) more.style.display = 'none'; return; }
+
+  const distinctRowTops = (count, includeMore) => {
+    const tops = [];
+    chips.forEach((c, i) => {
+      c.style.display = i < count ? '' : 'none';
+      if (i < count) { const t = c.offsetTop; if (tops.indexOf(t) === -1) tops.push(t); }
+    });
+    if (includeMore && more) { const t = more.offsetTop; if (tops.indexOf(t) === -1) tops.push(t); }
+    return tops.length;
+  };
+
+  // 先在不含「+N」徽标的前提下，求出能放进 maxRows 排的最大 chip 数。
+  if (more) more.style.display = 'none';
+  let visible = chips.length;
+  while (visible > 1 && distinctRowTops(visible, false) > maxRows) visible--;
+
+  let hidden = total - visible;
+  if (hidden > 0 && more) {
+    // 有剩余命中：展示「+N」徽标，它会占用最后一排空间，可能把行数顶到第 4 排，需继续收缩。
+    more.style.display = '';
+    more.textContent = '+' + hidden;
+    while (visible > 1 && distinctRowTops(visible, true) > maxRows) {
+      visible--;
+      hidden = total - visible;
+      more.textContent = '+' + hidden;
+    }
+  } else if (more) {
+    distinctRowTops(visible, false);
+    more.style.display = 'none';
+  }
+}
 
 /* ============== sparkline ============== */
 function drawSpark(card, series, buckets, color) {
@@ -830,6 +875,7 @@ function render() {
     const cluster = clusters[i];
     const seriesStats = genSeriesStats(cluster, buckets);
     drawSpark(card, seriesStats.series, seriesStats.buckets, COLOR[cluster.color || (cluster.source === 'llm' ? 'purple' : 'blue')] || COLOR.blue);
+    clampHitSessionRows(card, 3);
   });
 }
 
