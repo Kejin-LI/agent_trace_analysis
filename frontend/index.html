@@ -770,10 +770,10 @@
 
     function buildDetailSeed(session) {
       if (!session || !session.id) return null;
-      const meta = getSessionQualityMeta(session);
-      const combinedScore = meta.combinedScore;
-      const scoreValue = Number.isFinite(Number(combinedScore)) ? Math.round(Number(combinedScore)) : null;
+      const meta = getSessionMeta(session);
+      const scoreValue = Number.isFinite(Number(meta.score)) ? Math.round(Number(meta.score)) : null;
       const color = scoreValue === null ? '' : (meta.scoreBand || scoreBand(scoreValue));
+      const topTag = meta.anomaly && meta.anomaly.list && meta.anomaly.list[0] ? meta.anomaly.list[0].label : '';
       return {
         id: String(session.id || ''),
         title: String(session.title || ('Session ' + displayId(session.id))),
@@ -782,7 +782,7 @@
         startedAtMs: Number(session.started_at_ms || 0),
         score: scoreValue,
         scoreColor: color,
-        chip: String((meta.anomaly.list[0] && meta.anomaly.list[0].label) || (scoreValue === null ? '--' : scoreValue >= 85 ? '健康' : scoreValue >= 70 ? '注意' : scoreValue >= 50 ? '亚健康' : '严重')),
+        chip: String(topTag || (scoreValue === null ? '--' : scoreValue >= 85 ? '健康' : scoreValue >= 70 ? '注意' : scoreValue >= 50 ? '亚健康' : '严重')),
       };
     }
 
@@ -833,6 +833,7 @@
         listCapNoteEl.innerHTML = `查看 Session 列表时，默认仅展示当前时间范围内最新 <span class="num-mono">2,000</span> 条记录；当前范围共有 <span class="num-mono">${totalN.toLocaleString()}</span> 条。完整排查请缩小时间范围。`;
       }
     }
+    window.renderListCapNote = renderListCapNote;
 
     function renderRuleRadarScope(total, analyzedTotal, pendingCount) {
       const container = document.getElementById('radar-compare');
@@ -882,7 +883,9 @@
       if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       const totalEl = document.getElementById('hdr-total');
       if (totalEl) totalEl.textContent = total;
-      renderListCapNote(total);
+      if (typeof window.renderListCapNote === 'function') {
+        window.renderListCapNote(total);
+      }
       const anomalyEl = document.getElementById('hdr-anomaly');
       if (anomalyEl) anomalyEl.textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
@@ -1711,7 +1714,9 @@
       const avgScoreEl = document.getElementById('hdr-avg-score');
       if (avgScoreEl) avgScoreEl.textContent = hasDisplayAvgScore ? Math.round(avgScore) : '—';
       document.getElementById('hdr-total').textContent = total;
-      renderListCapNote(total);
+      if (typeof window.renderListCapNote === 'function') {
+        window.renderListCapNote(total);
+      }
       document.getElementById('hdr-anomaly').textContent = anomalyCount;
       const topIssueEl = document.getElementById('hdr-top-issue');
       if (topIssueEl) {

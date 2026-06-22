@@ -17,6 +17,10 @@ import (
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/upstream/modellog"
 )
 
+// dashboardLLMCountTimeout 大盘 llm_evaluated_count 这条 COUNT(DISTINCT) 的最长等待时间。
+// 它是次要展示指标，超时即降级为 0，确保大盘主数据不被慢查询拖垮。
+const dashboardLLMCountTimeout = 1500 * time.Millisecond
+
 type apiDashboardSummaryRadar struct {
 	Response      *float64 `json:"response,omitempty"`
 	Stability     *float64 `json:"stability,omitempty"`
@@ -126,10 +130,29 @@ func (h *Handler) buildDashboardSummaryOptimized(tr modellog.TimeRange) (apiDash
 	if err != nil {
 		return apiDashboardSummary{}, err
 	}
+	exactAnomalyCount := -1
+	if apiSessionAggregateHasIssueColumn(h.db) {
+		exactAnomalyCount, err = h.countDashboardIssueSessions(tr)
+		if err != nil {
+			return apiDashboardSummary{}, err
+		}
+	}
 	if summary.AnalyzedCount > 0 || summary.AnomalyCount > 0 || summary.LLMEvaluatedCount > 0 {
+		if exactAnomalyCount >= 0 {
+			// 大盘整体摘要仍优先走日汇总以控制延迟，但异常数必须与异常页保持同一
+			// 「精确时间窗 + has_issue」口径，避免 24h/自定义窗口被自然日汇总放大。
+			summary.AnomalyCount = exactAnomalyCount
+		}
 		return summary, nil
 	}
-	return h.buildDashboardSummaryFromAggregates(tr)
+	summary, err = h.buildDashboardSummaryFromAggregates(tr)
+	if err != nil {
+		return apiDashboardSummary{}, err
+	}
+	if exactAnomalyCount >= 0 {
+		summary.AnomalyCount = exactAnomalyCount
+	}
+	return summary, nil
 }
 
 func (h *Handler) buildDashboardSummaryFromDailySummaries(tr modellog.TimeRange) (apiDashboardSummary, error) {
@@ -394,6 +417,19 @@ func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]mo
 	return rows, int(total), nil
 }
 
+func (h *Handler) countDashboardIssueSessions(tr modellog.TimeRange) (int, error) {
+	q, ok := h.dashboardAggregateRangeQuery(tr)
+	if !ok {
+		return 0, nil
+	}
+	q = q.Where("session_id LIKE ?", "ses\\_%").Where("has_issue = ?", true)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
 func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int) ([]model.APISessionAggregate, int, error) {
 	q, ok := h.dashboardAggregateRangeQuery(tr)
 	if !ok {
@@ -597,18 +633,28 @@ func (h *Handler) countDashboardLLMEvaluated(tr modellog.TimeRange) (int, error)
 	if !ok {
 		return 0, nil
 	}
+	// 这条 COUNT(DISTINCT) 是大盘唯一的重查询：宽窗口下会扫 staging 表数千行，
+	// 实测 30 天窗口稳定 ~5.7s，直接撞网关超时导致大盘白屏(504)。
+	// llm_evaluated_count 只是个次要展示指标，宁可超时返回 0 也不能拖垮整个大盘，
+	// 因此套一个短超时上下文：DB 慢就放弃这个数，保证大盘主数据秒回。
+	ctx, cancel := context.WithTimeout(context.Background(), dashboardLLMCountTimeout)
+	defer cancel()
 	type countRow struct {
 		Count int
 	}
 	var row countRow
-	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).
+	// 用 session_id LIKE 'ses\_%' 替代 LEFT(session_id,4)='ses_'：
+	// 函数包裹列会让 session_id 索引失效，LIKE 前缀匹配可走索引。
+	if err := h.db.WithContext(ctx).Model(&model.StgSessionQualityEvaluation{}).
 		Select("COUNT(DISTINCT session_id) AS count").
 		Where("is_deleted = 0").
-		Where("LEFT(session_id, 4) = ?", "ses_").
+		Where("session_id LIKE ?", "ses\\_%").
 		Where("llm_eval_status = ?", "succeeded").
 		Where("session_started_at BETWEEN ? AND ?", startAt, endAt).
 		Scan(&row).Error; err != nil {
-		return 0, err
+		// 超时或查询失败都降级为 0，不让次要指标阻断大盘。
+		log.Printf("dashboard: countDashboardLLMEvaluated degraded to 0: %v", err)
+		return 0, nil
 	}
 	return row.Count, nil
 }

@@ -214,6 +214,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
 		g.POST("/backfill-range", h.backfillRange)
+		g.POST("/backfill-issue-flags", h.backfillIssueFlags)
 		g.POST("/ai-diagnose", h.diagnose)
 		g.POST("/llm-judge", h.llmJudgeEvaluate)
 		g.POST("/llm-judge/async", h.llmJudgeAsyncStart)
@@ -1364,9 +1365,9 @@ func isSyntheticToolPrompt(raw string) bool {
 		strings.Contains(lower, "unsure how to proceed") {
 		return true
 	}
-        if isTitleGenerationPrompt(raw) {
-                return true
-        }
+	if isTitleGenerationPrompt(raw) {
+		return true
+	}
 	for _, sig := range []string{
 		"the user requested the following",
 		"i have fetched the raw content",
@@ -1412,22 +1413,22 @@ func isSyntheticToolPrompt(raw string) bool {
 }
 
 func isTitleGenerationPrompt(raw string) bool {
-        normalized := strings.ToLower(normalizePromptText(raw))
-        switch normalized {
-        case "generate a title for this conversation",
-                "generate a title for this conversation:",
-                "write a title for this conversation",
-                "write a title for this conversation:",
-                "summarize this conversation in a title",
-                "summarize this conversation in a title:",
-                "generate a concise title for this conversation",
-                "generate a concise title for this conversation:",
-                "write a concise title for this conversation",
-                "write a concise title for this conversation:":
-                return true
-        default:
-                return false
-        }
+	normalized := strings.ToLower(normalizePromptText(raw))
+	switch normalized {
+	case "generate a title for this conversation",
+		"generate a title for this conversation:",
+		"write a title for this conversation",
+		"write a title for this conversation:",
+		"summarize this conversation in a title",
+		"summarize this conversation in a title:",
+		"generate a concise title for this conversation",
+		"generate a concise title for this conversation:",
+		"write a concise title for this conversation",
+		"write a concise title for this conversation:":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizePromptText(raw string) string {
