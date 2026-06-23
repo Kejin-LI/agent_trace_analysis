@@ -719,6 +719,7 @@
     let appliedRangeKey = '';
     const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
     const DASHBOARD_CACHE_PREFIX = 'agenttrace.dashboard.rangeCache.v1:';
+    const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
     const rangeCache = new Map();
 
     function readDashboardCache(key) {
@@ -744,10 +745,106 @@
       }
     }
 
+    function readPendingSessionQualityUpdate() {
+      try {
+        const raw = sessionStorage.getItem(PENDING_SESSION_QUALITY_UPDATE_KEY);
+        if (!raw) return null;
+        const patch = JSON.parse(raw);
+        if (!patch || (!patch.session_id && !patch.artifact_id)) return null;
+        return patch;
+      } catch {
+        return null;
+      }
+    }
+
+    function clearPendingSessionQualityUpdate() {
+      try {
+        sessionStorage.removeItem(PENDING_SESSION_QUALITY_UPDATE_KEY);
+      } catch {}
+    }
+
+    function dashboardSessionMatchesPatch(session, patch) {
+      if (!session || !patch) return false;
+      if (patch.session_id && (String(session.session_id || '') === String(patch.session_id) || String(session.id || '') === String(patch.session_id))) return true;
+      if (patch.artifact_id && String(session.artifact_id || '') === String(patch.artifact_id)) return true;
+      return false;
+    }
+
+    function applyPatchToDashboardSession(session, patch) {
+      if (!session || !patch) return;
+      const scalarFields = [
+        'title',
+        'user',
+        'trace',
+        'started_at_ms',
+        'started_at',
+        'duration_ms',
+        'input_tokens',
+        'output_tokens',
+        'trace_count',
+        'turns',
+        'tool_calls',
+        'score',
+        'cached_score',
+        'derived_rule_score',
+        'color',
+        'chip',
+        'rule_score',
+        'llm_score',
+        'llm_judge_score',
+        'llm_judge_model',
+        'llm_eval_status',
+        'llm_eval_version',
+        'llm_evaluated_at',
+        'llm_sentiment_score',
+        'llm_resolved_score',
+        'llm_intent_match_score',
+        'llm_efficiency_feel_score',
+        'llm_actionability_score',
+        'llm_hallucination_risk_score',
+        'combined_score',
+      ];
+      scalarFields.forEach(key => {
+        if (patch[key] !== undefined) session[key] = patch[key];
+      });
+      if (patch.rules !== undefined) {
+        session.rules = Array.isArray(patch.rules) ? patch.rules : [];
+      }
+      if (patch.radar !== undefined) {
+        session.radar = patch.radar || null;
+      }
+      if (patch.llm_judge_result !== undefined) {
+        session.llm_judge_result = patch.llm_judge_result;
+      }
+      delete session.__dashboardMeta;
+    }
+
+    function applyPendingSessionQualityUpdate() {
+      const patch = readPendingSessionQualityUpdate();
+      if (!patch || !Array.isArray(window.dashboardData) || !window.dashboardData.length) return false;
+      let updated = false;
+      window.dashboardData.forEach(session => {
+        if (!dashboardSessionMatchesPatch(session, patch)) return;
+        applyPatchToDashboardSession(session, patch);
+        updated = true;
+      });
+      if (updated) {
+        window.renderDashboard(window.dashboardData, window.dashboardMeta || {});
+        clearPendingSessionQualityUpdate();
+      }
+      return updated;
+    }
+
+    function getCurrentAppliedRange() {
+      return currentAppliedRange || localStorage.getItem('agenttrace.range') || '24h';
+    }
+    window.getCurrentAppliedRange = getCurrentAppliedRange;
+
     function currentRangeQuery(range) {
+      const appliedRange = range || getCurrentAppliedRange();
       const customFrom = parseInt(localStorage.getItem('agenttrace.customFrom') || '0', 10) || null;
       const customTo = parseInt(localStorage.getItem('agenttrace.customTo') || '0', 10) || null;
-      if (range === 'custom') {
+      if (appliedRange === 'custom') {
         if (!customFrom || !customTo) return { query: {}, customFrom, customTo, key: 'custom:empty' };
         return {
           query: { startTime: fmtQueryTime(customFrom), endTime: fmtQueryTime(customTo) },
@@ -756,13 +853,13 @@
           key: `custom:${customFrom}:${customTo}`,
         };
       }
-      const winMs = RANGE_MS[range] || RANGE_MS['7d'];
+      const winMs = RANGE_MS[appliedRange] || RANGE_MS['7d'];
       const end = Date.now();
       return {
         query: { startTime: fmtQueryTime(end - winMs), endTime: fmtQueryTime(end) },
         customFrom,
         customTo,
-        key: range,
+        key: appliedRange,
       };
     }
     window.currentRangeQuery = currentRangeQuery;
@@ -1483,7 +1580,7 @@
 
       const detailParams = new URLSearchParams({ id: String(s.id || ''), artifact_status: 'unpublished' });
       const detailRange = (typeof window.currentRangeQuery === 'function'
-        ? window.currentRangeQuery(currentAppliedRange)
+        ? window.currentRangeQuery(typeof window.getCurrentAppliedRange === 'function' ? window.getCurrentAppliedRange() : (localStorage.getItem('agenttrace.range') || '24h'))
         : { query: {} }).query || {};
       if (detailRange.startTime) detailParams.set('start_time', detailRange.startTime);
       if (detailRange.endTime) detailParams.set('end_time', detailRange.endTime);
@@ -1816,9 +1913,22 @@
         : `显示 0 个，共 ${topAnomalyTotal || anomalySessionCount} 个异常`;
     };
 
+    window.addEventListener('pageshow', () => {
+      applyPendingSessionQualityUpdate();
+    });
+    window.addEventListener('focus', () => {
+      applyPendingSessionQualityUpdate();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') applyPendingSessionQualityUpdate();
+    });
+
     try {
-      const savedRange = localStorage.getItem('agenttrace.range') || '24h';
+      const savedRange = typeof window.getCurrentAppliedRange === 'function'
+        ? window.getCurrentAppliedRange()
+        : (localStorage.getItem('agenttrace.range') || '24h');
       await window.applyRange(savedRange);
+      applyPendingSessionQualityUpdate();
       hideGlobalLoader();
     } catch (e) {
       renderEmpty('加载失败：' + (e.message || String(e)));

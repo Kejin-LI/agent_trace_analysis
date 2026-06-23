@@ -126,25 +126,32 @@ func finalizeDashboardSummary(summary *apiDashboardSummary) {
 }
 
 func (h *Handler) buildDashboardSummaryOptimized(tr modellog.TimeRange) (apiDashboardSummary, error) {
-	summary, err := h.buildDashboardSummaryFromDailySummaries(tr)
-	if err != nil {
-		return apiDashboardSummary{}, err
-	}
 	exactAnomalyCount := -1
 	if apiSessionAggregateHasIssueColumn(h.db) {
+		var err error
 		exactAnomalyCount, err = h.countDashboardIssueSessions(tr)
 		if err != nil {
 			return apiDashboardSummary{}, err
 		}
 	}
-	if summary.AnalyzedCount > 0 || summary.AnomalyCount > 0 || summary.LLMEvaluatedCount > 0 {
-		if exactAnomalyCount >= 0 {
-			// 大盘整体摘要仍优先走日汇总以控制延迟，但异常数必须与异常页保持同一
-			// 「精确时间窗 + has_issue」口径，避免 24h/自定义窗口被自然日汇总放大。
-			summary.AnomalyCount = exactAnomalyCount
+
+	if dashboardSummaryCanUseDailySummary(tr) {
+		summary, err := h.buildDashboardSummaryFromDailySummaries(tr)
+		if err != nil {
+			return apiDashboardSummary{}, err
 		}
-		return summary, nil
+		if summary.AnalyzedCount > 0 || summary.AnomalyCount > 0 || summary.LLMEvaluatedCount > 0 {
+			if exactAnomalyCount >= 0 {
+				// 大盘整体摘要仅在完整自然日窗口时复用日汇总；
+				// 异常数仍强制对齐精确时间窗 + has_issue 口径。
+				summary.AnomalyCount = exactAnomalyCount
+			}
+			return summary, nil
+		}
 	}
+
+	summary := apiDashboardSummary{}
+	var err error
 	summary, err = h.buildDashboardSummaryFromAggregates(tr)
 	if err != nil {
 		return apiDashboardSummary{}, err
@@ -153,6 +160,19 @@ func (h *Handler) buildDashboardSummaryOptimized(tr modellog.TimeRange) (apiDash
 		summary.AnomalyCount = exactAnomalyCount
 	}
 	return summary, nil
+}
+
+func dashboardSummaryCanUseDailySummary(tr modellog.TimeRange) bool {
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return false
+	}
+	startLocal := startAt.In(time.Local)
+	endLocal := endAt.In(time.Local)
+	if startLocal.Hour() != 0 || startLocal.Minute() != 0 || startLocal.Second() != 0 {
+		return false
+	}
+	return endLocal.Hour() == 23 && endLocal.Minute() == 59 && endLocal.Second() == 59
 }
 
 func (h *Handler) buildDashboardSummaryFromDailySummaries(tr modellog.TimeRange) (apiDashboardSummary, error) {

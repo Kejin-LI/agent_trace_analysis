@@ -62,17 +62,17 @@ func TestBuildLLMJudgeResultFallsBackToStructuredSummary(t *testing.T) {
 	score := 38
 	resolvedScore := 20
 	row := model.StgSessionQualityEvaluation{
-		LLMScore:            &score,
-		LLMModel:            "gpt-5.5",
-		LLMSummary:          "问题未解决",
-		LLMScoreBasis:       "根据会话证据判分",
-		LLMResolved:         "未解决",
-		LLMResolvedScore:    &resolvedScore,
-		LLMIntentMatch:      "部分偏离",
-		LLMEfficiencyFeel:   "偏低效",
-		LLMSentiment:        "中性",
-		LLMActionability:    "空泛不可执行",
-		LLMHallucinationRisk:"中",
+		LLMScore:             &score,
+		LLMModel:             "gpt-5.5",
+		LLMSummary:           "问题未解决",
+		LLMScoreBasis:        "根据会话证据判分",
+		LLMResolved:          "未解决",
+		LLMResolvedScore:     &resolvedScore,
+		LLMIntentMatch:       "部分偏离",
+		LLMEfficiencyFeel:    "偏低效",
+		LLMSentiment:         "中性",
+		LLMActionability:     "空泛不可执行",
+		LLMHallucinationRisk: "中",
 	}
 
 	got := buildLLMJudgeResult(row)
@@ -90,5 +90,48 @@ func TestBuildLLMJudgeResultFallsBackToStructuredSummary(t *testing.T) {
 	}
 	if decoded["model_label"] != "gpt-5.5" {
 		t.Fatalf("unexpected fallback model label: %#v", decoded)
+	}
+}
+
+func TestEmbedAndExtractTraceFingerprint(t *testing.T) {
+	raw := `{"score":88,"reason":"ok"}`
+	fingerprint := "2:abc123"
+	embedded := embedTraceFingerprintJSON(raw, fingerprint)
+	if embedded == raw {
+		t.Fatalf("expected fingerprint to be embedded, got %s", embedded)
+	}
+	row := model.StgSessionQualityEvaluation{LLMEvalResult: embedded}
+	if got := extractTraceFingerprintFromQualityRow(row); got != fingerprint {
+		t.Fatalf("unexpected fingerprint: got=%q want=%q", got, fingerprint)
+	}
+}
+
+func TestQualityEvaluationMatchesExpectationWithFingerprint(t *testing.T) {
+	row := model.StgSessionQualityEvaluation{
+		TraceID:           "trace_a",
+		SessionTraceCount: 3,
+		LLMEvalResult:     `{"_trace_fingerprint":"3:aaa","score":90}`,
+	}
+	if !qualityEvaluationMatchesExpectation(row, "3:aaa", "trace_b", 99) {
+		t.Fatalf("expected fingerprint match to win over fallback fields")
+	}
+	if qualityEvaluationMatchesExpectation(row, "3:bbb", "trace_a", 3) {
+		t.Fatalf("expected mismatched fingerprint to be rejected")
+	}
+}
+
+func TestQualityEvaluationMatchesExpectationFallsBackToTraceFields(t *testing.T) {
+	row := model.StgSessionQualityEvaluation{
+		TraceID:           "trace_a",
+		SessionTraceCount: 3,
+	}
+	if !qualityEvaluationMatchesExpectation(row, "", "trace_a", 3) {
+		t.Fatalf("expected matching trace fields to pass")
+	}
+	if qualityEvaluationMatchesExpectation(row, "", "trace_a", 4) {
+		t.Fatalf("expected mismatched trace_count to fail")
+	}
+	if qualityEvaluationMatchesExpectation(row, "", "trace_b", 3) {
+		t.Fatalf("expected mismatched trace_id to fail")
 	}
 }
