@@ -813,7 +813,23 @@
 
     function applyQualityPatchToSession(session, patch) {
       if (!session || !patch) return;
-      const fields = [
+      const scalarFields = [
+        'title',
+        'user',
+        'trace',
+        'started_at_ms',
+        'started_at',
+        'duration_ms',
+        'input_tokens',
+        'output_tokens',
+        'trace_count',
+        'turns',
+        'tool_calls',
+        'score',
+        'cached_score',
+        'derived_rule_score',
+        'color',
+        'chip',
         'rule_score',
         'llm_score',
         'llm_judge_score',
@@ -821,11 +837,23 @@
         'llm_eval_status',
         'llm_eval_version',
         'llm_evaluated_at',
+        'llm_sentiment_score',
+        'llm_resolved_score',
+        'llm_intent_match_score',
+        'llm_efficiency_feel_score',
+        'llm_actionability_score',
+        'llm_hallucination_risk_score',
         'combined_score',
       ];
-      fields.forEach(key => {
+      scalarFields.forEach(key => {
         if (patch[key] !== undefined) session[key] = patch[key];
       });
+      if (patch.rules !== undefined) {
+        session.rules = Array.isArray(patch.rules) ? patch.rules : [];
+      }
+      if (patch.radar !== undefined) {
+        session.radar = patch.radar || null;
+      }
       if (patch.llm_judge_result !== undefined) {
         session.llm_judge_result = patch.llm_judge_result;
       }
@@ -1534,6 +1562,17 @@
       }
     });
     window.addEventListener('pageshow', () => {
+      if (!applyPendingSessionQualityUpdate()) return;
+      precomputeSessionMeta();
+      renderAll();
+    });
+    window.addEventListener('focus', () => {
+      if (!applyPendingSessionQualityUpdate()) return;
+      precomputeSessionMeta();
+      renderAll();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
       if (!applyPendingSessionQualityUpdate()) return;
       precomputeSessionMeta();
       renderAll();

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +88,7 @@ func (h *Handler) filterExistingAssignments(values map[string]interface{}) map[s
 type qualityEvaluationRequest struct {
 	SessionID                 string          `json:"session_id"`
 	TraceID                   string          `json:"trace_id"`
+	TraceFingerprint          string          `json:"trace_fingerprint"`
 	ArtifactID                string          `json:"artifact_id"`
 	SessionTitle              string          `json:"session_title"`
 	SessionUser               string          `json:"session_user"`
@@ -179,6 +181,9 @@ func (h *Handler) getQualityEvaluation(c *gin.Context) {
 		return
 	}
 	sessionID := strings.TrimSpace(c.Param("session_id"))
+	expectedFingerprint := strings.TrimSpace(c.Query("trace_fingerprint"))
+	expectedTraceID := strings.TrimSpace(c.Query("trace_id"))
+	expectedTraceCount, _ := strconv.Atoi(strings.TrimSpace(c.Query("trace_count")))
 	if sessionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id 为空"})
 		return
@@ -190,6 +195,7 @@ func (h *Handler) getQualityEvaluation(c *gin.Context) {
 			"session_id",
 			"artifact_id",
 			"trace_id",
+			"session_trace_count",
 			"rule_score",
 			"rule_grade",
 			"rule_eval_at",
@@ -208,6 +214,7 @@ func (h *Handler) getQualityEvaluation(c *gin.Context) {
 			"llm_hallucination_risk", "llm_hallucination_risk_score",
 			"llm_summary",
 			"llm_score_basis",
+			"rule_eval_result",
 			"llm_eval_result",
 			"llm_raw_result",
 			"combined_score",
@@ -226,6 +233,10 @@ func (h *Handler) getQualityEvaluation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if !qualityEvaluationMatchesExpectation(row, expectedFingerprint, expectedTraceID, expectedTraceCount) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "quality evaluation not found"})
+		return
+	}
 	c.JSON(http.StatusOK, qualityEvaluationResponse(row))
 }
 
@@ -241,6 +252,7 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 	}
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	req.ArtifactID = strings.TrimSpace(req.ArtifactID)
+	req.TraceFingerprint = strings.TrimSpace(req.TraceFingerprint)
 	req.SessionID = h.resolveQualityEvaluationSessionID(req.SessionID, req.ArtifactID)
 	if req.SessionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id 为空"})
@@ -315,6 +327,14 @@ func (h *Handler) upsertQualityEvaluation(c *gin.Context) {
 		CombinedSuggestions:       jsonOrNull(req.CombinedSuggestions),
 		CombinedScoreBasis:        trimLen(req.CombinedScoreBasis, 1024),
 		IsDeleted:                 0,
+	}
+	if req.TraceFingerprint != "" {
+		row.RuleEvalResult = embedTraceFingerprintJSON(row.RuleEvalResult, req.TraceFingerprint)
+		row.LLMEvalResult = embedTraceFingerprintJSON(row.LLMEvalResult, req.TraceFingerprint)
+		row.LLMRawResult = embedTraceFingerprintJSON(row.LLMRawResult, req.TraceFingerprint)
+		if strings.TrimSpace(row.LLMRawResult) == "" {
+			row.LLMRawResult = buildTraceFingerprintMetaJSON(req.TraceFingerprint)
+		}
 	}
 	values := h.filterExistingAssignments(map[string]interface{}{
 		"session_id":                   row.SessionID,
@@ -429,6 +449,11 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 		q = q.Select(h.filterExistingColumns([]string{
 			"session_id",
 			"artifact_id",
+			"trace_id",
+			"session_trace_count",
+			"rule_eval_result",
+			"llm_eval_result",
+			"llm_raw_result",
 			"rule_score",
 			"llm_score",
 			"llm_model",
@@ -454,6 +479,7 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 			"session_id",
 			"artifact_id",
 			"trace_id",
+			"session_trace_count",
 			"rule_score",
 			"rule_grade",
 			"rule_eval_at",
@@ -498,16 +524,23 @@ func (h *Handler) applyQualityEvaluationsWithMode(bundles []apiSessionBundle, in
 		}
 	}
 	for i := range bundles {
+		expectedFingerprint := computeQualityTraceFingerprint(bundles[i])
+		expectedTraceID := strings.TrimSpace(firstReviewNonEmpty(bundles[i].Trace, firstBundleTraceID(bundles[i])))
+		expectedTraceCount := bundles[i].TraceCount
 		switch {
 		case bundles[i].SessionID != "":
 			if row, ok := bySession[bundles[i].SessionID]; ok {
-				applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
-				continue
+				if qualityEvaluationMatchesExpectation(row, expectedFingerprint, expectedTraceID, expectedTraceCount) {
+					applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
+					continue
+				}
 			}
 		}
 		if bundles[i].ArtifactID != "" {
 			if row, ok := byArtifact[bundles[i].ArtifactID]; ok {
-				applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
+				if qualityEvaluationMatchesExpectation(row, expectedFingerprint, expectedTraceID, expectedTraceCount) {
+					applyQualityEvaluationToBundle(&bundles[i], row, includeFullResult)
+				}
 			}
 		}
 	}
@@ -610,9 +643,11 @@ func buildLLMJudgeResult(row model.StgSessionQualityEvaluation) any {
 
 func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
 	llmJudgeResult := buildLLMJudgeResult(row)
+	traceFingerprint := extractTraceFingerprintFromQualityRow(row)
 	return gin.H{
 		"session_id":           row.SessionID,
 		"trace_id":             row.TraceID,
+		"trace_fingerprint":    traceFingerprint,
 		"artifact_id":          row.ArtifactID,
 		"rule_score":           row.RuleScore,
 		"llm_score":            row.LLMScore,
@@ -625,6 +660,30 @@ func qualityEvaluationResponse(row model.StgSessionQualityEvaluation) gin.H {
 		"combined_score":       row.CombinedScore,
 		"combined_score_basis": row.CombinedScoreBasis,
 	}
+}
+
+func qualityEvaluationMatchesExpectation(row model.StgSessionQualityEvaluation, expectedFingerprint, expectedTraceID string, expectedTraceCount int) bool {
+	expectedFingerprint = strings.TrimSpace(expectedFingerprint)
+	storedFingerprint := extractTraceFingerprintFromQualityRow(row)
+	if expectedFingerprint != "" && storedFingerprint != "" {
+		return storedFingerprint == expectedFingerprint
+	}
+	if expectedTraceCount > 0 && row.SessionTraceCount > 0 && row.SessionTraceCount != expectedTraceCount {
+		return false
+	}
+	expectedTraceID = strings.TrimSpace(expectedTraceID)
+	storedTraceID := strings.TrimSpace(row.TraceID)
+	if expectedTraceID != "" && storedTraceID != "" && storedTraceID != expectedTraceID {
+		return false
+	}
+	return true
+}
+
+func firstBundleTraceID(bundle apiSessionBundle) string {
+	if len(bundle.Traces) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(bundle.Traces[0].TraceID)
 }
 
 func rawJSONOrNil(raw string) any {

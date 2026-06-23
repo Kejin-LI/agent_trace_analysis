@@ -3143,9 +3143,60 @@
     };
 
     const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
+    const TRACE_FINGERPRINT_KEY_PREFIX = 'agenttrace.session.traceFingerprint.v1:';
 
     function detailSeedStorageKey(sessionId) {
       return DETAIL_SEED_KEY_PREFIX + String(sessionId || '');
+    }
+
+    function traceFingerprintStorageKey(sessionId) {
+      return TRACE_FINGERPRINT_KEY_PREFIX + String(sessionId || '');
+    }
+
+    function hashTraceFingerprint(text) {
+      let hash = 2166136261;
+      const input = String(text || '');
+      for (let i = 0; i < input.length; i++) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(16);
+    }
+
+    function buildTraceFingerprint(real) {
+      if (!real) return '';
+      const traces = Array.isArray(real.traces) ? real.traces : [];
+      const payload = traces.map(t => ({
+        id: String(t?.trace_id || t?.span_id || ''),
+        started_at_ms: Number(t?.started_at_ms || 0),
+        duration_ms: Number(t?.duration_ms || 0),
+        status: String(t?.status || ''),
+        spans: (t?.spans || []).map(sp => ({
+          id: String(sp?.span_id || ''),
+          type: String(sp?.span_type || ''),
+          name: String(sp?.span_name || ''),
+          started_at_ms: Number(sp?.started_at_ms || 0),
+          duration_ms: Number(sp?.duration_ms || 0),
+          status_code: Number(sp?.status_code || 0),
+        })),
+      }));
+      return `${traces.length}:${hashTraceFingerprint(JSON.stringify(payload))}`;
+    }
+
+    function readStoredTraceFingerprint(sessionId) {
+      if (!sessionId) return '';
+      try {
+        return String(sessionStorage.getItem(traceFingerprintStorageKey(sessionId)) || '');
+      } catch {
+        return '';
+      }
+    }
+
+    function writeStoredTraceFingerprint(sessionId, fingerprint) {
+      if (!sessionId || !fingerprint) return;
+      try {
+        sessionStorage.setItem(traceFingerprintStorageKey(sessionId), String(fingerprint));
+      } catch {}
     }
 
     function readDetailSeed(sessionId) {
@@ -3159,6 +3210,35 @@
       } catch {
         return null;
       }
+    }
+
+    function persistLatestDetailSeed(real, options = {}) {
+      const sessionId = String(real?.session_id || real?.id || '').trim();
+      if (!sessionId) return;
+      const trace = normalizeDisplayTraceId(real?.trace || (real?.traces && real.traces[0] ? real.traces[0].trace_id : ''));
+      const score = options.aggregateInvalidated
+        ? null
+        : (window.AgentTraceTags?.getSessionQualityScores
+          ? window.AgentTraceTags.getSessionQualityScores(real, null).combinedScore
+          : null);
+      const color = score === null || score === undefined
+        ? ''
+        : (window.AgentTraceEfficiency ? window.AgentTraceEfficiency.scoreColor(score) : '');
+      const chip = options.aggregateInvalidated
+        ? '重新聚合中'
+        : String(real?.chip || (score === null ? '--' : score >= 85 ? '健康' : score >= 70 ? '注意' : score >= 50 ? '亚健康' : '严重'));
+      try {
+        sessionStorage.setItem(detailSeedStorageKey(sessionId), JSON.stringify({
+          id: sessionId,
+          title: String(real?.title || ('Session ' + sessionId)),
+          user: String(real?.user || real?.user_id || 'anonymous'),
+          trace,
+          startedAtMs: Number(real?.started_at_ms || 0),
+          score: score === null || score === undefined ? null : Math.round(Number(score)),
+          scoreColor: color,
+          chip,
+        }));
+      } catch {}
     }
 
     function formatDetailDateTime(ms) {
@@ -3270,6 +3350,56 @@
     function canUseFallbackMock() {
       const host = location.hostname;
       return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+    }
+
+    function clearInvalidatedAggregateFields(real) {
+      if (!real) return real;
+      real.score = null;
+      real.cached_score = null;
+      real.derived_rule_score = null;
+      real.color = 'gray';
+      real.chip = '重新聚合中';
+      real.features = {};
+      real.rules = [];
+      real.radar = null;
+      real.rule_score = null;
+      real.llm_score = null;
+      real.llm_judge_score = null;
+      real.llm_judge_model = '';
+      real.llm_eval_status = '';
+      real.llm_eval_version = 0;
+      real.llm_evaluated_at = '';
+      real.llm_sentiment_score = null;
+      real.llm_resolved_score = null;
+      real.llm_intent_match_score = null;
+      real.llm_efficiency_feel_score = null;
+      real.llm_actionability_score = null;
+      real.llm_hallucination_risk_score = null;
+      real.llm_judge_result = null;
+      real.combined_score = null;
+      real.__aggregateInvalidated = true;
+      return real;
+    }
+
+    function syncAggregateStateForLatestTrace(real) {
+      const sessionId = String(real?.session_id || real?.id || '').trim();
+      if (!sessionId) return false;
+      const nextFingerprint = buildTraceFingerprint(real);
+      if (!nextFingerprint) return false;
+      const prevFingerprint = readStoredTraceFingerprint(sessionId);
+      const changed = !!prevFingerprint && prevFingerprint !== nextFingerprint;
+      writeStoredTraceFingerprint(sessionId, nextFingerprint);
+      if (!changed) {
+        persistLatestDetailSeed(real);
+        return false;
+      }
+      clearInvalidatedAggregateFields(real);
+      window.__llmJudgeResult = null;
+      window.__llmJudgeRaw = null;
+      clearSessionsRangeCache();
+      publishPendingSessionQualityUpdate(real);
+      persistLatestDetailSeed(real, { aggregateInvalidated: true });
+      return true;
     }
 
     async function loadRealData(sessionId, opts) {
@@ -3415,9 +3545,9 @@
       const traceDisplay = normalizeDisplayTraceId(r.trace || (r.traces && r.traces[0] ? r.traces[0].trace_id : ''));
       s = {
         title: cleanedTitle || (titleIsSynthetic ? '' : r.title) || ('Session ' + id),
-        score: r.score ?? 0,
-        color: r.color || 'green',
-        chip: r.chip || '健康',
+        score: r.score ?? null,
+        color: r.color || 'gray',
+        chip: r.chip || '--',
         user: r.user || 'anonymous',
         trace: traceDisplay,
         // 真实数据扩展
@@ -3446,21 +3576,24 @@
     const scoreEl = document.querySelector('header .absolute.inset-1.rounded-full');
     if (scoreEl) {
       const headerScore = (s._real && s._real.radar) ? window.AgentTraceEfficiency.adjustedScore(s._real) : s.score;
-      const headerColor = window.AgentTraceEfficiency.scoreColor(headerScore);
-      scoreEl.textContent = headerScore;
-      scoreEl.classList.remove('bg-[--apple-green]', 'bg-[--apple-red]', 'bg-[--apple-orange]', 'bg-[--apple-purple]', 'bg-[--apple-cyan]');
-      scoreEl.classList.add('bg-[--apple-' + headerColor + ']');
+      const hasHeaderScore = Number.isFinite(Number(headerScore));
+      const headerColor = hasHeaderScore ? window.AgentTraceEfficiency.scoreColor(headerScore) : '';
+      scoreEl.textContent = hasHeaderScore ? headerScore : '--';
+      scoreEl.classList.remove('bg-[--apple-green]', 'bg-[--apple-red]', 'bg-[--apple-orange]', 'bg-[--apple-purple]', 'bg-[--apple-cyan]', 'bg-black/5');
+      scoreEl.classList.add(hasHeaderScore ? ('bg-[--apple-' + headerColor + ']') : 'bg-black/5');
       const ring = scoreEl.previousElementSibling;
       if (ring) {
-        ring.classList.remove('bg-[--apple-green]/15', 'bg-[--apple-red]/15', 'bg-[--apple-orange]/15', 'bg-[--apple-purple]/15', 'bg-[--apple-cyan]/15');
-        ring.classList.add('bg-[--apple-' + headerColor + ']/15');
+        ring.classList.remove('bg-[--apple-green]/15', 'bg-[--apple-red]/15', 'bg-[--apple-orange]/15', 'bg-[--apple-purple]/15', 'bg-[--apple-cyan]/15', 'bg-black/5');
+        ring.classList.add(hasHeaderScore ? ('bg-[--apple-' + headerColor + ']/15') : 'bg-black/5');
       }
     }
     // 状态 chip
     const chipEl = document.querySelector('header .chip');
     if (chipEl) {
       const chipColor = (s._real && s._real.radar) ? window.AgentTraceEfficiency.scoreColor(window.AgentTraceEfficiency.adjustedScore(s._real)) : s.color;
-      chipEl.className = 'chip bg-[--apple-' + chipColor + ']/10 text-[--apple-' + chipColor + ']';
+      chipEl.className = (chipColor && chipColor !== 'gray')
+        ? ('chip bg-[--apple-' + chipColor + ']/10 text-[--apple-' + chipColor + ']')
+        : 'chip bg-black/5 text-[--text-tertiary]';
       chipEl.textContent = s.chip;
     }
 
@@ -3472,6 +3605,40 @@
     const traceEl = document.getElementById('info-trace-id');
     if (traceEl) { traceEl.textContent = s.trace || '-'; traceEl.title = s.trace === '-' ? '' : s.trace; }
     setText0('info-user', s.user || '--');
+    if (s._real && s._real.__aggregateInvalidated) {
+      const statusTitleEl = document.getElementById('status-title');
+      if (statusTitleEl) statusTitleEl.textContent = '检测到最新对话流已变更';
+      const statusChipEl = document.getElementById('status-chip');
+      if (statusChipEl) {
+        statusChipEl.textContent = '重新聚合中';
+        statusChipEl.style.background = 'rgba(255,149,0,0.12)';
+        statusChipEl.style.color = 'var(--apple-orange)';
+      }
+      const statusDescEl = document.getElementById('status-desc');
+      if (statusDescEl) statusDescEl.textContent = '已清空旧的规则/GPT 聚合指标，等待最新对话流重新聚合。';
+      const sourceEl = document.getElementById('health-source');
+      if (sourceEl) sourceEl.textContent = '综合来源：最新对话流，聚合中';
+      const scoreElPending = document.getElementById('health-score');
+      if (scoreElPending) {
+        scoreElPending.textContent = '--';
+        scoreElPending.style.color = 'var(--text-tertiary)';
+      }
+      const gradeElPending = document.getElementById('health-grade');
+      if (gradeElPending) {
+        gradeElPending.textContent = '重新聚合中';
+        gradeElPending.style.color = 'var(--text-tertiary)';
+      }
+      const ruleSummaryEl = document.getElementById('rule-eval-summary');
+      if (ruleSummaryEl) {
+        ruleSummaryEl.textContent = '--';
+        ruleSummaryEl.style.color = 'var(--text-tertiary)';
+      }
+      const llmSummaryEl = document.getElementById('llm-judge-summary');
+      if (llmSummaryEl) {
+        llmSummaryEl.textContent = '待更新';
+        llmSummaryEl.style.color = 'var(--text-tertiary)';
+      }
+    }
 
     // 健康度卡片 + 5 维问题标签（仅真实数据）
     if (s._real && s._real.radar) {
@@ -3881,7 +4048,7 @@
       // 否则再走持久化回读，避免第二次重绘后卡片被默认“未评估”覆盖。
       if (window.__llmJudgeResult) {
         renderLLMJudgeResult(window.__llmJudgeResult);
-      } else {
+      } else if (!s._real?.__aggregateInvalidated) {
         renderPersistedLLMJudge(s._real);
       }
 
@@ -4306,29 +4473,19 @@
       }
     }
 
-    // ===== 两段式加载：先 meta_only 拿指标骨架"秒出"，再异步拉完整 traces 渲染对话流 =====
+    // ===== 详情页每次打开都直接拉完整 bundle，避免沿用上一版聚合骨架 =====
     (async function () {
-      // 第一段：DB 指标骨架（命中即秒出头部/分数/卡片；未命中返回 null）
-      const metaResult = await loadRealData(id, { metaOnly: true, artifactStatus });
-      const meta = metaResult.data;
-      let lastLoadError = metaResult.error || '';
-      let metaRendered = false;
-      if (meta) {
-        renderSession(meta, 'meta');
-        metaRendered = true;
-        hideGlobalLoader(); // 指标已出，先把遮罩去掉，对话流稍后填充
-      }
-      // 第二段：完整 bundle（含对话流）
       const realResult = await loadRealData(id, { artifactStatus });
       const real = realResult.data;
-      if (realResult.error) lastLoadError = realResult.error;
+      const lastLoadError = realResult.error || '';
       if (real) {
+        syncAggregateStateForLatestTrace(real);
         real._durationBenchmark = await loadDurationBenchmark(real);
         renderSession(real, 'full');
-      } else if (!metaRendered && canUseFallbackMock() && FALLBACK_MOCK[id]) {
+      } else if (canUseFallbackMock() && FALLBACK_MOCK[id]) {
         renderSession(null, 'full');
       } else {
-        renderMissingSessionState(detailLoadErrorMessage(lastLoadError), { keepContext: metaRendered || !!detailSeed });
+        renderMissingSessionState(detailLoadErrorMessage(lastLoadError), { keepContext: !!detailSeed });
       }
       hideGlobalLoader();
     })();
@@ -6474,6 +6631,15 @@
     return Number.isFinite(t) ? new Date(t).toISOString() : null;
   }
 
+  function currentTraceExpectation(real) {
+    const target = real || ((window.SESSION && window.SESSION._real) || {});
+    return {
+      trace_fingerprint: buildTraceFingerprint(target),
+      trace_id: String(target?.trace || target?.trace_id || target?.traces?.[0]?.trace_id || '').trim(),
+      trace_count: Number(target?.trace_count || target?.traces?.length || 0),
+    };
+  }
+
   function buildQualityEvaluationPayload(result) {
     const real = (window.SESSION && window.SESSION._real) || {};
     const ruleScore = finiteJudgeScore(window.__ruleHealthScore ?? window.__ruleEvalScore);
@@ -6511,6 +6677,7 @@
     return {
       session_id: real.session_id || '',
       trace_id: real.trace || real.traces?.[0]?.trace_id || '',
+      trace_fingerprint: currentTraceExpectation(real).trace_fingerprint,
       artifact_id: real.artifact_id || '',
       session_title: real.title || window.SESSION?.title || '',
       session_user: real.user || window.SESSION?.user || '',
@@ -6608,13 +6775,18 @@
     });
   }
 
-  async function fetchPersistedQualityEvaluation(key) {
+  async function fetchPersistedQualityEvaluation(key, expectation = {}) {
     const normalizedKey = String(key || '').trim();
     if (!normalizedKey) return null;
     const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const query = new URLSearchParams();
+    if (expectation.trace_fingerprint) query.set('trace_fingerprint', expectation.trace_fingerprint);
+    if (expectation.trace_id) query.set('trace_id', expectation.trace_id);
+    if (Number(expectation.trace_count) > 0) query.set('trace_count', String(Number(expectation.trace_count)));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
     const url = buildUrl
-      ? buildUrl(`/api/quality-evaluations/${encodeURIComponent(normalizedKey)}`)
-      : `/api/quality-evaluations/${encodeURIComponent(normalizedKey)}`;
+      ? buildUrl(`/api/quality-evaluations/${encodeURIComponent(normalizedKey)}${suffix}`)
+      : `/api/quality-evaluations/${encodeURIComponent(normalizedKey)}${suffix}`;
     const resp = await fetch(url, {
       method: 'GET',
       credentials: 'same-origin',
@@ -6637,14 +6809,18 @@
     if (payload.llm_judge_result) real.llm_judge_result = cloneJudgeData(payload.llm_judge_result);
   }
 
-  const SESSIONS_RANGE_CACHE_PREFIX = 'agenttrace.sessions.rangeCache.v1:';
+  const SESSIONS_RANGE_CACHE_PREFIXES = [
+    'agenttrace.sessions.rangeCache.v1:',
+    'agenttrace.sessions.rangeCache.v3:',
+    'agenttrace.dashboard.rangeCache.v1:',
+  ];
   const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
 
   function clearSessionsRangeCache() {
     try {
       for (let i = sessionStorage.length - 1; i >= 0; i--) {
         const key = sessionStorage.key(i) || '';
-        if (key.startsWith(SESSIONS_RANGE_CACHE_PREFIX)) {
+        if (SESSIONS_RANGE_CACHE_PREFIXES.some(prefix => key.startsWith(prefix))) {
           sessionStorage.removeItem(key);
         }
       }
@@ -6653,22 +6829,48 @@
 
   function publishPendingSessionQualityUpdate(payload) {
     const real = (window.SESSION && window.SESSION._real) || {};
-    const sessionId = String(payload?.session_id || real.session_id || '').trim();
-    const artifactId = String(payload?.artifact_id || real.artifact_id || '').trim();
+    const source = payload || real;
+    const sessionId = String(source?.session_id || real.session_id || '').trim();
+    const artifactId = String(source?.artifact_id || real.artifact_id || '').trim();
     if (!sessionId && !artifactId) return;
     const patch = {
       session_id: sessionId,
       artifact_id: artifactId,
-      rule_score: payload?.rule_score,
-      llm_score: payload?.llm_score,
-      llm_judge_score: payload?.llm_judge_score,
-      llm_judge_model: payload?.llm_judge_model,
-      llm_eval_status: payload?.llm_eval_status,
-      llm_eval_version: payload?.llm_eval_version,
-      llm_evaluated_at: payload?.llm_evaluated_at,
-      llm_judge_result: payload?.llm_judge_result ?? null,
-      combined_score: payload?.combined_score,
-      combined_score_basis: payload?.combined_score_basis || '',
+      title: source?.title ?? real.title ?? '',
+      user: source?.user ?? real.user ?? '',
+      trace: source?.trace ?? real.trace ?? '',
+      started_at_ms: source?.started_at_ms ?? real.started_at_ms ?? 0,
+      started_at: source?.started_at ?? real.started_at ?? '',
+      duration_ms: source?.duration_ms ?? real.duration_ms ?? 0,
+      input_tokens: source?.input_tokens ?? real.input_tokens ?? 0,
+      output_tokens: source?.output_tokens ?? real.output_tokens ?? 0,
+      trace_count: source?.trace_count ?? real.trace_count ?? 0,
+      turns: source?.turns ?? real.turns ?? 0,
+      tool_calls: source?.tool_calls ?? real.tool_calls ?? 0,
+      score: source?.score,
+      cached_score: source?.cached_score,
+      derived_rule_score: source?.derived_rule_score,
+      color: source?.color,
+      chip: source?.chip,
+      rules: source?.rules ?? null,
+      radar: source?.radar ?? null,
+      rule_score: source?.rule_score,
+      llm_score: source?.llm_score,
+      llm_judge_score: source?.llm_judge_score,
+      llm_judge_model: source?.llm_judge_model,
+      llm_eval_status: source?.llm_eval_status,
+      llm_eval_version: source?.llm_eval_version,
+      llm_evaluated_at: source?.llm_evaluated_at,
+      llm_sentiment_score: source?.llm_sentiment_score,
+      llm_resolved_score: source?.llm_resolved_score,
+      llm_intent_match_score: source?.llm_intent_match_score,
+      llm_efficiency_feel_score: source?.llm_efficiency_feel_score,
+      llm_actionability_score: source?.llm_actionability_score,
+      llm_hallucination_risk_score: source?.llm_hallucination_risk_score,
+      llm_judge_result: source?.llm_judge_result ?? null,
+      combined_score: source?.combined_score,
+      combined_score_basis: source?.combined_score_basis || '',
+      aggregate_invalidated: !!source?.__aggregateInvalidated,
       updated_at: Date.now(),
     };
     try {
@@ -6697,10 +6899,11 @@
     persistedLLMJudgeFetchKey = cacheKey;
     persistedLLMJudgeFetchPromise = (async () => {
       try {
+        const expectation = currentTraceExpectation(real);
         let payload = null;
         let hitKey = '';
         for (const key of keys) {
-          payload = await fetchPersistedQualityEvaluation(key);
+          payload = await fetchPersistedQualityEvaluation(key, expectation);
           if (payload) {
             hitKey = key;
             break;
@@ -6774,11 +6977,16 @@
     catch { throw new Error('评估接口返回了无法解析的数据'); }
   }
 
-  async function pollLLMJudgeOnce(sessionId) {
+  async function pollLLMJudgeOnce(sessionId, expectation = {}) {
     const buildUrl = window.AgentTraceDB && window.AgentTraceDB.buildUrl;
+    const query = new URLSearchParams();
+    if (expectation.trace_fingerprint) query.set('trace_fingerprint', expectation.trace_fingerprint);
+    if (expectation.trace_id) query.set('trace_id', expectation.trace_id);
+    if (Number(expectation.trace_count) > 0) query.set('trace_count', String(Number(expectation.trace_count)));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
     const url = buildUrl
-      ? buildUrl(`/api/llm-judge/status/${encodeURIComponent(sessionId)}`)
-      : `/api/llm-judge/status/${encodeURIComponent(sessionId)}`;
+      ? buildUrl(`/api/llm-judge/status/${encodeURIComponent(sessionId)}${suffix}`)
+      : `/api/llm-judge/status/${encodeURIComponent(sessionId)}${suffix}`;
     const resp = await fetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store' });
     if (resp.status === 404) return {};
     const payload = await readJudgeJSON(resp);
@@ -6798,7 +7006,7 @@
       if (llmJudgePollingSession !== sid) return; // 已取消
       attempt += 1;
       try {
-        const payload = await pollLLMJudgeOnce(sid);
+        const payload = await pollLLMJudgeOnce(sid, currentTraceExpectation((window.SESSION && window.SESSION._real) || {}));
         const status = String(payload.status || '').toLowerCase();
         if (status === 'succeeded' && payload.result) {
           const target = (window.SESSION && window.SESSION._real) || {};
@@ -6857,6 +7065,8 @@
           session_id: sessionId,
           artifact_id: real.artifact_id || '',
           trace_id: real.trace_id || (real.traces?.[0]?.trace_id || ''),
+          trace_fingerprint: currentTraceExpectation(real).trace_fingerprint,
+          session_trace_count: Number(real.trace_count || real.traces?.length || 0),
           session_title: real.title || window.SESSION?.title || '',
           session_user: real.user || real.user_name || '',
           session_user_id: real.user_id || '',

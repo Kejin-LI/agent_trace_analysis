@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,15 +32,22 @@ const llmJudgeJobTTL = 5 * time.Minute
 // 仅做最佳努力去重,持久化层另由 status='running' + 时间戳保证。
 var inflightLLMJudge sync.Map // key: session_id, value: time.Time(start)
 
+type inflightLLMJudgeEntry struct {
+	StartedAt        time.Time
+	TraceFingerprint string
+}
+
 type llmJudgeAsyncRequest struct {
-	SessionID    string          `json:"session_id"`
-	ArtifactID   string          `json:"artifact_id"`
-	TraceID      string          `json:"trace_id"`
-	SessionTitle string          `json:"session_title"`
-	SessionUser  string          `json:"session_user"`
-	UserID       string          `json:"session_user_id"`
-	SystemPrompt string          `json:"system_prompt"`
-	Input        json.RawMessage `json:"input"`
+	SessionID         string          `json:"session_id"`
+	ArtifactID        string          `json:"artifact_id"`
+	TraceID           string          `json:"trace_id"`
+	TraceFingerprint  string          `json:"trace_fingerprint"`
+	SessionTraceCount int             `json:"session_trace_count"`
+	SessionTitle      string          `json:"session_title"`
+	SessionUser       string          `json:"session_user"`
+	UserID            string          `json:"session_user_id"`
+	SystemPrompt      string          `json:"system_prompt"`
+	Input             json.RawMessage `json:"input"`
 }
 
 // llmJudgeAsyncStart 接收异步评估请求:落 running 行 → 开 goroutine → 立即返回。
@@ -71,9 +79,10 @@ func (h *Handler) llmJudgeAsyncStart(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "judge input 为空"})
 		return
 	}
+	req.TraceFingerprint = strings.TrimSpace(req.TraceFingerprint)
 
 	// 去重:同 session 已经在 running 且未超 TTL 时,直接返回 202 让前端轮询既有任务。
-	if existing, ok := h.checkRunningLLMJudge(sid); ok {
+	if existing, ok := h.checkRunningLLMJudge(sid, req.TraceFingerprint, req.TraceID, req.SessionTraceCount); ok {
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":     "running",
 			"session_id": sid,
@@ -87,7 +96,10 @@ func (h *Handler) llmJudgeAsyncStart(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "标记 running 状态失败: " + err.Error()})
 		return
 	}
-	inflightLLMJudge.Store(sid, time.Now())
+	inflightLLMJudge.Store(sid, inflightLLMJudgeEntry{
+		StartedAt:        time.Now(),
+		TraceFingerprint: req.TraceFingerprint,
+	})
 
 	// 真正的 GPT 调用:用 Background ctx,与客户端连接解耦,刷新页面/关闭标签都不会中断。
 	go h.runLLMJudgeAsync(sid, system, req)
@@ -107,6 +119,12 @@ func (h *Handler) llmJudgeAsyncStatus(c *gin.Context) {
 		return
 	}
 	sid := strings.TrimSpace(c.Param("session_id"))
+	expectedFingerprint := strings.TrimSpace(c.Query("trace_fingerprint"))
+	expectedTraceID := strings.TrimSpace(c.Query("trace_id"))
+	expectedTraceCount := 0
+	if n, err := strconv.Atoi(strings.TrimSpace(c.Query("trace_count"))); err == nil {
+		expectedTraceCount = n
+	}
 	if sid == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id 为空"})
 		return
@@ -114,9 +132,9 @@ func (h *Handler) llmJudgeAsyncStatus(c *gin.Context) {
 	var row model.StgSessionQualityEvaluation
 	err := h.db.
 		Select(h.filterExistingColumns([]string{
-			"session_id", "artifact_id", "llm_eval_status", "llm_eval_version",
+			"session_id", "artifact_id", "trace_id", "session_trace_count", "llm_eval_status", "llm_eval_version",
 			"llm_evaluated_at", "llm_score", "llm_judge_score", "llm_model",
-			"llm_eval_result", "llm_raw_result", "llm_error",
+			"llm_eval_result", "llm_raw_result", "rule_eval_result", "llm_error",
 			"combined_score", "rule_score", "updated_at",
 		})).
 		Where("session_id = ? AND is_deleted = 0", sid).
@@ -128,6 +146,10 @@ func (h *Handler) llmJudgeAsyncStatus(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !qualityEvaluationMatchesExpectation(row, expectedFingerprint, expectedTraceID, expectedTraceCount) {
+		c.JSON(http.StatusNotFound, gin.H{"status": "not_found"})
 		return
 	}
 
@@ -157,16 +179,28 @@ func (h *Handler) llmJudgeAsyncStatus(c *gin.Context) {
 }
 
 // checkRunningLLMJudge 查 stg 表,判断当前 session 是否已有未过期的 running 记录。
-func (h *Handler) checkRunningLLMJudge(sessionID string) (string, bool) {
+func (h *Handler) checkRunningLLMJudge(sessionID, expectedFingerprint, expectedTraceID string, expectedTraceCount int) (string, bool) {
 	if v, ok := inflightLLMJudge.Load(sessionID); ok {
-		if t, ok := v.(time.Time); ok && time.Since(t) < llmJudgeJobTTL {
-			return t.UTC().Format(time.RFC3339), true
+		if entry, ok := v.(inflightLLMJudgeEntry); ok && time.Since(entry.StartedAt) < llmJudgeJobTTL {
+			if expectedFingerprint == "" || strings.TrimSpace(entry.TraceFingerprint) == "" || strings.TrimSpace(entry.TraceFingerprint) == expectedFingerprint {
+				return entry.StartedAt.UTC().Format(time.RFC3339), true
+			}
 		}
-		inflightLLMJudge.Delete(sessionID)
+		if t, ok := v.(time.Time); ok && time.Since(t) < llmJudgeJobTTL {
+			if expectedFingerprint == "" {
+				return t.UTC().Format(time.RFC3339), true
+			}
+		}
+		if entry, ok := v.(inflightLLMJudgeEntry); ok && time.Since(entry.StartedAt) >= llmJudgeJobTTL {
+			inflightLLMJudge.Delete(sessionID)
+		}
+		if t, ok := v.(time.Time); ok && time.Since(t) >= llmJudgeJobTTL {
+			inflightLLMJudge.Delete(sessionID)
+		}
 	}
 	var row model.StgSessionQualityEvaluation
 	err := h.db.
-		Select(h.filterExistingColumns([]string{"session_id", "llm_eval_status", "llm_evaluated_at", "updated_at"})).
+		Select(h.filterExistingColumns([]string{"session_id", "trace_id", "session_trace_count", "llm_eval_status", "llm_evaluated_at", "updated_at", "llm_raw_result", "llm_eval_result", "rule_eval_result"})).
 		Where("session_id = ? AND is_deleted = 0", sessionID).
 		Order("updated_at DESC, id DESC").
 		First(&row).Error
@@ -174,6 +208,9 @@ func (h *Handler) checkRunningLLMJudge(sessionID string) (string, bool) {
 		return "", false
 	}
 	if strings.TrimSpace(row.LLMEvalStatus) != "running" {
+		return "", false
+	}
+	if !qualityEvaluationMatchesExpectation(row, expectedFingerprint, expectedTraceID, expectedTraceCount) {
 		return "", false
 	}
 	if row.LLMEvaluatedAt != nil && time.Since(*row.LLMEvaluatedAt) > llmJudgeJobTTL {
@@ -193,22 +230,24 @@ func (h *Handler) markLLMJudgeRunning(sessionID string, req llmJudgeAsyncRequest
 	host, _ := os.Hostname()
 	buildValues := func(sessionTitle string) map[string]interface{} {
 		return h.filterExistingAssignments(map[string]interface{}{
-			"session_id":       trimLen(sessionID, 128),
-			"artifact_id":      trimLen(req.ArtifactID, 128),
-			"trace_id":         trimLen(req.TraceID, 128),
-			"session_title":    sessionTitle,
-			"session_user":     trimLen(req.SessionUser, 128),
-			"session_user_id":  trimLen(req.UserID, 128),
-			"llm_eval_status":  "running",
-			"llm_evaluated_at": &now,
-			"llm_triggered_by": trimLen(firstReviewNonEmpty(req.SessionUser, req.UserID), 128),
-			"llm_error":        "",
-			"is_deleted":       0,
+			"session_id":          trimLen(sessionID, 128),
+			"artifact_id":         trimLen(req.ArtifactID, 128),
+			"trace_id":            trimLen(req.TraceID, 128),
+			"session_trace_count": req.SessionTraceCount,
+			"session_title":       sessionTitle,
+			"session_user":        trimLen(req.SessionUser, 128),
+			"session_user_id":     trimLen(req.UserID, 128),
+			"llm_eval_status":     "running",
+			"llm_evaluated_at":    &now,
+			"llm_triggered_by":    trimLen(firstReviewNonEmpty(req.SessionUser, req.UserID), 128),
+			"llm_error":           "",
+			"llm_raw_result":      buildTraceFingerprintMetaJSON(req.TraceFingerprint),
+			"is_deleted":          0,
 		})
 	}
 	updateColumns := h.filterExistingColumns([]string{
-		"artifact_id", "trace_id", "session_title", "session_user", "session_user_id",
-		"llm_eval_status", "llm_evaluated_at", "llm_triggered_by", "llm_error",
+		"artifact_id", "trace_id", "session_trace_count", "session_title", "session_user", "session_user_id",
+		"llm_eval_status", "llm_evaluated_at", "llm_triggered_by", "llm_error", "llm_raw_result",
 		"is_deleted", "updated_at",
 	})
 	create := func(values map[string]interface{}) error {
@@ -262,7 +301,7 @@ func (h *Handler) runLLMJudgeAsync(sessionID, system string, req llmJudgeAsyncRe
 	defer inflightLLMJudge.Delete(sessionID)
 	defer func() {
 		if r := recover(); r != nil {
-			h.markLLMJudgeFailed(sessionID, fmt.Sprintf("panic: %v", r))
+			h.markLLMJudgeFailed(sessionID, req.TraceFingerprint, req.TraceID, req.SessionTraceCount, fmt.Sprintf("panic: %v", r))
 		}
 	}()
 
@@ -271,7 +310,7 @@ func (h *Handler) runLLMJudgeAsync(sessionID, system string, req llmJudgeAsyncRe
 
 	cfg, err := llmjudge.LoadConfig(ctx)
 	if err != nil {
-		h.markLLMJudgeFailed(sessionID, "load tcc config: "+err.Error())
+		h.markLLMJudgeFailed(sessionID, req.TraceFingerprint, req.TraceID, req.SessionTraceCount, "load tcc config: "+err.Error())
 		return
 	}
 	userContent := fmt.Sprintf("请评估以下 Agent 会话,并严格返回 JSON:\n\n%s", string(req.Input))
@@ -280,27 +319,27 @@ func (h *Handler) runLLMJudgeAsync(sessionID, system string, req llmJudgeAsyncRe
 		{Role: "user", Content: userContent},
 	})
 	if err != nil {
-		h.markLLMJudgeFailed(sessionID, "gpt5.5 chat: "+err.Error())
+		h.markLLMJudgeFailed(sessionID, req.TraceFingerprint, req.TraceID, req.SessionTraceCount, "gpt5.5 chat: "+err.Error())
 		return
 	}
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		h.markLLMJudgeFailed(sessionID, "parse json: "+err.Error())
+		h.markLLMJudgeFailed(sessionID, req.TraceFingerprint, req.TraceID, req.SessionTraceCount, "parse json: "+err.Error())
 		return
 	}
 	if len(result) == 0 {
-		h.markLLMJudgeFailed(sessionID, "GPT-5.5 返回空 JSON 对象")
+		h.markLLMJudgeFailed(sessionID, req.TraceFingerprint, req.TraceID, req.SessionTraceCount, "GPT-5.5 返回空 JSON 对象")
 		return
 	}
 	result["model_label"] = "GPT-5.5"
 	result["source"] = "tcc_gpt55"
 	if err := h.markLLMJudgeSucceeded(sessionID, req, result, raw); err != nil {
-		h.markLLMJudgeFailed(sessionID, "persist result: "+err.Error())
+		h.markLLMJudgeFailed(sessionID, req.TraceFingerprint, req.TraceID, req.SessionTraceCount, "persist result: "+err.Error())
 		return
 	}
 }
 
-func (h *Handler) markLLMJudgeFailed(sessionID, msg string) {
+func (h *Handler) markLLMJudgeFailed(sessionID, expectedFingerprint, expectedTraceID string, expectedTraceCount int, msg string) {
 	if h == nil || h.db == nil {
 		return
 	}
@@ -310,10 +349,21 @@ func (h *Handler) markLLMJudgeFailed(sessionID, msg string) {
 		"llm_error":        trimLen(msg, 1024),
 		"llm_evaluated_at": &now,
 	}
+	if expectedFingerprint != "" {
+		updates["llm_raw_result"] = buildTraceFingerprintMetaJSON(expectedFingerprint)
+	}
 	updates = h.filterExistingAssignments(updates)
-	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).
-		Where("session_id = ?", sessionID).
-		Updates(updates).Error; err != nil {
+	tx := h.db.Model(&model.StgSessionQualityEvaluation{}).Where("session_id = ?", sessionID)
+	if expectedFingerprint != "" && qualityEvaluationColumnExists(h, "llm_raw_result") {
+		tx = tx.Where("llm_raw_result LIKE ?", "%"+expectedFingerprint+"%")
+	}
+	if expectedTraceID != "" && qualityEvaluationColumnExists(h, "trace_id") {
+		tx = tx.Where("trace_id = ?", trimLen(expectedTraceID, 128))
+	}
+	if expectedTraceCount > 0 && qualityEvaluationColumnExists(h, "session_trace_count") {
+		tx = tx.Where("session_trace_count = ?", expectedTraceCount)
+	}
+	if err := tx.Updates(updates).Error; err != nil {
 		fmt.Printf("markLLMJudgeFailed: %v\n", err)
 	}
 }
@@ -366,6 +416,8 @@ func (h *Handler) markLLMJudgeSucceeded(sessionID string, req llmJudgeAsyncReque
 
 	// 保留原 raw 输入供前端渲染 evidence/score_basis。
 	bResult, _ := json.Marshal(result)
+	storedEvalResult := embedTraceFingerprintJSON(string(bResult), req.TraceFingerprint)
+	storedRawResult := embedTraceFingerprintJSON(raw, req.TraceFingerprint)
 
 	var version int
 	var old model.StgSessionQualityEvaluation
@@ -402,14 +454,22 @@ func (h *Handler) markLLMJudgeSucceeded(sessionID string, req llmJudgeAsyncReque
 		"llm_score_basis":              trimLen(stringOf(result["score_basis"]), 2048),
 		"llm_tags":                     jsonRawOf(result["tags"]),
 		"llm_evidence":                 jsonRawOf(result["evidence"]),
-		"llm_eval_result":              string(bResult),
-		"llm_raw_result":               raw,
+		"llm_eval_result":              storedEvalResult,
+		"llm_raw_result":               storedRawResult,
 		"llm_error":                    "",
 	}
 	updates = h.filterExistingAssignments(updates)
-	if err := h.db.Model(&model.StgSessionQualityEvaluation{}).
-		Where("session_id = ?", sessionID).
-		Updates(updates).Error; err != nil {
+	tx := h.db.Model(&model.StgSessionQualityEvaluation{}).Where("session_id = ?", sessionID)
+	if req.TraceFingerprint != "" && qualityEvaluationColumnExists(h, "llm_raw_result") {
+		tx = tx.Where("llm_raw_result LIKE ?", "%"+req.TraceFingerprint+"%")
+	}
+	if req.TraceID != "" && qualityEvaluationColumnExists(h, "trace_id") {
+		tx = tx.Where("trace_id = ?", trimLen(req.TraceID, 128))
+	}
+	if req.SessionTraceCount > 0 && qualityEvaluationColumnExists(h, "session_trace_count") {
+		tx = tx.Where("session_trace_count = ?", req.SessionTraceCount)
+	}
+	if err := tx.Updates(updates).Error; err != nil {
 		return err
 	}
 	h.refreshAggregateIssueForSessionID(sessionID)
