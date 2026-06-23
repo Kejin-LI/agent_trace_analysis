@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AgentTrace · 使用说明</title>
+<title>Agent Synapse · 使用说明</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -238,12 +238,27 @@
     <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
       <div class="flex items-center gap-6">
         <a href="./" class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+          <div class="w-7 h-7 flex items-center justify-center">
+            <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="url(#synGrad)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <defs>
+                <linearGradient id="synGrad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stop-color="#0071E3" />
+                  <stop offset="1" stop-color="#BF5AF2" />
+                </linearGradient>
+              </defs>
+              <path d="M6.5 6.5L12 11M18 6L12 11M12 11L8 17.5M12 11L17 17">
+                <animate attributeName="stroke-opacity" values="0.4;1;0.4" dur="2.4s" repeatCount="indefinite" />
+              </path>
+              <circle cx="6.5" cy="6.5" r="1.9" fill="url(#synGrad)" stroke="none" />
+              <circle cx="18" cy="6" r="1.5" fill="url(#synGrad)" stroke="none" />
+              <circle cx="8" cy="17.5" r="1.5" fill="url(#synGrad)" stroke="none" />
+              <circle cx="17" cy="17" r="1.8" fill="url(#synGrad)" stroke="none" />
+              <circle cx="12" cy="11" r="2.4" fill="url(#synGrad)" stroke="none">
+                <animate attributeName="r" values="2.2;2.8;2.2" dur="2.4s" repeatCount="indefinite" />
+              </circle>
             </svg>
           </div>
-          <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
+          <span class="font-semibold text-[15px] tracking-tight">Agent Synapse</span>
         </a>
         <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
           <a href="./" class="px-3 py-1.5 rounded-md hover:bg-black/5">大盘</a>
@@ -321,7 +336,7 @@
     <!-- 文档大标题 -->
     <header class="mb-2">
       <div class="text-[12px] text-[--text-tertiary] uppercase tracking-widest font-medium">DOCUMENTATION</div>
-      <h1 class="text-[36px] font-bold tracking-tight mt-1 leading-tight">AgentTrace · 使用说明</h1>
+      <h1 class="text-[36px] font-bold tracking-tight mt-1 leading-tight">Agent Synapse · 使用说明</h1>
       
       <!-- Meta info block directly below H1 -->
       <div class="mt-3 flex items-center gap-3 text-[13px] text-[--text-tertiary]">
@@ -338,13 +353,13 @@
       <h2><span class="ch-no">01</span>平台速览</h2>
       <div class="ch-cover">
         <div class="text-[15px] font-semibold">这个平台到底是干什么的？</div>
-        <div class="ch-summary">如果把 Agent 看作一个员工，AgentTrace 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话用规则评估它的执行规整、工具稳定、重复空转、资源开销、调度编排五项<strong>客观体征</strong>，再叠加 GPT-5.5 对问题解决、意图匹配、效率体感、用户情绪、可执行性、幻觉风险的<strong>语义体验</strong>评测，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
+        <div class="ch-summary">如果把 Agent 看作一个员工，Agent Synapse 就是它的「体检中心」：通过 OpenTelemetry 链路埋点，逐次会话用规则评估它的执行规整、工具稳定、重复空转、资源开销、调度编排五项<strong>客观体征</strong>，再叠加 GPT-5.5 对问题解决、意图匹配、效率体感、用户情绪、可执行性、幻觉风险的<strong>语义体验</strong>评测，并把异常归堆，方便业务方快速定位"这一周哪类问题在恶化"。</div>
         <div class="ch-meta">本章 · 预计阅读 2 分钟</div>
       </div>
 
       <h3 id="ch1-1">1.1 一句话定位</h3>
       <p class="drop-cap">
-        Agent 的运行链路很长，单看某一次回答好不好并不能反映系统真实质量。AgentTrace 把每一次完整对话当作一份"体检报告"，
+        Agent 的运行链路很长，单看某一次回答好不好并不能反映系统真实质量。Agent Synapse 把每一次完整对话当作一份"体检报告"，
         在你看不到的"幕后流程"里，量化它<strong>用了多久</strong>、<strong>调了几个工具</strong>、<strong>错在哪一步</strong>、<strong>烧了多少 Token</strong>。
         当业务方提出"最近 Agent 是不是变笨了"、"为什么客户等了这么久"这类问题时，本平台给你<strong>可量化、可追溯、可分组</strong>的答案。
       </p>
@@ -807,7 +822,7 @@
     </section>
 
     <footer class="mt-16 pt-8 border-t border-black/5 text-[12px] text-[--text-tertiary] flex justify-between">
-      <div>AgentTrace · 使用说明 · v1.0</div>
+      <div>Agent Synapse · 使用说明 · v1.0</div>
       <div>反馈与变更：<a class="key-num" href="mailto:li.kejin@bytedance.com">li.kejin@bytedance.com</a></div>
     </footer>
 

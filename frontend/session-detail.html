@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Session 详情 · AgentTrace</title>
+<title>Session 详情 · Agent Synapse</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1466,43 +1466,23 @@
     width: 108px;
     height: 108px;
     margin: 0 auto 22px;
+    perspective: 620px;
   }
-  .loader-ring,
-  .loader-core,
-  .loader-dot {
+  .loader-ring {
     position: absolute;
     inset: 0;
     border-radius: 999px;
-  }
-  .loader-ring {
-    border: 1px solid rgba(0,113,227,0.16);
-    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.40), rgba(255,255,255,0.04));
+    border: 1px solid rgba(0,113,227,0.14);
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.34), rgba(255,255,255,0.02));
     box-shadow: 0 10px 30px rgba(0,113,227,0.08) inset;
-    animation: loaderPulse 2.1s ease-in-out infinite;
+    animation: loaderPulse 2.4s ease-in-out infinite;
   }
-  .loader-core {
-    inset: 22px;
-    background: linear-gradient(135deg, rgba(0,113,227,0.92), rgba(191,90,242,0.88));
-    box-shadow:
-      0 12px 28px rgba(0,113,227,0.26),
-      0 0 0 8px rgba(255,255,255,0.36);
-  }
-  .loader-dot {
-    width: 14px;
-    height: 14px;
-    margin: auto;
-    background: linear-gradient(135deg, #64D2FF, #BF5AF2);
-    box-shadow: 0 6px 14px rgba(100,210,255,0.32);
-    transform-origin: 54px 54px;
-    animation: loaderSpin 1.35s linear infinite;
-  }
-  .loader-dot::after {
-    content: "";
+  .loader-synapse {
     position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background: rgba(255,255,255,0.72);
-    transform: scale(0.46);
+    inset: 18px;
+    transform-style: preserve-3d;
+    transform: rotateX(0deg) rotateY(0deg);
+    filter: drop-shadow(0 6px 14px rgba(124,77,255,0.30));
   }
   .loader-shimmer {
     width: 160px;
@@ -1521,10 +1501,6 @@
     background: linear-gradient(90deg, rgba(0,113,227,0), rgba(0,113,227,0.78), rgba(191,90,242,0));
     animation: loaderSweep 1.2s ease-in-out infinite;
   }
-  @keyframes loaderSpin {
-    from { transform: rotate(0deg) translateY(-47px); }
-    to { transform: rotate(360deg) translateY(-47px); }
-  }
   @keyframes loaderPulse {
     0%, 100% { transform: scale(0.98); opacity: 0.92; }
     50% { transform: scale(1.03); opacity: 1; }
@@ -1541,8 +1517,23 @@
   <div class="loader-wrap">
     <div class="loader-orbit" aria-hidden="true">
       <div class="loader-ring"></div>
-      <div class="loader-core"></div>
-      <div class="loader-dot"></div>
+      <svg class="loader-synapse" viewBox="0 0 24 24" fill="none" stroke="url(#loaderSynGrad)" stroke-width="1.5" stroke-linecap="round">
+        <defs>
+          <linearGradient id="loaderSynGrad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#0071E3" />
+            <stop offset="1" stop-color="#BF5AF2" />
+          </linearGradient>
+        </defs>
+        <path d="M6.5 6.5L12 11"><animate attributeName="stroke-opacity" values="0.25;1;0.25" dur="1.6s" begin="0s" repeatCount="indefinite" /></path>
+        <path d="M18 6L12 11"><animate attributeName="stroke-opacity" values="0.25;1;0.25" dur="1.6s" begin="0.4s" repeatCount="indefinite" /></path>
+        <path d="M12 11L8 17.5"><animate attributeName="stroke-opacity" values="0.25;1;0.25" dur="1.6s" begin="0.8s" repeatCount="indefinite" /></path>
+        <path d="M12 11L17 17"><animate attributeName="stroke-opacity" values="0.25;1;0.25" dur="1.6s" begin="1.2s" repeatCount="indefinite" /></path>
+        <circle cx="6.5" cy="6.5" r="1.9" fill="url(#loaderSynGrad)" stroke="none"><animate attributeName="r" values="1.7;2.2;1.7" dur="1.6s" begin="0s" repeatCount="indefinite" /></circle>
+        <circle cx="18" cy="6" r="1.5" fill="url(#loaderSynGrad)" stroke="none"><animate attributeName="r" values="1.3;1.9;1.3" dur="1.6s" begin="0.4s" repeatCount="indefinite" /></circle>
+        <circle cx="8" cy="17.5" r="1.5" fill="url(#loaderSynGrad)" stroke="none"><animate attributeName="r" values="1.3;1.9;1.3" dur="1.6s" begin="0.8s" repeatCount="indefinite" /></circle>
+        <circle cx="17" cy="17" r="1.8" fill="url(#loaderSynGrad)" stroke="none"><animate attributeName="r" values="1.6;2.1;1.6" dur="1.6s" begin="1.2s" repeatCount="indefinite" /></circle>
+        <circle cx="12" cy="11" r="2.6" fill="url(#loaderSynGrad)" stroke="none"><animate attributeName="r" values="2.4;3.1;2.4" dur="1.6s" repeatCount="indefinite" /></circle>
+      </svg>
     </div>
     <div class="text-[22px] font-semibold tracking-tight text-[--text-primary]">正在准备会话详情</div>
     <div class="mt-2 max-w-[320px] text-[12px] leading-5 text-[--text-tertiary]">
