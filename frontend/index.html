@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <!-- SEO & Social Media Metadata -->
-  <title>Agent Trace 诊断平台</title>
+  <title>Agent Synapse 诊断平台</title>
   <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化执行规整、工具稳定、重复空转、资源开销、调度编排 5 维客观健康度，并叠加 GPT-5.5 语义体验评测。">
 
   <!-- Open Graph / Facebook / Feishu -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kejin-li.github.io/agent_trace_analysis/">
-  <meta property="og:title" content="Agent Trace 诊断平台">
+  <meta property="og:title" content="Agent Synapse 诊断平台">
   <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化执行规整、工具稳定、重复空转、资源开销、调度编排 5 维客观健康度，并叠加 GPT-5.5 语义体验评测。">
   <!-- 飞书和微信等通常抓取 og:image 作为卡片图标或预览图，这里生成一个带渐变背景和图标的占位 SVG 充当 Logo -->
-  <meta property="og:image" content="https://api.dicebear.com/7.x/shapes/svg?seed=AgentTrace&backgroundColor=0071E3,BF5AF2">
+  <meta property="og:image" content="https://api.dicebear.com/7.x/shapes/svg?seed=AgentSynapse&backgroundColor=0071E3,BF5AF2">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -372,12 +372,21 @@
     <div class="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
       <div class="flex items-center gap-6">
         <a href="./" class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-sm">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+          <div class="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#0071E3] to-[#BF5AF2] flex items-center justify-center text-white shadow-[0_2px_8px_rgba(0,113,227,0.35)] ring-1 ring-inset ring-white/25">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6.5 6.5L12 11M18 6L12 11M12 11L8 17.5M12 11L17 17">
+                <animate attributeName="stroke-opacity" values="0.4;1;0.4" dur="2.4s" repeatCount="indefinite" />
+              </path>
+              <circle cx="6.5" cy="6.5" r="1.9" fill="currentColor" stroke="none" />
+              <circle cx="18" cy="6" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="8" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="17" cy="17" r="1.8" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="11" r="2.4" fill="currentColor" stroke="none">
+                <animate attributeName="r" values="2.2;2.8;2.2" dur="2.4s" repeatCount="indefinite" />
+              </circle>
             </svg>
           </div>
-          <span class="font-semibold text-[15px] tracking-tight">AgentTrace</span>
+          <span class="font-semibold text-[15px] tracking-tight">Agent Synapse</span>
         </a>
         <nav class="flex items-center gap-1 text-[13px] text-[--text-secondary]">
           <a href="./" class="px-3 py-1.5 rounded-md bg-black/5 text-[--text-primary] font-medium">大盘</a>
@@ -834,6 +843,7 @@
       }
       return updated;
     }
+    window.applyPendingSessionQualityUpdate = applyPendingSessionQualityUpdate;
 
     function getCurrentAppliedRange() {
       return currentAppliedRange || localStorage.getItem('agenttrace.range') || '24h';
@@ -868,7 +878,9 @@
 
     function buildDetailSeed(session) {
       if (!session || !session.id) return null;
-      const meta = getSessionMeta(session);
+      const meta = typeof window.getSessionMeta === 'function'
+        ? window.getSessionMeta(session)
+        : { score: session?.score ?? null, scoreBand: null, anomaly: null };
       const scoreValue = Number.isFinite(Number(meta.score)) ? Math.round(Number(meta.score)) : null;
       const color = scoreValue === null ? '' : (meta.scoreBand || scoreBand(scoreValue));
       const topTag = meta.anomaly && meta.anomaly.list && meta.anomaly.list[0] ? meta.anomaly.list[0].label : '';
@@ -1076,8 +1088,8 @@
         ? window.AgentTraceDB.loadDashboardSummary(query).catch(() => null)
         : Promise.resolve(null);
       const anomalyPromise = window.AgentTraceDB.loadTopAnomalySessions
-        ? window.AgentTraceDB.loadTopAnomalySessions(query).catch(() => window.AgentTraceDB.loadSessions(Object.assign({}, query, { limit: 10 })))
-        : window.AgentTraceDB.loadSessions(Object.assign({}, query, { limit: 10 }));
+        ? window.AgentTraceDB.loadTopAnomalySessions(query).catch(() => window.AgentTraceDB.loadAnomalySessions(Object.assign({}, query, { limit: 10 })))
+        : window.AgentTraceDB.loadAnomalySessions(Object.assign({}, query, { limit: 10 }));
       const summary = await summaryPromise;
       if (seq === applySeq && summary) {
         window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, { summary });
@@ -1483,6 +1495,7 @@
       s.__dashboardMeta = meta;
       return meta;
     }
+    window.getSessionMeta = getSessionMeta;
 
     function renderEmpty(msg) {
       tbody.innerHTML = `<tr>
@@ -1914,13 +1927,13 @@
     };
 
     window.addEventListener('pageshow', () => {
-      applyPendingSessionQualityUpdate();
+      if (typeof window.applyPendingSessionQualityUpdate === 'function') window.applyPendingSessionQualityUpdate();
     });
     window.addEventListener('focus', () => {
-      applyPendingSessionQualityUpdate();
+      if (typeof window.applyPendingSessionQualityUpdate === 'function') window.applyPendingSessionQualityUpdate();
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') applyPendingSessionQualityUpdate();
+      if (document.visibilityState === 'visible' && typeof window.applyPendingSessionQualityUpdate === 'function') window.applyPendingSessionQualityUpdate();
     });
 
     try {
@@ -1928,7 +1941,7 @@
         ? window.getCurrentAppliedRange()
         : (localStorage.getItem('agenttrace.range') || '24h');
       await window.applyRange(savedRange);
-      applyPendingSessionQualityUpdate();
+      if (typeof window.applyPendingSessionQualityUpdate === 'function') window.applyPendingSessionQualityUpdate();
       hideGlobalLoader();
     } catch (e) {
       renderEmpty('加载失败：' + (e.message || String(e)));

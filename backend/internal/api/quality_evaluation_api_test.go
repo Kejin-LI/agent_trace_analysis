@@ -93,6 +93,44 @@ func TestBuildLLMJudgeResultFallsBackToStructuredSummary(t *testing.T) {
 	}
 }
 
+func TestApplyQualityEvaluationToBundleFallsBackToJudgeResultDimensionScores(t *testing.T) {
+	row := model.StgSessionQualityEvaluation{
+		LLMScore:      intPtr(56),
+		LLMEvalResult: `{"score":56,"resolved_score":45,"dimension_scores":{"efficiency_feel":72,"sentiment":90}}`,
+	}
+	bundle := apiSessionBundle{}
+
+	applyQualityEvaluationToBundle(&bundle, row, false)
+
+	if bundle.LLMScore == nil || *bundle.LLMScore != 56 {
+		t.Fatalf("expected llm score to be applied, got %#v", bundle.LLMScore)
+	}
+	if bundle.LLMEfficiencyFeelScore == nil || *bundle.LLMEfficiencyFeelScore != 72 {
+		t.Fatalf("expected efficiency fallback score from llm_eval_result, got %#v", bundle.LLMEfficiencyFeelScore)
+	}
+	if bundle.LLMSentimentScore == nil || *bundle.LLMSentimentScore != 90 {
+		t.Fatalf("expected sentiment fallback score from llm_eval_result, got %#v", bundle.LLMSentimentScore)
+	}
+	if bundle.LLMResolvedScore == nil || *bundle.LLMResolvedScore != 45 {
+		t.Fatalf("expected direct resolved score fallback from llm_eval_result, got %#v", bundle.LLMResolvedScore)
+	}
+}
+
+func TestApplyQualityEvaluationToBundleFallsBackToLegacyScoreMaps(t *testing.T) {
+	row := model.StgSessionQualityEvaluation{
+		LLMRawResult: `{"scores":{"efficiency_feel":"68","actionability_score":"81"}}`,
+	}
+	bundle := apiSessionBundle{}
+
+	applyQualityEvaluationToBundle(&bundle, row, false)
+
+	if bundle.LLMEfficiencyFeelScore == nil || *bundle.LLMEfficiencyFeelScore != 68 {
+		t.Fatalf("expected efficiency fallback from legacy scores map, got %#v", bundle.LLMEfficiencyFeelScore)
+	}
+	if bundle.LLMActionabilityScore == nil || *bundle.LLMActionabilityScore != 81 {
+		t.Fatalf("expected actionability fallback from legacy scores map, got %#v", bundle.LLMActionabilityScore)
+	}
+}
 func TestEmbedAndExtractTraceFingerprint(t *testing.T) {
 	raw := `{"score":88,"reason":"ok"}`
 	fingerprint := "2:abc123"
@@ -134,4 +172,7 @@ func TestQualityEvaluationMatchesExpectationFallsBackToTraceFields(t *testing.T)
 	if qualityEvaluationMatchesExpectation(row, "", "trace_b", 3) {
 		t.Fatalf("expected mismatched trace_id to fail")
 	}
+}
+func intPtr(v int) *int {
+	return &v
 }
