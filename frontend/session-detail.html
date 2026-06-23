@@ -3182,6 +3182,7 @@
       }));
       return `${traces.length}:${hashTraceFingerprint(JSON.stringify(payload))}`;
     }
+    window.buildTraceFingerprint = buildTraceFingerprint;
 
     function readStoredTraceFingerprint(sessionId) {
       if (!sessionId) return '';
@@ -3384,7 +3385,7 @@
     function syncAggregateStateForLatestTrace(real) {
       const sessionId = String(real?.session_id || real?.id || '').trim();
       if (!sessionId) return false;
-      const nextFingerprint = buildTraceFingerprint(real);
+      const nextFingerprint = window.buildTraceFingerprint(real);
       if (!nextFingerprint) return false;
       const prevFingerprint = readStoredTraceFingerprint(sessionId);
       const changed = !!prevFingerprint && prevFingerprint !== nextFingerprint;
@@ -6634,11 +6635,12 @@
   function currentTraceExpectation(real) {
     const target = real || ((window.SESSION && window.SESSION._real) || {});
     return {
-      trace_fingerprint: buildTraceFingerprint(target),
+      trace_fingerprint: window.buildTraceFingerprint(target),
       trace_id: String(target?.trace || target?.trace_id || target?.traces?.[0]?.trace_id || '').trim(),
       trace_count: Number(target?.trace_count || target?.traces?.length || 0),
     };
   }
+  window.currentTraceExpectation = currentTraceExpectation;
 
   function buildQualityEvaluationPayload(result) {
     const real = (window.SESSION && window.SESSION._real) || {};
