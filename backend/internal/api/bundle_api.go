@@ -21,7 +21,7 @@ import (
 const (
 	artifactStatusPublished    = "published"
 	artifactStatusUnpublished  = "unpublished"
-	currentDetailBundleVersion = 1
+	currentDetailBundleVersion = 2
 )
 
 // listReadTimeout 限定列表/大盘等读路径单次 DB 查询的最长等待时间。
