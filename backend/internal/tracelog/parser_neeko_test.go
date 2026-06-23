@@ -60,6 +60,25 @@ func TestParseNeekoResponsesLog(t *testing.T) {
 	}
 }
 
+func TestParseNeekoResponsesJSONL(t *testing.T) {
+	raw := `{"type":"REQUEST_BODY","timestamp":"2026-06-03T08:14:39.709Z","data":{"model":"gpt-5.5","input":[{"role":"developer","content":"You are an interactive CLI agent."},{"role":"user","content":[{"type":"input_text","text":"JSONL 里的真实问题"}]}]}}
+{"type":"STREAM_RESPONSE","timestamp":"2026-06-03T08:14:44.438Z","data":{"logId":"log-1","durationMs":4732,"allChunks":[{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.5","usage":{"input_tokens":32090,"output_tokens":143},"output":[{"type":"function_call","name":"read_file","call_id":"call_1","arguments":"{\"path\":\"a.ts\"}"}]}}]}}`
+	pr, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pr.Rounds) != 1 {
+		t.Fatalf("rounds = %d, want 1", len(pr.Rounds))
+	}
+	r := pr.Rounds[0]
+	if r.UserPrompt != "JSONL 里的真实问题" {
+		t.Fatalf("user prompt = %q, want JSONL prompt", r.UserPrompt)
+	}
+	if len(r.Calls) != 1 || len(r.Calls[0].Messages) == 0 {
+		t.Fatalf("calls/messages not retained: calls=%d", len(r.Calls))
+	}
+}
+
 // 同一用户问题连发多次调用（agent 多步）应合并为 1 轮、N 次调用，tokens 累加。
 func TestParseNeekoMergesAgentLoop(t *testing.T) {
 	pr, err := Parse([]byte(neekoMultiCallSample()))

@@ -206,6 +206,11 @@ func Parse(raw []byte) (*ParseResult, error) {
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("scan jsonl: %w", err)
 	}
+	if isNeekoResponsesLog(events) {
+		if out := parseNeekoResponsesLog(events); len(out.Rounds) > 0 {
+			return out, nil
+		}
+	}
 	return parseStructuredEvents(events), nil
 }
 
