@@ -580,6 +580,7 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 	if b == nil {
 		return
 	}
+	llmJudgeResult := buildLLMJudgeResult(row)
 	b.RuleScore = row.RuleScore
 	b.LLMScore = row.LLMScore
 	b.LLMJudgeScore = row.LLMScore
@@ -595,8 +596,9 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 	b.LLMRepeatLoopScore = row.LLMRepeatLoopScore
 	b.LLMActionabilityScore = row.LLMActionabilityScore
 	b.LLMHallucinationRiskScore = row.LLMHallucinationRiskScore
+	fillBundleLLMScoreFallbacks(b, llmJudgeResult)
 	if includeFullResult {
-		if llmJudgeResult := buildLLMJudgeResult(row); llmJudgeResult != nil {
+		if llmJudgeResult != nil {
 			if raw, ok := llmJudgeResult.(json.RawMessage); ok {
 				b.LLMJudgeResult = raw
 			} else if raw, err := json.Marshal(llmJudgeResult); err == nil {
@@ -604,6 +606,109 @@ func applyQualityEvaluationToBundle(b *apiSessionBundle, row model.StgSessionQua
 			}
 		}
 	}
+}
+
+func fillBundleLLMScoreFallbacks(b *apiSessionBundle, llmJudgeResult any) {
+	if b == nil || llmJudgeResult == nil {
+		return
+	}
+	b.LLMSentimentScore = coalesceScorePtr(b.LLMSentimentScore, llmJudgeDimensionScore(llmJudgeResult, "sentiment_score", "sentiment"))
+	b.LLMResolvedScore = coalesceScorePtr(b.LLMResolvedScore, llmJudgeDimensionScore(llmJudgeResult, "resolved_score", "resolved"))
+	b.LLMIntentMatchScore = coalesceScorePtr(b.LLMIntentMatchScore, llmJudgeDimensionScore(llmJudgeResult, "intent_match_score", "intent_match"))
+	b.LLMEfficiencyFeelScore = coalesceScorePtr(b.LLMEfficiencyFeelScore, llmJudgeDimensionScore(llmJudgeResult, "efficiency_feel_score", "efficiency_feel"))
+	b.LLMActionabilityScore = coalesceScorePtr(b.LLMActionabilityScore, llmJudgeDimensionScore(llmJudgeResult, "actionability_score", "actionability"))
+	b.LLMHallucinationRiskScore = coalesceScorePtr(b.LLMHallucinationRiskScore, llmJudgeDimensionScore(llmJudgeResult, "hallucination_risk_score", "hallucination_risk"))
+}
+
+func coalesceScorePtr(primary, fallback *int) *int {
+	if primary != nil {
+		return primary
+	}
+	return fallback
+}
+
+func llmJudgeDimensionScore(raw any, directField, dimensionKey string) *int {
+	obj := normalizeJSONObject(raw)
+	if len(obj) == 0 {
+		return nil
+	}
+	if score := jsonNumberScorePtr(obj[directField]); score != nil {
+		return score
+	}
+	if score := jsonNumberScorePtr(obj["llm_"+directField]); score != nil {
+		return score
+	}
+	for _, nestedKey := range []string{"dimension_scores", "scores", "分项分数"} {
+		nestedObj := normalizeJSONObject(obj[nestedKey])
+		if len(nestedObj) == 0 {
+			continue
+		}
+		if score := jsonNumberScorePtr(nestedObj[dimensionKey]); score != nil {
+			return score
+		}
+		if score := jsonNumberScorePtr(nestedObj[directField]); score != nil {
+			return score
+		}
+		if score := jsonNumberScorePtr(nestedObj["llm_"+directField]); score != nil {
+			return score
+		}
+	}
+	return nil
+}
+
+func normalizeJSONObject(raw any) map[string]any {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case map[string]any:
+		return v
+	case gin.H:
+		return map[string]any(v)
+	case json.RawMessage:
+		var obj map[string]any
+		if err := json.Unmarshal(v, &obj); err == nil {
+			return obj
+		}
+	case []byte:
+		var obj map[string]any
+		if err := json.Unmarshal(v, &obj); err == nil {
+			return obj
+		}
+	}
+	return nil
+}
+
+func jsonNumberScorePtr(raw any) *int {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case int:
+		n := v
+		return clampScorePtr(&n)
+	case int32:
+		n := int(v)
+		return clampScorePtr(&n)
+	case int64:
+		n := int(v)
+		return clampScorePtr(&n)
+	case float32:
+		n := int(v + 0.5)
+		return clampScorePtr(&n)
+	case float64:
+		n := int(v + 0.5)
+		return clampScorePtr(&n)
+	case json.Number:
+		if f, err := v.Float64(); err == nil {
+			n := int(f + 0.5)
+			return clampScorePtr(&n)
+		}
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+			n := int(f + 0.5)
+			return clampScorePtr(&n)
+		}
+	}
+	return nil
 }
 
 func buildLLMJudgeResult(row model.StgSessionQualityEvaluation) any {

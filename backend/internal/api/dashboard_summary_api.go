@@ -416,11 +416,10 @@ func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, sca
 }
 
 func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]model.APISessionAggregate, int, error) {
-	q, ok := h.dashboardAggregateRangeQuery(tr)
+	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{HasIssueOnly: true})
 	if !ok {
 		return nil, 0, nil
 	}
-	q = q.Where("session_id LIKE ?", "ses\\_%").Where("has_issue = ?", true)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -438,11 +437,10 @@ func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]mo
 }
 
 func (h *Handler) countDashboardIssueSessions(tr modellog.TimeRange) (int, error) {
-	q, ok := h.dashboardAggregateRangeQuery(tr)
+	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{HasIssueOnly: true})
 	if !ok {
 		return 0, nil
 	}
-	q = q.Where("session_id LIKE ?", "ses\\_%").Where("has_issue = ?", true)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return 0, err
@@ -451,12 +449,11 @@ func (h *Handler) countDashboardIssueSessions(tr modellog.TimeRange) (int, error
 }
 
 func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int) ([]model.APISessionAggregate, int, error) {
-	q, ok := h.dashboardAggregateRangeQuery(tr)
+	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{})
 	if !ok {
 		return nil, 0, nil
 	}
-	q = q.Where("session_id LIKE ?", "ses\\_%").
-		Where("(abnormal_level > 0 OR has_root_fail = ? OR has_loop = ? OR score < ? OR COALESCE(chip, '') <> '')", true, true, 85)
+	q = q.Where("(abnormal_level > 0 OR has_root_fail = ? OR has_loop = ? OR score < ? OR COALESCE(chip, '') <> '')", true, true, 85)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -522,16 +519,8 @@ func dashboardAggregateRowSelectColumns() []string {
 }
 
 func (h *Handler) dashboardAggregateRangeQuery(tr modellog.TimeRange) (*gorm.DB, bool) {
-	if h == nil || h.db == nil {
-		return nil, false
-	}
-	startAt, endAt, ok := parseTimeRangeBounds(tr)
-	if !ok {
-		return nil, false
-	}
-	q := h.db.Model(&model.APISessionAggregate{}).
-		Where("started_at_ms BETWEEN ? AND ?", startAt.UnixMilli(), endAt.UnixMilli())
-	return q, true
+	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{})
+	return q, ok
 }
 
 func sortDashboardAnomalyCandidates(candidates []apiSessionBundle) {

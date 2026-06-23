@@ -560,69 +560,22 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 //     api_daily_summary 的日汇总累加（O(天数)），既便宜又能给出有意义的提示。
 //  4. ctx 带超时：DB 慢/锁等待时快速失败返回明确错误，绝不让 HTTP 请求悬挂。
 func (h *Handler) listSessionBundlesFromDB(ctx context.Context, tr modellog.TimeRange, uid, uname, sid, aid string, limit, offset int) ([]apiSessionBundle, int64, bool, error) {
-	if h == nil || h.db == nil {
-		return nil, 0, false, nil
-	}
-	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	q, startAt, endAt, ok := h.sessionAggregateRangeQuery(ctx, tr, sessionAggregateQueryFilters{
+		UserID:     uid,
+		UserName:   uname,
+		SessionID:  sid,
+		ArtifactID: aid,
+	})
 	if !ok {
 		return nil, 0, false, nil
 	}
-	q := h.db.WithContext(ctx).Model(&model.APISessionAggregate{}).
-		Where("session_id LIKE ?", "ses\\_%").
-		Where("started_at_ms BETWEEN ? AND ?", startAt.UnixMilli(), endAt.UnixMilli())
-	if uid != "" {
-		q = q.Where("user_id = ?", uid)
-	}
-	if uname != "" {
-		q = q.Where("user_name = ?", uname)
-	}
-	if sid != "" {
-		q = q.Where("session_id = ?", sid)
-	}
-	if aid != "" {
-		q = q.Where("artifact_id = ?", aid)
-	}
 	var rows []model.APISessionAggregate
+	cols := dashboardAggregateRowSelectColumns()
+	if !apiSessionAggregateHasIssueColumn(h.db) {
+		cols = removeString(cols, "has_issue")
+	}
 	if err := q.
-		Select([]string{
-			"id",
-			"session_id",
-			"artifact_id",
-			"aggregate_date",
-			"user_id",
-			"user_name",
-			"started_at_ms",
-			"started_at",
-			"duration_ms",
-			"trace_id",
-			"title",
-			"chip",
-			"input_tokens",
-			"output_tokens",
-			"total_tokens",
-			"avg_tokens_per_turn",
-			"turns",
-			"trace_count",
-			"tool_calls",
-			"unique_tools",
-			"tool_failures",
-			"tool_fail_rate_bp",
-			"tool_retries",
-			"max_serial_run",
-			"has_root_fail",
-			"has_loop",
-			"score",
-			"response_score",
-			"stability_score",
-			"thinking_score",
-			"resource_score",
-			"orchestration_score",
-			"abnormal_level",
-			"rules_json",
-			"features_json",
-			"created_at",
-			"updated_at",
-		}).
+		Select(cols).
 		Order("started_at_ms DESC, id DESC").Limit(limit + 1).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, 0, false, err
 	}
@@ -644,6 +597,46 @@ func (h *Handler) listSessionBundlesFromDB(ctx context.Context, tr modellog.Time
 		}
 	}
 	return bundles, int64(total), true, nil
+}
+
+type sessionAggregateQueryFilters struct {
+	UserID       string
+	UserName     string
+	SessionID    string
+	ArtifactID   string
+	HasIssueOnly bool
+}
+
+func (h *Handler) sessionAggregateRangeQuery(ctx context.Context, tr modellog.TimeRange, filters sessionAggregateQueryFilters) (*gorm.DB, time.Time, time.Time, bool) {
+	if h == nil || h.db == nil {
+		return nil, time.Time{}, time.Time{}, false
+	}
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return nil, time.Time{}, time.Time{}, false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	q := h.db.WithContext(ctx).Model(&model.APISessionAggregate{}).
+		Where("session_id LIKE ?", "ses\\_%").
+		Where("started_at_ms BETWEEN ? AND ?", startAt.UnixMilli(), endAt.UnixMilli())
+	if filters.UserID != "" {
+		q = q.Where("user_id = ?", filters.UserID)
+	}
+	if filters.UserName != "" {
+		q = q.Where("user_name = ?", filters.UserName)
+	}
+	if filters.SessionID != "" {
+		q = q.Where("session_id = ?", filters.SessionID)
+	}
+	if filters.ArtifactID != "" {
+		q = q.Where("artifact_id = ?", filters.ArtifactID)
+	}
+	if filters.HasIssueOnly && apiSessionAggregateHasIssueColumn(h.db) {
+		q = q.Where("has_issue = ?", true)
+	}
+	return q, startAt, endAt, true
 }
 
 // countSessionsFromDailySummary 用 api_daily_summary 的日级 session_count 累加，
