@@ -19,8 +19,9 @@ import (
 
 // 产物发布状态：平台只纳入未发布 template 产物。
 const (
-	artifactStatusPublished   = "published"
-	artifactStatusUnpublished = "unpublished"
+	artifactStatusPublished    = "published"
+	artifactStatusUnpublished  = "unpublished"
+	currentDetailBundleVersion = 1
 )
 
 // listReadTimeout 限定列表/大盘等读路径单次 DB 查询的最长等待时间。
@@ -36,6 +37,27 @@ func normalizeArtifactStatus(raw string) string {
 	default:
 		return ""
 	}
+}
+
+func detailBundleNeedsRefresh(bundle apiSessionBundle) bool {
+	if len(bundle.Traces) == 0 {
+		return false
+	}
+	return bundle.DetailVersion < currentDetailBundleVersion
+}
+
+func detailBundleNeedsSourceRefresh(bundle apiSessionBundle, hit *modellog.Session) bool {
+	if hit == nil || len(bundle.Traces) == 0 {
+		return false
+	}
+	updatedAt := parseUpstreamTime(hit.UpdateAt)
+	if updatedAt.IsZero() {
+		updatedAt = parseUpstreamFileTimestamp(*hit)
+	}
+	if updatedAt.IsZero() {
+		return false
+	}
+	return bundle.SourceUpdatedAtMs < updatedAt.UnixMilli()
 }
 
 func detailLookupTimeRange(c *gin.Context, tr modellog.TimeRange, cachedBundle apiSessionBundle, hasCached bool) modellog.TimeRange {
@@ -422,7 +444,9 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if hitStatus != "" {
 		cachedBundle.ArtifactPublicationStatus = hitStatus
 	}
-	if hasCached && hasDetailTraces(cachedBundle) {
+	if hasCached && hasDetailTraces(cachedBundle) &&
+		!detailBundleNeedsRefresh(cachedBundle) &&
+		!detailBundleNeedsSourceRefresh(cachedBundle, hit) {
 		// DB 已有完整 bundle 时仍要实时刷新发布状态，避免详情页命中旧缓存。
 		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 		return
@@ -747,6 +771,9 @@ func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle
 		HasLoop:          row.HasLoop,
 	}
 	return apiSessionBundle{
+		DetailVersion:             currentDetailBundleVersion,
+		SourceUpdatedAtMs:         msFromTimePtr(row.SourceUpdateAt),
+		SourceUpdatedAt:           timeToString(row.SourceUpdateAt),
 		ID:                        pickFirstNonEmpty(row.SessionID, row.ArtifactID),
 		SessionID:                 row.SessionID,
 		ArtifactID:                row.ArtifactID,
@@ -799,6 +826,13 @@ func hasDetailTraces(bundle apiSessionBundle) bool {
 }
 
 func mergeBundleWithCachedBundle(bundle, cached apiSessionBundle) apiSessionBundle {
+	if bundle.DetailVersion == 0 {
+		bundle.DetailVersion = cached.DetailVersion
+	}
+	if bundle.SourceUpdatedAtMs == 0 {
+		bundle.SourceUpdatedAtMs = cached.SourceUpdatedAtMs
+		bundle.SourceUpdatedAt = cached.SourceUpdatedAt
+	}
 	if bundle.SessionID == "" {
 		bundle.SessionID = cached.SessionID
 	}
