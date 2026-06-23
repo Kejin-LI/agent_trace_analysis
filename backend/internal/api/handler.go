@@ -297,6 +297,9 @@ type apiTrace struct {
 }
 
 type apiSessionBundle struct {
+	DetailVersion             int                  `json:"detail_version,omitempty"`
+	SourceUpdatedAtMs         int64                `json:"source_updated_at_ms,omitempty"`
+	SourceUpdatedAt           string               `json:"source_updated_at,omitempty"`
 	ID                        string               `json:"id"`
 	SessionID                 string               `json:"session_id"`
 	ArtifactID                string               `json:"artifact_id"`
@@ -750,28 +753,30 @@ func buildSessionBundle(session model.StgArtifactSession, traceRows []model.StgA
 	}
 
 	return apiSessionBundle{
-		ID:           session.SessionID,
-		SessionID:    session.SessionID,
-		ArtifactID:   session.ArtifactID,
-		User:         session.UserID,
-		UserID:       session.UserID,
-		Title:        title,
-		Trace:        firstTraceID,
-		StartedAtMs:  startedAtMs,
-		StartedAt:    startedAt,
-		DurationMs:   totalDuration,
-		InputTokens:  totalIn,
-		OutputTokens: totalOut,
-		ToolCalls:    features.ToolCalls,
-		Turns:        turns,
-		TraceCount:   len(apiTraces),
-		Score:        0,
-		Color:        "green",
-		Chip:         pickChip(rules),
-		Features:     features,
-		Radar:        apiRadar{},
-		Rules:        rules,
-		Traces:       apiTraces,
+		DetailVersion:     currentDetailBundleVersion,
+		SourceUpdatedAtMs: nullableInt64(session.SessionCreatedAtMs),
+		ID:                session.SessionID,
+		SessionID:         session.SessionID,
+		ArtifactID:        session.ArtifactID,
+		User:              session.UserID,
+		UserID:            session.UserID,
+		Title:             title,
+		Trace:             firstTraceID,
+		StartedAtMs:       startedAtMs,
+		StartedAt:         startedAt,
+		DurationMs:        totalDuration,
+		InputTokens:       totalIn,
+		OutputTokens:      totalOut,
+		ToolCalls:         features.ToolCalls,
+		Turns:             turns,
+		TraceCount:        len(apiTraces),
+		Score:             0,
+		Color:             "green",
+		Chip:              pickChip(rules),
+		Features:          features,
+		Radar:             apiRadar{},
+		Rules:             rules,
+		Traces:            apiTraces,
 	}
 }
 

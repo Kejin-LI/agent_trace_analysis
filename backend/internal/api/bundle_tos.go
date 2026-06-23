@@ -156,6 +156,7 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 			Title:        title,
 			UserPrompt:   r.UserPrompt,
 			RoundCount:   1,
+			ModelName:    pickRoundModelName(r),
 			Turns:        modelTurns,
 			DurationMs:   traceDur,
 			InputTokens:  r.InputTokens,
@@ -209,30 +210,62 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 	}
 
 	return apiSessionBundle{
-		ID:           pickFirstNonEmpty(src.SessionID, src.ArtifactID),
-		SessionID:    src.SessionID,
-		ArtifactID:   src.ArtifactID,
-		User:         src.UserName,
-		UserID:       src.UserID,
-		Title:        title,
-		Trace:        firstTraceID,
-		StartedAtMs:  startedMs,
-		StartedAt:    msToString(startedMs),
-		DurationMs:   totalDuration,
-		InputTokens:  totalIn,
-		OutputTokens: totalOut,
-		ToolCalls:    toolCalls,
-		Turns:        turns,
-		TraceCount:   len(traces),
-		Score:        0,
-		Color:        "green",
-		Chip:         pickChip(rules),
-		Features:     features,
-		Radar:        apiRadar{},
-		Rules:        rules,
-		Truncation:   truncation,
-		Traces:       traces,
+		DetailVersion:     currentDetailBundleVersion,
+		SourceUpdatedAtMs: msFromTimePtr(src.SourceUpdatedAt),
+		SourceUpdatedAt:   timeToString(src.SourceUpdatedAt),
+		ID:                pickFirstNonEmpty(src.SessionID, src.ArtifactID),
+		SessionID:         src.SessionID,
+		ArtifactID:        src.ArtifactID,
+		User:              src.UserName,
+		UserID:            src.UserID,
+		Title:             title,
+		Trace:             firstTraceID,
+		StartedAtMs:       startedMs,
+		StartedAt:         msToString(startedMs),
+		DurationMs:        totalDuration,
+		InputTokens:       totalIn,
+		OutputTokens:      totalOut,
+		ToolCalls:         toolCalls,
+		Turns:             turns,
+		TraceCount:        len(traces),
+		Score:             0,
+		Color:             "green",
+		Chip:              pickChip(rules),
+		Features:          features,
+		Radar:             apiRadar{},
+		Rules:             rules,
+		Truncation:        truncation,
+		Traces:            traces,
 	}
+}
+
+func msFromTimePtr(v *time.Time) int64 {
+	if v == nil || v.IsZero() {
+		return 0
+	}
+	return v.UnixMilli()
+}
+
+func pickRoundModelName(r tracelog.Round) string {
+	for i := len(r.Calls) - 1; i >= 0; i-- {
+		if model := strings.TrimSpace(r.Calls[i].Model); model != "" {
+			return model
+		}
+	}
+	return ""
+}
+
+func marshalRoundMessagesInput(msgs interface{}) string {
+	rv := reflect.ValueOf(msgs)
+	if !rv.IsValid() || rv.IsZero() {
+		return ""
+	}
+	payload := map[string]interface{}{"messages": msgs}
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(buf)
 }
 
 // buildSpansFromRound 把一个 Round 内的 LLM 调用展开成 model + tool spans。
@@ -243,10 +276,11 @@ func buildSpansFromRound(r tracelog.Round, roundIdx int) []apiSpan {
 		// model span：input 用首条 user 消息预览，output 用 final.text + reasoning。
 		modelOut := assembleModelOutput(c.Text, c.Reasoning, c.Tools)
 		modelInput := r.UserPrompt
-		if ci > 0 {
-			// 后续调用通常是工具结果回填，input 用 messages 末尾整体序列化便于审查。
-			if buf, err := json.Marshal(c.Messages); err == nil {
-				modelInput = string(buf)
+		if msgInput := marshalRoundMessagesInput(c.Messages); msgInput != "" {
+			if ci > 0 || modelInput == "" {
+				// 后续调用通常是工具结果回填；若首轮 prompt 摘要缺失，也回落到原始 messages，
+				// 避免接口返回空串/null 让前端无法自愈。
+				modelInput = msgInput
 			}
 		}
 		dur := c.DurationMs

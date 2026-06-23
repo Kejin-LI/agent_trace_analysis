@@ -1516,9 +1516,9 @@ func isSyntheticToolPrompt(text string) bool {
 		strings.Contains(lower, "unsure how to proceed") {
 		return true
 	}
-        if isTitleGenerationPrompt(text) {
-                return true
-        }
+	if isTitleGenerationPrompt(text) {
+		return true
+	}
 	for _, sig := range []string{
 		"the user requested the following",
 		"i have fetched the raw content",
@@ -1550,23 +1550,23 @@ func isSyntheticToolPrompt(text string) bool {
 }
 
 func isTitleGenerationPrompt(raw string) bool {
-        normalized := strings.ToLower(strings.TrimSpace(raw))
-        normalized = strings.Join(strings.Fields(normalized), " ")
-        switch normalized {
-        case "generate a title for this conversation",
-                "generate a title for this conversation:",
-                "write a title for this conversation",
-                "write a title for this conversation:",
-                "summarize this conversation in a title",
-                "summarize this conversation in a title:",
-                "generate a concise title for this conversation",
-                "generate a concise title for this conversation:",
-                "write a concise title for this conversation",
-                "write a concise title for this conversation:":
-                return true
-        default:
-                return false
-        }
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	switch normalized {
+	case "generate a title for this conversation",
+		"generate a title for this conversation:",
+		"write a title for this conversation",
+		"write a title for this conversation:",
+		"summarize this conversation in a title",
+		"summarize this conversation in a title:",
+		"generate a concise title for this conversation",
+		"generate a concise title for this conversation:",
+		"write a concise title for this conversation",
+		"write a concise title for this conversation:":
+		return true
+	default:
+		return false
+	}
 }
 
 // contentText 把多种 content 形态压成纯文本预览。
@@ -1680,8 +1680,12 @@ func parseNeekoResponsesLog(events []rawEvent) *ParseResult {
 		if len(req) == 0 {
 			return
 		}
-		userPrompt, model := decodeNeekoRequest(req)
+		userPrompt, model, msgs := decodeNeekoRequest(req)
 		call := callRec{Model: model}
+		call.Messages = msgs
+		if userPrompt == "" {
+			userPrompt = extractUserPrompt(msgs)
+		}
 		call.StartedMs = parseTSMillis(reqTS)
 		decodeNeekoStream(sr, &call)
 		if call.StartedMs == 0 {
@@ -1744,19 +1748,26 @@ func parseNeekoResponsesLog(events []rawEvent) *ParseResult {
 //   - Chat Completions 风格：data.messages = [{role, content}]
 //
 // 用户问题取最后一条 role==user 的文本（system/developer 是系统提示词，不能当用户问题）。
-func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
+func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string, msgs []chatMessage) {
 	var body struct {
 		Model    string         `json:"model"`
 		Input    []neekoMessage `json:"input"`
 		Messages []neekoMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return "", ""
+		return "", "", nil
 	}
 	model = body.Model
-	msgs := body.Input
-	if len(msgs) == 0 {
-		msgs = body.Messages
+	sourceMsgs := body.Input
+	if len(sourceMsgs) == 0 {
+		sourceMsgs = body.Messages
+	}
+	msgs = make([]chatMessage, 0, len(sourceMsgs))
+	for _, msg := range sourceMsgs {
+		msgs = append(msgs, chatMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if strings.ToLower(msgs[i].Role) != "user" {
@@ -1766,10 +1777,10 @@ func decodeNeekoRequest(raw json.RawMessage) (userPrompt, model string) {
 		// 真实提问之前塞进同一条 user 消息，不剥离会导致 prompt 显示成系统注入、多轮塌缩。
 		t := extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(neekoContentText(msgs[i].Content))))
 		if t != "" && !isSyntheticToolPrompt(t) {
-			return t, model
+			return t, model, msgs
 		}
 	}
-	return "", model
+	return "", model, msgs
 }
 
 type neekoMessage struct {
