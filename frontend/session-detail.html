@@ -3246,7 +3246,7 @@
 
 <script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
 <script src="./tag-system.js?v=20260616-fix-score-cache"></script>
-<script src="./db-api.js?v=20260618-list-readpath-harden"></script>
+<script src="./db-api.js?v=20260624-detail-refresh-cache-fix"></script>
 <script>
   // 根据列表页传入的 ?id= 切换详情页头部展示
   // 数据源优先级：① fetch ./data/sessions.json (真实 fornax 数据) → ② 回退到内置 mock
@@ -3367,7 +3367,7 @@
     };
 
     const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
-    const DETAIL_BUNDLE_CACHE_KEY_PREFIX = 'agenttrace.detail.bundle.v1:';
+    const DETAIL_BUNDLE_CACHE_KEY_PREFIX = 'agenttrace.detail.bundle.v2:';
     const DETAIL_BUNDLE_CACHE_TTL_MS = 5 * 60 * 1000;
     const TRACE_FINGERPRINT_KEY_PREFIX = 'agenttrace.session.traceFingerprint.v1:';
     const DETAIL_REFRESH_MAX_ATTEMPTS = 15;
@@ -3468,7 +3468,7 @@
           clearCachedDetailBundle(sessionId);
           return null;
         }
-        if (cached?.__aggregateInvalidated) {
+        if (cached?.__aggregateInvalidated || cached?.aggregate_invalidated) {
           clearCachedDetailBundle(sessionId);
           return null;
         }
@@ -3682,8 +3682,8 @@
       if (!sessionId) return false;
       const nextFingerprint = window.buildTraceFingerprint(real);
       if (!nextFingerprint) return false;
-      const prevFingerprint = readStoredTraceFingerprint(sessionId);
-      const changed = !!prevFingerprint && prevFingerprint !== nextFingerprint;
+      const expectedFingerprint = String(real?.trace_fingerprint || '').trim();
+      const changed = !!expectedFingerprint && expectedFingerprint !== nextFingerprint;
       writeStoredTraceFingerprint(sessionId, nextFingerprint);
       if (!changed) {
         persistLatestDetailSeed(real);
@@ -3800,7 +3800,14 @@
 
     async function runDetailFreshnessCheck(sessionId, real, opts) {
       const freshness = await loadSessionFreshness(sessionId, opts);
-      if (!freshness || !freshness.needs_refresh) return false;
+      if (!freshness) return false;
+      if (!freshness.needs_refresh) {
+        const status = String(freshness.refresh_status || '').toLowerCase();
+        if (status === 'pending' || status === 'running') {
+          startDetailRefreshPolling(sessionId, opts);
+        }
+        return false;
+      }
       const target = real || (window.SESSION && window.SESSION._real) || readCachedDetailBundle(sessionId) || readDetailSeed(sessionId);
       if (target) markSessionAggregateInvalidated(target, freshness);
       startDetailRefreshPolling(sessionId, opts);
