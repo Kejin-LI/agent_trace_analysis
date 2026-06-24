@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -96,7 +97,9 @@ func (h *Handler) getAnomalySessions(c *gin.Context) {
 		limit = v
 	}
 	tr := timeRangeFromQuery(c)
-	bundles, total, stats, err := h.anomalySessionsFromAggregates(tr, limit)
+	// artifact_status=all|published|unpublished，缺省/非法值按 all 处理（不过滤）。
+	artifactStatus := normalizeArtifactStatus(c.Query("artifact_status"))
+	bundles, total, stats, err := h.anomalySessionsFromAggregates(tr, limit, artifactStatus)
 	if err != nil {
 		fail(c, fmt.Errorf("build anomaly sessions: %w", err))
 		return
@@ -109,6 +112,73 @@ func (h *Handler) getAnomalySessions(c *gin.Context) {
 		"filtered_total":  stats.filteredTotal,
 		"candidate_total": stats.candidateTotal,
 		"truncated":       stats.truncated,
+		"artifact_status": artifactStatusLabelForResponse(artifactStatus),
+	})
+}
+
+// artifactStatusLabelForResponse 把内部空串(=不过滤)回显为 "all"，便于前端缓存键与回显。
+func artifactStatusLabelForResponse(status string) string {
+	if status == "" {
+		return "all"
+	}
+	return status
+}
+
+// getAnomalyPublicationStatus 是混合实时策略里的“上游校准”一跳：
+// 只做 list-only 的两趟上游查询（不拉 JSONL、不落库），返回时间窗内每个 session 的
+// 实时发布状态映射，供前端把 DB 快照状态校准为最新。上游不可用时返回明确错误，
+// 前端据此降级到快照状态。该接口刻意保持轻量：只读元信息、不解析产物内容。
+func (h *Handler) getAnomalyPublicationStatus(c *gin.Context) {
+	if h == nil || h.upstream == nil {
+		c.JSON(http.StatusOK, gin.H{"data": map[string]string{}, "available": false})
+		return
+	}
+	tr := timeRangeFromQuery(c)
+	cookie := h.effectiveCookie(c)
+	if strings.TrimSpace(cookie) == "" {
+		c.JSON(http.StatusOK, gin.H{"data": map[string]string{}, "available": false, "reason": "missing_cookie"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	statusBySession := make(map[string]string)
+	attempts := []struct {
+		onlyUnpublished bool
+		label           string
+	}{
+		{onlyUnpublished: true, label: artifactStatusUnpublished},
+		{onlyUnpublished: false, label: artifactStatusPublished},
+	}
+	for _, attempt := range attempts {
+		resp, err := h.upstream.List(ctx, cookie, modellog.ListRequest{
+			TimeRange:                tr,
+			Page:                     modellog.Page{},
+			OnlyUnpublishedArtifacts: attempt.onlyUnpublished,
+		})
+		if err != nil {
+			log.Printf("anomaly pub-status calibration: upstream list failed status=%s err=%v", attempt.label, err)
+			c.JSON(http.StatusOK, gin.H{"data": map[string]string{}, "available": false, "reason": "upstream_unavailable"})
+			return
+		}
+		if resp == nil {
+			continue
+		}
+		for _, s := range resp.Data {
+			sid := strings.TrimSpace(s.SessionID)
+			if sid == "" {
+				continue
+			}
+			// 两趟互斥：未发布先写，已发布不覆盖，与聚合落库口径保持一致。
+			if _, ok := statusBySession[sid]; !ok {
+				statusBySession[sid] = attempt.label
+			}
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data":      statusBySession,
+		"available": true,
+		"total":     len(statusBySession),
 	})
 }
 
@@ -338,11 +408,11 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 }
 
 func (h *Handler) topAnomalySessionsFromAggregates(tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
-	return h.queryDashboardAnomalyBundles(tr, limit, maxDashboardAnomalyScanLimit(limit, 8, 200))
+	return h.queryDashboardAnomalyBundles(tr, limit, maxDashboardAnomalyScanLimit(limit, 8, 200), "")
 }
 
-func (h *Handler) anomalySessionsFromAggregates(tr modellog.TimeRange, limit int) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
-	return h.queryDashboardAnomalyBundles(tr, limit, maxDashboardAnomalyScanLimit(limit, 6, 300))
+func (h *Handler) anomalySessionsFromAggregates(tr modellog.TimeRange, limit int, artifactStatus string) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
+	return h.queryDashboardAnomalyBundles(tr, limit, maxDashboardAnomalyScanLimit(limit, 6, 300), artifactStatus)
 }
 
 func maxDashboardAnomalyScanLimit(limit, multiplier, minValue int) int {
@@ -359,7 +429,7 @@ func maxDashboardAnomalyScanLimit(limit, multiplier, minValue int) int {
 	return scanLimit
 }
 
-func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, scanLimit int) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
+func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, scanLimit int, artifactStatus string) ([]apiSessionBundle, int, dashboardAnomalyCandidateStats, error) {
 	stats := dashboardAnomalyCandidateStats{}
 	if h == nil || h.db == nil {
 		return nil, 0, stats, nil
@@ -371,7 +441,7 @@ func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, sca
 		scanLimit = limit
 	}
 	if apiSessionAggregateHasIssueColumn(h.db) {
-		rows, total, err := h.loadDashboardIssueRows(tr, limit)
+		rows, total, err := h.loadDashboardIssueRows(tr, limit, artifactStatus)
 		if err != nil {
 			return nil, 0, stats, err
 		}
@@ -386,7 +456,7 @@ func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, sca
 		stats.truncated = false
 		return bundles, total, stats, nil
 	}
-	rows, candidateTotal, err := h.loadDashboardAnomalyCandidateRows(tr, scanLimit)
+	rows, candidateTotal, err := h.loadDashboardAnomalyCandidateRows(tr, scanLimit, artifactStatus)
 	if err != nil {
 		return nil, 0, stats, err
 	}
@@ -415,8 +485,8 @@ func (h *Handler) queryDashboardAnomalyBundles(tr modellog.TimeRange, limit, sca
 	return candidates, total, stats, nil
 }
 
-func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]model.APISessionAggregate, int, error) {
-	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{HasIssueOnly: true})
+func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int, artifactStatus string) ([]model.APISessionAggregate, int, error) {
+	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{HasIssueOnly: true, ArtifactStatus: artifactStatus})
 	if !ok {
 		return nil, 0, nil
 	}
@@ -425,7 +495,7 @@ func (h *Handler) loadDashboardIssueRows(tr modellog.TimeRange, limit int) ([]mo
 		return nil, 0, err
 	}
 	var rows []model.APISessionAggregate
-	if err := q.Select(dashboardAggregateRowSelectColumns()).
+	if err := q.Select(h.dashboardAggregateRowSelectColumnsFor()).
 		Order("score ASC").
 		Order("started_at_ms DESC").
 		Order("id DESC").
@@ -448,8 +518,8 @@ func (h *Handler) countDashboardIssueSessions(tr modellog.TimeRange) (int, error
 	return int(total), nil
 }
 
-func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int) ([]model.APISessionAggregate, int, error) {
-	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{})
+func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanLimit int, artifactStatus string) ([]model.APISessionAggregate, int, error) {
+	q, _, _, ok := h.sessionAggregateRangeQuery(context.Background(), tr, sessionAggregateQueryFilters{ArtifactStatus: artifactStatus})
 	if !ok {
 		return nil, 0, nil
 	}
@@ -459,10 +529,7 @@ func (h *Handler) loadDashboardAnomalyCandidateRows(tr modellog.TimeRange, scanL
 		return nil, 0, err
 	}
 	var rows []model.APISessionAggregate
-	cols := dashboardAggregateRowSelectColumns()
-	if !apiSessionAggregateHasIssueColumn(h.db) {
-		cols = removeString(cols, "has_issue")
-	}
+	cols := h.dashboardAggregateRowSelectColumnsFor()
 	if err := q.Select(cols).
 		Order("abnormal_level DESC").
 		Order("score ASC").
@@ -511,11 +578,26 @@ func dashboardAggregateRowSelectColumns() []string {
 		"orchestration_score",
 		"abnormal_level",
 		"has_issue",
+		"artifact_publication_status",
 		"rules_json",
 		"features_json",
 		"created_at",
 		"updated_at",
 	}
+}
+
+// dashboardAggregateRowSelectColumnsFor 返回按当前表结构裁剪后的列清单：
+// has_issue / artifact_publication_status 都是后引入的可选列，部分实例尚未 ALTER，
+// 直接 SELECT 不存在的列会触发 1054 让整页查询失败，这里探测后剔除以优雅降级。
+func (h *Handler) dashboardAggregateRowSelectColumnsFor() []string {
+	cols := dashboardAggregateRowSelectColumns()
+	if !apiSessionAggregateHasIssueColumn(h.db) {
+		cols = removeString(cols, "has_issue")
+	}
+	if !apiSessionAggregateHasPublicationStatusColumn(h.db) {
+		cols = removeString(cols, "artifact_publication_status")
+	}
+	return cols
 }
 
 func (h *Handler) dashboardAggregateRangeQuery(tr modellog.TimeRange) (*gorm.DB, bool) {
@@ -605,7 +687,7 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 		Select([]string{
 			"session_id",
 			"artifact_id",
-                        "duration_ms",
+			"duration_ms",
 			"score",
 			"response_score",
 			"stability_score",
@@ -622,7 +704,7 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 		bundles = append(bundles, apiSessionBundle{
 			SessionID:  row.SessionID,
 			ArtifactID: row.ArtifactID,
-                        DurationMs: row.DurationMs,
+			DurationMs: row.DurationMs,
 			Score:      row.Score,
 			Radar: apiRadar{
 				Response:      row.ResponseScore,

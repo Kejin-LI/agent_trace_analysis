@@ -320,7 +320,7 @@
 <main class="max-w-[1440px] mx-auto px-8 py-8 space-y-6">
 
   <!-- Page Header -->
-  <section class="flex items-end justify-between">
+  <section class="flex items-end justify-between gap-6">
     <div>
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">CLUSTERS · <span id="hdr-today">2026-05-25</span></div>
       <h1 class="text-[34px] font-semibold tracking-tight leading-tight">异常聚类分析</h1>
@@ -330,6 +330,21 @@
         <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[--apple-purple]"></span> GPT-5.5</span>
       </p>
       <p class="text-[12px] text-[--apple-orange] mt-1 hidden" id="cap-hint">⚠️ 当前仅分析最近一批异常候选 session，更早的异常记录未纳入本页聚类。请缩小时间范围查看完整数据。</p>
+    </div>
+    <!-- 发布状态视图切换 + 对比模式（苹果毛玻璃分段控件） -->
+    <div class="flex items-center gap-3 shrink-0">
+      <div class="seg" id="status-seg" role="tablist" aria-label="发布状态视图">
+        <button data-status="all" class="active" role="tab">全部</button>
+        <button data-status="published" role="tab">已发布</button>
+        <button data-status="unpublished" role="tab">未发布</button>
+      </div>
+      <button id="compare-toggle" class="h-8 px-3.5 rounded-lg text-[12px] font-medium text-[--text-secondary] bg-black/5 hover:bg-black/10 transition-colors inline-flex items-center gap-1.5" aria-pressed="false">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h7M3 18h7M14 6h7M14 18h7"/><circle cx="7" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+        <span class="compare-toggle-text">进入对比模式</span>
+      </button>
+      <div id="calib-badge" class="hidden items-center gap-1.5 text-[11px] text-[--text-tertiary] num-mono" title="发布状态实时校准">
+        <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span><span id="calib-text">已实时校准</span>
+      </div>
     </div>
   </section>
 
@@ -377,6 +392,7 @@
 <script src="./efficiency-helper.js"></script>
 <script src="./tag-system.js"></script>
 <script src="./db-api.js?v=20260618-issue-count-unified"></script>
+<script src="./range-picker.js"></script>
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
  * 数据源：接口实时返回的 session 列表（与大盘 / 明细共用）
@@ -403,7 +419,38 @@ const STATE = {
   loadedKey: '',
   requestSeq: 0,
     rangeCache: Object.create(null),
+  // calibByKey: range key -> { statusBySession, available }，混合策略的上游校准结果按 range 缓存。
+  calibByKey: Object.create(null),
+  // 发布状态视图：all | published | unpublished（单视图过滤口径，仅前端做客户端过滤）。
+  statusFilter: localStorage.getItem('agenttrace.clusters.statusFilter') || 'all',
+  // 对比模式：开启后并排展示已发布 vs 未发布，按 cluster.label 同名对齐。
+  compareMode: localStorage.getItem('agenttrace.clusters.compare') === '1',
 };
+
+const STATUS_VIEW_LABEL = { all: '全部', published: '已发布', unpublished: '未发布' };
+
+function syncCapHint(opts) {
+  const capHintEl = document.getElementById('cap-hint');
+  if (!capHintEl) return;
+  capHintEl.textContent = '⚠️ 当前仅分析最近一批异常候选 session，更早的异常记录未纳入本页聚类。请缩小时间范围查看完整数据。';
+  capHintEl.classList.toggle('hidden', !(opts && opts.truncated));
+}
+
+// resolveSessionStatus 取一个 session 的“生效发布状态”：
+// 优先用实时校准映射（混合策略的上游校准结果），缺失时回退到 DB 快照状态。
+function resolveSessionStatus(session, calibMap) {
+  const sid = session && (session.session_id || session.id);
+  if (calibMap && sid && calibMap[sid]) return calibMap[sid];
+  return (session && session.artifact_publication_status) || '';
+}
+
+// filterSessionsByStatus 按当前视图口径过滤 session 集合。
+// all：不过滤；published/unpublished：仅保留生效状态匹配者（未知状态不计入任一具体视图）。
+function filterSessionsByStatus(sessions, status, calibMap) {
+  if (!status || status === 'all') return sessions;
+  return sessions.filter(s => resolveSessionStatus(s, calibMap) === status);
+}
+
 
 function fmtQueryTime(ms) {
   const d = new Date(ms);
@@ -888,22 +935,96 @@ function renderGlobalEmpty() {
 /* ============== 渲染入口 ============== */
 let ALL_SESSIONS = [];
 
+// currentCalibMap 返回当前 range 已校准的实时状态映射；未校准/不可用时返回 null（回退快照）。
+function currentCalibMap() {
+  const entry = STATE.calibByKey[STATE.loadedKey];
+  return (entry && entry.available) ? entry.statusBySession : null;
+}
+
+// syncStatusControls 把当前视图状态（statusFilter / compareMode / 校准状态）回写到顶部控件，
+// 让分段控件高亮、对比按钮按下态、校准徽标三者与 STATE 始终一致。纯 DOM 同步，无副作用。
+function syncStatusControls() {
+  document.querySelectorAll('#status-seg button[data-status]').forEach(btn => {
+    btn.classList.toggle('active', (btn.dataset.status || 'all') === STATE.statusFilter);
+  });
+  const seg = document.getElementById('status-seg');
+  if (seg) {
+    // 对比模式下三态视图无意义，弱化分段控件（但保留可读）。
+    seg.style.opacity = STATE.compareMode ? '0.4' : '';
+    seg.style.pointerEvents = STATE.compareMode ? 'none' : '';
+  }
+  const cmp = document.getElementById('compare-toggle');
+  if (cmp) {
+    cmp.setAttribute('aria-pressed', STATE.compareMode ? 'true' : 'false');
+    const textEl = cmp.querySelector('.compare-toggle-text');
+    if (textEl) textEl.textContent = STATE.compareMode ? '退出对比模式' : '进入对比模式';
+    cmp.classList.toggle('bg-[--apple-blue]', STATE.compareMode);
+    cmp.classList.toggle('text-white', STATE.compareMode);
+    cmp.classList.toggle('bg-black/5', !STATE.compareMode);
+    cmp.classList.toggle('text-[--text-secondary]', !STATE.compareMode);
+  }
+  syncCalibBadge();
+}
+
+// syncCalibBadge 反映混合实时策略的校准结果：已校准=绿点「已实时校准」，
+// 校准不可用=橙点「快照状态」，尚未发起校准则隐藏（首屏快照态，不打扰）。
+function syncCalibBadge() {
+  const badge = document.getElementById('calib-badge');
+  if (!badge) return;
+  const entry = STATE.calibByKey[STATE.loadedKey];
+  const dot = badge.querySelector('span.rounded-full');
+  const text = document.getElementById('calib-text');
+  if (!entry) {
+    badge.classList.add('hidden');
+    badge.classList.remove('flex');
+    return;
+  }
+  badge.classList.remove('hidden');
+  badge.classList.add('flex');
+  if (entry.available) {
+    if (dot) dot.style.background = 'var(--apple-green)';
+    if (text) text.textContent = '已实时校准';
+    badge.title = '发布状态已通过上游实时校准';
+  } else {
+    if (dot) dot.style.background = 'var(--apple-orange)';
+    if (text) text.textContent = '快照状态';
+    badge.title = '上游实时校准暂不可用，当前展示数据库快照状态';
+  }
+}
+
 function render() {
+  syncStatusControls();
+  if (STATE.compareMode) {
+    renderCompareView();
+  } else {
+    renderSingleView();
+  }
+}
+
+function renderSingleView() {
   const grid = document.getElementById('clusterGrid');
-  const effective = ALL_SESSIONS.filter(s => buildClusterTags(s).length > 0);
-  const buckets = genBuckets(STATE.range, effective.length ? effective : ALL_SESSIONS);
+  grid.className = 'grid grid-cols-3 gap-5';
+  const calibMap = currentCalibMap();
+  const scoped = filterSessionsByStatus(ALL_SESSIONS, STATE.statusFilter, calibMap);
+  const effective = scoped.filter(s => buildClusterTags(s).length > 0);
+  const buckets = genBuckets(STATE.range, effective.length ? effective : scoped);
 
   // 概览
   const clusters = buildClusters(effective);
   const loadedAffectedCount = countAffectedSessionsFromClusters(clusters);
-  const affectedCount = Number(STATE.anomalyTotal || 0) || loadedAffectedCount;
-  const totalCount = Number(STATE.summary?.total || 0) || ALL_SESSIONS.length || affectedCount;
+  const isAll = !STATE.statusFilter || STATE.statusFilter === 'all';
+  const affectedCount = isAll
+    ? (Number(STATE.anomalyTotal || 0) || loadedAffectedCount)
+    : loadedAffectedCount;
+  const totalCount = isAll
+    ? (Number(STATE.summary?.total || 0) || ALL_SESSIONS.length || affectedCount)
+    : (new Set(scoped.map(sessionIdentity).filter(Boolean)).size || affectedCount);
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
   document.getElementById('ovw-total').textContent = totalCount;
   // 卡片
   if (!clusters.length) {
-    grid.innerHTML = renderGlobalEmpty();
+    grid.innerHTML = renderStatusAwareEmpty(isAll);
     const btn = document.getElementById('emptyExpand');
     if (btn) btn.addEventListener('click', () => {
       // 直接点击共享筛选器中的 30d 按钮，让 range-picker 同步状态并触发 onChange
@@ -921,6 +1042,166 @@ function render() {
     scheduleClampHitSessionRows(card, 3);
   });
 }
+
+function renderStatusAwareEmpty(isAll) {
+  if (isAll) return renderGlobalEmpty();
+  const label = STATUS_VIEW_LABEL[STATE.statusFilter] || STATE.statusFilter;
+  return `
+    <div class="grid-empty">
+      <div class="text-[14px] font-medium text-[--text-secondary]">「${escapeHtml(label)}」视图下暂无异常</div>
+      <div class="text-[12px] text-[--text-tertiary] mt-1.5">切换到「全部」或更长的时间窗查看更多数据。</div>
+    </div>`;
+}
+
+/* ============== 对比模式 ============== */
+// buildClustersByStatus 按发布状态切出 session 子集后复用 buildClusters 聚簇。
+// 全部基于已加载的 ALL_SESSIONS 做客户端过滤，不发任何额外请求（性能）。
+function buildClustersByStatus(status, calibMap) {
+  const subset = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === status);
+  const effective = subset.filter(s => buildClusterTags(s).length > 0);
+  return buildClusters(effective);
+}
+
+// renderCompareView 按 cluster.label 同名对齐「已发布 vs 未发布」两套聚簇结果：
+// 顶部对比摘要条 + 每个标签一行对比卡（双向计数条 + 差值徽标）。刻意不画 sparkline，
+// 用轻量计数条替代，避免对比列表里成倍的 SVG/hover 绑定拖慢渲染。
+function renderCompareView() {
+  const grid = document.getElementById('clusterGrid');
+  grid.className = 'space-y-3';
+  const calibMap = currentCalibMap();
+  const pubClusters = buildClustersByStatus('published', calibMap);
+  const unpubClusters = buildClustersByStatus('unpublished', calibMap);
+
+  // 按 label 同名对齐（source/color 取首次出现者）。
+  const byLabel = new Map();
+  const ingest = (list, side) => {
+    list.forEach(c => {
+      if (!byLabel.has(c.label)) {
+        byLabel.set(c.label, {
+          label: c.label, source: c.source, color: c.color,
+          dimension: c.dimension, sourceText: c.sourceText,
+          published: 0, unpublished: 0,
+        });
+      }
+      byLabel.get(c.label)[side] = c.hitCount;
+    });
+  };
+  ingest(pubClusters, 'published');
+  ingest(unpubClusters, 'unpublished');
+
+  const rows = [...byLabel.values()].sort((a, b) => {
+    const totDiff = (b.published + b.unpublished) - (a.published + a.unpublished);
+    if (totDiff !== 0) return totDiff;
+    return String(a.label).localeCompare(String(b.label), 'zh-CN');
+  });
+
+  // 概览：在对比模式下复用三个数字位 = 标签数 / 受影响（两侧并集去重）/ 范围内总数。
+  const affected = new Set();
+  ALL_SESSIONS.forEach(s => {
+    const st = resolveSessionStatus(s, calibMap);
+    if ((st === 'published' || st === 'unpublished') && buildClusterTags(s).length > 0) {
+      affected.add(sessionIdentity(s) || Math.random());
+    }
+  });
+  const pubSessions = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === 'published').length;
+  const unpubSessions = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === 'unpublished').length;
+  document.getElementById('ovw-cluster-count').textContent = rows.length;
+  document.getElementById('ovw-affected').textContent = affected.size;
+  document.getElementById('ovw-total').textContent = Number(STATE.summary?.total || 0) || ALL_SESSIONS.length;
+
+  if (!rows.length) {
+    grid.innerHTML = `
+      <div class="grid-empty">
+        <div class="text-[14px] font-medium text-[--text-secondary]">对比模式下暂无可对齐的异常</div>
+        <div class="text-[12px] text-[--text-tertiary] mt-1.5">${calibMap ? '当前窗口内已发布 / 未发布 session 均未命中异常。' : '尚未完成实时校准，或当前窗口内缺少明确发布状态的异常 session。'}</div>
+      </div>`;
+    return;
+  }
+
+  // 计数条以全列表最大单侧命中数为基准归一化，确保不同行之间条长可比。
+  renderCompareRow._max = Math.max(1, ...rows.map(r => Math.max(r.published, r.unpublished)));
+  const totalPubHits = rows.reduce((a, r) => a + r.published, 0);
+  const totalUnpubHits = rows.reduce((a, r) => a + r.unpublished, 0);
+
+  grid.innerHTML = `
+    ${renderCompareSummaryBar({ pubSessions, unpubSessions, totalPubHits, totalUnpubHits, labelCount: rows.length })}
+    <div class="space-y-3">
+      ${rows.map(renderCompareRow).join('')}
+    </div>`;
+  bindHelpTooltips(grid);
+}
+
+function renderCompareSummaryBar(s) {
+  return `
+    <div class="glass rounded-2xl px-5 py-4 flex items-center justify-between gap-6 flex-wrap">
+      <div class="flex items-center gap-6">
+        <div>
+          <div class="text-[11px] text-[--text-tertiary] mb-1">已发布 Session 异常命中</div>
+          <div class="flex items-baseline gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-[--apple-green] inline-block"></span>
+            <span class="text-[22px] font-semibold num-mono leading-none">${s.totalPubHits}</span>
+            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.pubSessions} 个 session</span>
+          </div>
+        </div>
+        <div class="w-px h-9 bg-black/10"></div>
+        <div>
+          <div class="text-[11px] text-[--text-tertiary] mb-1">未发布 Session 异常命中</div>
+          <div class="flex items-baseline gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-[--apple-orange] inline-block"></span>
+            <span class="text-[22px] font-semibold num-mono leading-none">${s.totalUnpubHits}</span>
+            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.unpubSessions} 个 session</span>
+          </div>
+        </div>
+      </div>
+      <div class="text-[11px] text-[--text-tertiary] num-mono">
+        共 <span class="font-semibold text-[--text-secondary]">${s.labelCount}</span> 类异常 · 按命中总数排序
+      </div>
+    </div>`;
+}
+
+function renderCompareRow(r) {
+  const accent = r.color || (r.source === 'llm' ? 'purple' : 'blue');
+  const base = renderCompareRow._max || 1;
+  const pubW = Math.round((r.published / base) * 100);
+  const unpubW = Math.round((r.unpublished / base) * 100);
+  const delta = r.unpublished - r.published;
+  let deltaChip = '';
+  if (delta > 0) {
+    deltaChip = `<span class="chip bg-[--apple-orange]/12 text-[--apple-orange]">未发布多 ${delta}</span>`;
+  } else if (delta < 0) {
+    deltaChip = `<span class="chip bg-[--apple-green]/12 text-[--apple-green]">已发布多 ${-delta}</span>`;
+  } else {
+    deltaChip = `<span class="chip bg-black/5 text-[--text-tertiary]">持平</span>`;
+  }
+  return `
+    <div class="glass rounded-2xl p-4 lift">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="chip bg-[--apple-${accent}]/10 text-[--apple-${accent}]">
+          <span class="badge-dot bg-[--apple-${accent}]"></span><span>${escapeHtml(r.label)}</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          ${deltaChip}
+          <div class="text-[10px] text-[--text-secondary] px-1.5 py-0.5 rounded border border-black/10">${escapeHtml(r.dimension || '其他')}</div>
+        </div>
+      </div>
+      <div class="space-y-2">
+        ${renderCompareBar('已发布', 'green', r.published, pubW)}
+        ${renderCompareBar('未发布', 'orange', r.unpublished, unpubW)}
+      </div>
+    </div>`;
+}
+
+function renderCompareBar(label, tone, count, widthPct) {
+  return `
+    <div class="flex items-center gap-3">
+      <div class="w-12 text-[11px] text-[--text-secondary] shrink-0">${label}</div>
+      <div class="flex-1 h-2 rounded-full bg-black/5 overflow-hidden">
+        <div class="h-full rounded-full" style="width:${Math.max(count > 0 ? 4 : 0, widthPct)}%;background:var(--apple-${tone});"></div>
+      </div>
+      <div class="w-8 text-right text-[12px] num-mono font-semibold shrink-0">${count}</div>
+    </div>`;
+}
+
 
 function rangeLabel(range, customFrom, customTo) {
   if (range === 'custom' && customFrom && customTo) {
@@ -958,6 +1239,50 @@ function renderLoadingState(label) {
     loaderEl.classList.add('is-hidden');
     window.setTimeout(() => loaderEl.remove(), 380);
   }
+  const calibInFlight = Object.create(null);
+  // ensureCalibration 是混合实时策略的“上游校准”一跳：快照渲染后在后台拉一次实时发布状态，
+  // 写入 STATE.calibByKey[key] 并按 range 缓存（不阻塞首屏）。完成后若仍停在同一 range 则重渲染，
+  // 让分段过滤 / 对比模式切到实时口径；上游不可用时落 available=false，渲染回退快照状态。
+  function ensureCalibration(key, query, seq) {
+    if (!key || STATE.calibByKey[key] || calibInFlight[key]) return;
+    if (!window.AgentTraceDB || !window.AgentTraceDB.loadAnomalyPublicationStatus) return;
+    calibInFlight[key] = true;
+    window.AgentTraceDB.loadAnomalyPublicationStatus(query)
+      .then(res => {
+        STATE.calibByKey[key] = {
+          statusBySession: res.statusBySession || Object.create(null),
+          available: Boolean(res.available),
+          reason: res.reason || '',
+        };
+      })
+      .catch(() => {
+        STATE.calibByKey[key] = { statusBySession: Object.create(null), available: false, reason: 'request_failed' };
+      })
+      .finally(() => {
+        delete calibInFlight[key];
+        // 仅当用户还停在发起校准的那个 range 时才重渲染，避免覆盖已切走的视图。
+        if (seq === STATE.requestSeq && key === STATE.loadedKey) render();
+      });
+  }
+  function mountTopRangePicker(loadRangeFn) {
+    const container = document.getElementById('global-range');
+    if (!container || !window.mountRangePicker || container.dataset.bound === '1') return;
+    container.dataset.bound = '1';
+    window.mountRangePicker({
+      container,
+      onChange: async (range, customFrom, customTo) => {
+        try {
+          await loadRangeFn(range, customFrom, customTo);
+        } catch (e) {
+          document.getElementById('clusterGrid').innerHTML = `
+            <div class="grid-empty">
+              <div class="text-[14px] font-medium text-[--apple-red]">加载失败</div>
+              <div class="text-[12px] text-[--text-tertiary] mt-1.5">${escapeHtml(e.message || String(e))}</div>
+            </div>`;
+        }
+      }
+    });
+  }
   async function loadRange(range, customFrom, customTo) {
     const seq = ++STATE.requestSeq;
     STATE.range = range || STATE.range;
@@ -975,9 +1300,9 @@ function renderLoadingState(label) {
       ALL_SESSIONS = cached.sessions || [];
       STATE.summary = cached.summary || null;
       STATE.anomalyTotal = Number(cached.anomalyTotal || 0) || ALL_SESSIONS.length;
-      const capHintEl = document.getElementById('cap-hint');
-      if (capHintEl) capHintEl.classList.toggle('hidden', !cached.truncated);
+      syncCapHint({ truncated: cached.truncated });
       render();
+      ensureCalibration(key, query, seq);
       return;
     }
     renderLoadingState(rangeLabel(STATE.range, STATE.customFrom, STATE.customTo));
@@ -1000,27 +1325,41 @@ function renderLoadingState(label) {
       anomalyTotal: STATE.anomalyTotal,
       truncated: Boolean(d.truncated || ((d.total || 0) > ALL_SESSIONS.length)),
     };
-    const capHintEl = document.getElementById('cap-hint');
-    if (capHintEl) capHintEl.classList.toggle('hidden', !STATE.rangeCache[key].truncated);
+    syncCapHint({ truncated: STATE.rangeCache[key].truncated });
     render();
+    // 快照秒出后，后台发起一次上游校准把发布状态对齐到实时。
+    ensureCalibration(key, query, seq);
   }
+  // 顶部发布状态控件：分段切换（全部/已发布/未发布）+ 对比模式开关。
+  // 二者均纯客户端切换 STATE + 持久化 + render()，复用已加载数据与校准结果，不发请求。
+  function bindStatusControls() {
+    const seg = document.getElementById('status-seg');
+    if (seg && seg.dataset.bound !== '1') {
+      seg.dataset.bound = '1';
+      seg.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-status]');
+        if (!btn || STATE.compareMode) return;
+        const status = btn.dataset.status || 'all';
+        if (status === STATE.statusFilter) return;
+        STATE.statusFilter = status;
+        localStorage.setItem('agenttrace.clusters.statusFilter', status);
+        render();
+      });
+    }
+    const cmp = document.getElementById('compare-toggle');
+    if (cmp && cmp.dataset.bound !== '1') {
+      cmp.dataset.bound = '1';
+      cmp.addEventListener('click', () => {
+        STATE.compareMode = !STATE.compareMode;
+        localStorage.setItem('agenttrace.clusters.compare', STATE.compareMode ? '1' : '0');
+        render();
+      });
+    }
+  }
+  bindStatusControls();
+  mountTopRangePicker(loadRange);
   try {
     await loadRange(STATE.range, STATE.customFrom, STATE.customTo);
-    // 挂载共享日期筛选器（数据加载后）
-    window.mountRangePicker({
-      container: document.getElementById('global-range'),
-      onChange: async (range, customFrom, customTo) => {
-        try {
-          await loadRange(range, customFrom, customTo);
-        } catch (e) {
-          document.getElementById('clusterGrid').innerHTML = `
-            <div class="grid-empty">
-              <div class="text-[14px] font-medium text-[--apple-red]">加载失败</div>
-              <div class="text-[12px] text-[--text-tertiary] mt-1.5">${escapeHtml(e.message || String(e))}</div>
-            </div>`;
-        }
-      }
-    });
     hideGlobalLoader();
   } catch (e) {
     document.getElementById('clusterGrid').innerHTML = `
@@ -1069,9 +1408,6 @@ function bindHelpTooltips(root = document) {
   bindHelpTooltips(document);
 })();
 </script>
-
-<!-- 共享日期筛选器组件 -->
-<script src="./range-picker.js"></script>
 
 </body>
 </html>
