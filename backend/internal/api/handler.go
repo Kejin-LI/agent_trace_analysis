@@ -218,6 +218,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.POST("/backfill-range", h.backfillRange)
 		g.POST("/backfill-issue-flags", h.backfillIssueFlags)
 		g.POST("/ai-diagnose", h.diagnose)
+		g.POST("/chat", h.chat)
 		g.POST("/llm-judge", h.llmJudgeEvaluate)
 		g.POST("/llm-judge/async", h.llmJudgeAsyncStart)
 		g.GET("/llm-judge/status/:session_id", h.llmJudgeAsyncStatus)

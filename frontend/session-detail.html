@@ -9639,8 +9639,29 @@
   setMode('consult_only');
   autoGrowTextarea();
   render();
+
+  // 暴露给右下角「智能助手」浮窗：详情页可现场压缩 trace 纪要做轨迹问答。
+  // 全部惰性求值，复用诊断模块已有的 buildSummary/getSession，无额外缓存。
+  window.AssistantTrace = {
+    hasTrace() {
+      const real = (window.SESSION && window.SESSION._real) || null;
+      return !!(real && Array.isArray(real.traces) && real.traces.some(t => Array.isArray(t.spans) && t.spans.length));
+    },
+    buildSummary() {
+      const real = (window.SESSION && window.SESSION._real) || null;
+      return real ? buildSummary(real) : '';
+    },
+    sessionId() {
+      return getSession().id;
+    },
+    sessionTitle() {
+      return getSession().title;
+    },
+  };
 })();
 </script>
+
+<script src="./assistant-widget.js?v=20260624-assistant"></script>
 
 </body>
 </html>
