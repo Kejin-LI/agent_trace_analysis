@@ -210,6 +210,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		g.GET("/dashboard-summary", h.getDashboardSummary)
 		g.GET("/top-anomaly-sessions", h.getTopAnomalySessions)
 		g.GET("/anomaly-sessions", h.getAnomalySessions)
+		g.GET("/anomaly-publication-status", h.getAnomalyPublicationStatus)
 		g.GET("/aggregate-status", h.listAggregateStatus)
 		g.GET("/self-check", h.selfCheck)
 		g.POST("/backfill-day", h.backfillDay)
