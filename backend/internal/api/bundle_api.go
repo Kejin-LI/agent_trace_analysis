@@ -497,9 +497,10 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	} else if ok {
 		if hasCached {
 			indexedBundle = mergeBundleWithCachedBundle(indexedBundle, cachedBundle)
+			indexedBundle.AggregateInvalidated = false
 		}
 		if h.aggregator != nil {
-			go func(src model.StgSessionSource, bundle apiSessionBundle) {
+			persist := func(src model.StgSessionSource, bundle apiSessionBundle) {
 				defer func() {
 					if r := recover(); r != nil {
 						log.Printf("session detail indexed persist panic session=%s: %v", src.SessionID, r)
@@ -511,7 +512,12 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 				if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 					log.Printf("session detail indexed persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 				}
-			}(indexedSrc, indexedBundle)
+			}
+			if cachedBundle.AggregateInvalidated {
+				persist(indexedSrc, indexedBundle)
+			} else {
+				go persist(indexedSrc, indexedBundle)
+			}
 		}
 		c.JSON(http.StatusOK, h.applyQualityEvaluation(indexedBundle))
 		return
@@ -575,15 +581,16 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if hasCached {
 		bundle = mergeBundleWithCachedBundle(bundle, cachedBundle)
 		bundle.ArtifactPublicationStatus = hitStatus
+		bundle.AggregateInvalidated = false
 	}
 	if realTraceID, err := h.lookupRealTraceID(bundle.SessionID, bundle.ArtifactID); err != nil {
 		log.Printf("session detail real trace lookup failed session=%s artifact=%s err=%v", bundle.SessionID, bundle.ArtifactID, err)
 	} else if realTraceID != "" {
 		bundle.Trace = realTraceID
 	}
-	// 写库异步化：详情解析完立即返回，写 DB 缓存放后台，不让用户为落库白等。
+	// 常规写库异步化；若旧缓存已被标记失效，则同步落库一次，避免后续 freshness 再读到旧失效态。
 	if h.aggregator != nil {
-		go func(src model.StgSessionSource, bundle apiSessionBundle) {
+		persist := func(src model.StgSessionSource, bundle apiSessionBundle) {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("session detail persist panic session=%s: %v", src.SessionID, r)
@@ -595,7 +602,12 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 			if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 				log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 			}
-		}(src, bundle)
+		}
+		if cachedBundle.AggregateInvalidated {
+			persist(src, bundle)
+		} else {
+			go persist(src, bundle)
+		}
 	}
 	c.JSON(http.StatusOK, h.applyQualityEvaluation(bundle))
 }

@@ -207,9 +207,10 @@ func (h *Handler) getSessionBundleFreshness(c *gin.Context) {
 		if src.SourceUpdatedAt != nil {
 			latestUpdatedAt = src.SourceUpdatedAt
 			if row.SourceUpdateAt == nil || src.SourceUpdatedAt.After(*row.SourceUpdateAt) {
-				resp.NeedsRefresh = true
-				resp.Reason = "indexed_source_updated"
 				shouldEnqueue = true
+				if resp.Reason == "" {
+					resp.Reason = "indexed_source_refresh_queued"
+				}
 			}
 		}
 	}
@@ -233,9 +234,10 @@ func (h *Handler) getSessionBundleFreshness(c *gin.Context) {
 				if !updatedAt.IsZero() {
 					latestUpdatedAt = &updatedAt
 					if row.SourceUpdateAt == nil || updatedAt.After(*row.SourceUpdateAt) {
-						resp.NeedsRefresh = true
-						resp.Reason = "upstream_source_updated"
 						shouldEnqueue = true
+						if resp.Reason == "" {
+							resp.Reason = "upstream_source_refresh_queued"
+						}
 					}
 				}
 			}
@@ -246,20 +248,20 @@ func (h *Handler) getSessionBundleFreshness(c *gin.Context) {
 	if latestStatus != "" {
 		resp.ArtifactPublicationStatus = latestStatus
 	}
+	if (shouldEnqueue || resp.NeedsRefresh) && h.aggregator != nil && sessionRefreshQueueTableExists(h.db) {
+		_ = h.aggregator.EnqueueSessionRefresh(sessionRefreshRequest{
+			SessionID:                 row.SessionID,
+			ArtifactID:                row.ArtifactID,
+			TriggerSource:             sessionRefreshTriggerDetailFreshness,
+			Priority:                  sessionRefreshPriorityHigh,
+			DiscoveredSourceUpdatedAt: latestUpdatedAt,
+		})
+		if resp.RefreshStatus == "" || shouldEnqueue {
+			resp.RefreshStatus = "pending"
+		}
+	}
 	if resp.NeedsRefresh {
 		_ = h.markSessionAggregateInvalidated(row, latestUpdatedAt)
-		if h.aggregator != nil && sessionRefreshQueueTableExists(h.db) {
-			_ = h.aggregator.EnqueueSessionRefresh(sessionRefreshRequest{
-				SessionID:                 row.SessionID,
-				ArtifactID:                row.ArtifactID,
-				TriggerSource:             sessionRefreshTriggerDetailFreshness,
-				Priority:                  sessionRefreshPriorityHigh,
-				DiscoveredSourceUpdatedAt: latestUpdatedAt,
-			})
-			if resp.RefreshStatus == "" || shouldEnqueue {
-				resp.RefreshStatus = "pending"
-			}
-		}
 		resp.AggregateInvalidated = true
 	}
 	c.JSON(http.StatusOK, resp)
