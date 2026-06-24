@@ -666,6 +666,20 @@ function countAffectedSessionsFromClusters(clusters) {
   return ids.size + anonymousCount;
 }
 
+function countUniqueSessions(sessions) {
+  const ids = new Set();
+  let anonymousCount = 0;
+  (sessions || []).forEach(s => {
+    const id = sessionIdentity(s);
+    if (id) {
+      ids.add(id);
+    } else {
+      anonymousCount++;
+    }
+  });
+  return ids.size + anonymousCount;
+}
+
 /* 时间桶 · 以数据中最新 session 开始时间为锚点 */
 function genBuckets(range, sessions) {
   // 锚点取数据中最新的 session 开始时间（无数据时回退到当前时刻），
@@ -1013,12 +1027,13 @@ function renderSingleView() {
   const clusters = buildClusters(effective);
   const loadedAffectedCount = countAffectedSessionsFromClusters(clusters);
   const isAll = !STATE.statusFilter || STATE.statusFilter === 'all';
+  const scopedSessionCount = countUniqueSessions(scoped) || loadedAffectedCount;
   const affectedCount = isAll
     ? (Number(STATE.anomalyTotal || 0) || loadedAffectedCount)
-    : loadedAffectedCount;
+    : scopedSessionCount;
   const totalCount = isAll
     ? (Number(STATE.summary?.total || 0) || ALL_SESSIONS.length || affectedCount)
-    : (new Set(scoped.map(sessionIdentity).filter(Boolean)).size || affectedCount);
+    : scopedSessionCount;
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
   document.getElementById('ovw-total').textContent = totalCount;
@@ -1095,18 +1110,17 @@ function renderCompareView() {
     return String(a.label).localeCompare(String(b.label), 'zh-CN');
   });
 
-  // 概览：在对比模式下复用三个数字位 = 标签数 / 受影响（两侧并集去重）/ 范围内总数。
-  const affected = new Set();
-  ALL_SESSIONS.forEach(s => {
-    const st = resolveSessionStatus(s, calibMap);
-    if ((st === 'published' || st === 'unpublished') && buildClusterTags(s).length > 0) {
-      affected.add(sessionIdentity(s) || Math.random());
-    }
-  });
-  const pubSessions = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === 'published').length;
-  const unpubSessions = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === 'unpublished').length;
+  // 概览：顶部受影响 Session 与单视图保持同口径；摘要条里的两侧 session 数只统计
+  // “当前异常页中该状态下的异常 session 去重数”，与单视图分状态 tab 保持一致。
+  const pubSubset = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === 'published');
+  const unpubSubset = ALL_SESSIONS.filter(s => resolveSessionStatus(s, calibMap) === 'unpublished');
+  const pubAffectedSessions = countUniqueSessions(pubSubset);
+  const unpubAffectedSessions = countUniqueSessions(unpubSubset);
+  const compareCoveredAffected = pubAffectedSessions + unpubAffectedSessions;
+  const affectedCount = compareCoveredAffected || Number(STATE.anomalyTotal || 0) || 0;
+  const unalignedAffected = Math.max(0, affectedCount - compareCoveredAffected);
   document.getElementById('ovw-cluster-count').textContent = rows.length;
-  document.getElementById('ovw-affected').textContent = affected.size;
+  document.getElementById('ovw-affected').textContent = affectedCount;
   document.getElementById('ovw-total').textContent = Number(STATE.summary?.total || 0) || ALL_SESSIONS.length;
 
   if (!rows.length) {
@@ -1124,7 +1138,14 @@ function renderCompareView() {
   const totalUnpubHits = rows.reduce((a, r) => a + r.unpublished, 0);
 
   grid.innerHTML = `
-    ${renderCompareSummaryBar({ pubSessions, unpubSessions, totalPubHits, totalUnpubHits, labelCount: rows.length })}
+    ${renderCompareSummaryBar({
+      pubAffectedSessions,
+      unpubAffectedSessions,
+      totalPubHits,
+      totalUnpubHits,
+      labelCount: rows.length,
+      unalignedAffected,
+    })}
     <div class="space-y-3">
       ${rows.map(renderCompareRow).join('')}
     </div>`;
@@ -1140,7 +1161,7 @@ function renderCompareSummaryBar(s) {
           <div class="flex items-baseline gap-1.5">
             <span class="w-2 h-2 rounded-full bg-[--apple-green] inline-block"></span>
             <span class="text-[22px] font-semibold num-mono leading-none">${s.totalPubHits}</span>
-            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.pubSessions} 个 session</span>
+            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.pubAffectedSessions} 个受影响 session</span>
           </div>
         </div>
         <div class="w-px h-9 bg-black/10"></div>
@@ -1149,13 +1170,17 @@ function renderCompareSummaryBar(s) {
           <div class="flex items-baseline gap-1.5">
             <span class="w-2 h-2 rounded-full bg-[--apple-orange] inline-block"></span>
             <span class="text-[22px] font-semibold num-mono leading-none">${s.totalUnpubHits}</span>
-            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.unpubSessions} 个 session</span>
+            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.unpubAffectedSessions} 个受影响 session</span>
           </div>
         </div>
       </div>
       <div class="text-[11px] text-[--text-tertiary] num-mono">
         共 <span class="font-semibold text-[--text-secondary]">${s.labelCount}</span> 类异常 · 按命中总数排序
       </div>
+      ${s.unalignedAffected > 0 ? `
+        <div class="w-full text-[11px] text-[--apple-orange] num-mono">
+          另有 ${s.unalignedAffected} 个受影响 session 暂无明确发布状态，未参与对比
+        </div>` : ''}
     </div>`;
 }
 
