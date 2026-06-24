@@ -5,41 +5,41 @@ import "time"
 // APISessionAggregate 对应 API 模式下按 session 粒度缓存的聚合结果。
 // 同时缓存列表指标与详情页 bundle，避免实时解析失败时整页为空。
 type APISessionAggregate struct {
-	ID                 uint64     `gorm:"column:id;primaryKey;autoIncrement;comment:自增主键"`
-	SessionID          string     `gorm:"column:session_id;type:varchar(128);not null;uniqueIndex:uk_session_id;comment:session 唯一标识"`
-	ArtifactID         string     `gorm:"column:artifact_id;type:varchar(64);not null;default:'';index:idx_artifact_id;comment:artifact_id"`
-	AggregateDate      time.Time  `gorm:"column:aggregate_date;type:date;not null;index:idx_aggregate_date;index:idx_date_started,priority:1;index:idx_user_date,priority:2;comment:聚合归属自然日"`
-	UserID             string     `gorm:"column:user_id;type:varchar(64);not null;default:'';index:idx_user_date,priority:1;comment:用户 ID"`
-	UserName           string     `gorm:"column:user_name;type:varchar(128);not null;default:'';comment:用户名"`
-	StartedAtMs        int64      `gorm:"column:started_at_ms;not null;default:0;index:idx_started_at_ms;index:idx_date_started,priority:2;index:idx_issue_started,priority:2;index:idx_invalidated_started,priority:2;comment:会话起始时间戳(ms)"`
-	StartedAt          *time.Time `gorm:"column:started_at;type:datetime(3);comment:会话起始时间"`
-	DurationMs         int64      `gorm:"column:duration_ms;not null;default:0;comment:总耗时(ms)"`
-	TraceID            string     `gorm:"column:trace_id;type:varchar(128);not null;default:'';comment:主 trace_id"`
-	Title              string     `gorm:"column:title;type:varchar(512);not null;default:'';comment:列表展示标题"`
-	Chip               string     `gorm:"column:chip;type:varchar(64);not null;default:'';index:idx_chip;comment:异常标签或健康标签"`
-	InputTokens        int64      `gorm:"column:input_tokens;not null;default:0;comment:输入 token"`
-	OutputTokens       int64      `gorm:"column:output_tokens;not null;default:0;comment:输出 token"`
-	TotalTokens        int64      `gorm:"column:total_tokens;not null;default:0;comment:总 token"`
-	AvgTokensPerTurn   int64      `gorm:"column:avg_tokens_per_turn;not null;default:0;comment:单轮平均 token"`
-	Turns              int        `gorm:"column:turns;not null;default:0;comment:轮次"`
-	TraceCount         int        `gorm:"column:trace_count;not null;default:0;comment:trace 数"`
-	ToolCalls          int        `gorm:"column:tool_calls;not null;default:0;comment:工具调用次数"`
-	UniqueTools        int        `gorm:"column:unique_tools;not null;default:0;comment:唯一工具数"`
-	ToolFailures       int        `gorm:"column:tool_failures;not null;default:0;comment:工具失败次数"`
-	ToolFailRateBP     int        `gorm:"column:tool_fail_rate_bp;not null;default:0;comment:工具失败率bp"`
-	ToolRetries        int        `gorm:"column:tool_retries;not null;default:0;comment:重复工具调用次数"`
-	MaxSerialRun       int        `gorm:"column:max_serial_run;not null;default:0;comment:同名工具最长连续调用次数"`
-	HasRootFail        bool       `gorm:"column:has_root_fail;not null;default:false;comment:是否主流程失败"`
-	HasLoop            bool       `gorm:"column:has_loop;not null;default:false;comment:是否疑似死循环"`
-	HasFinalAnswer     bool       `gorm:"column:has_final_answer;not null;default:false;comment:是否产出最终答复"`
-	NoOpStreak         int        `gorm:"column:no_op_streak;not null;default:0;comment:连续空转次数"`
-	Score              int        `gorm:"column:score;not null;default:0;comment:综合分"`
-	ResponseScore      int        `gorm:"column:response_score;not null;default:0;comment:响应维度分"`
-	StabilityScore     int        `gorm:"column:stability_score;not null;default:0;comment:稳定性分"`
-	ThinkingScore      int        `gorm:"column:thinking_score;not null;default:0;comment:思考质量分"`
-	ResourceScore      int        `gorm:"column:resource_score;not null;default:0;comment:资源使用分"`
-	OrchestrationScore int        `gorm:"column:orchestration_score;not null;default:0;comment:编排分"`
-	AbnormalLevel      int        `gorm:"column:abnormal_level;not null;default:0;index:idx_abnormal_level;comment:异常等级"`
+	ID                        uint64     `gorm:"column:id;primaryKey;autoIncrement;comment:自增主键"`
+	SessionID                 string     `gorm:"column:session_id;type:varchar(128);not null;uniqueIndex:uk_session_id;comment:session 唯一标识"`
+	ArtifactID                string     `gorm:"column:artifact_id;type:varchar(64);not null;default:'';index:idx_artifact_id;comment:artifact_id"`
+	AggregateDate             time.Time  `gorm:"column:aggregate_date;type:date;not null;index:idx_aggregate_date;index:idx_date_started,priority:1;index:idx_user_date,priority:2;comment:聚合归属自然日"`
+	UserID                    string     `gorm:"column:user_id;type:varchar(64);not null;default:'';index:idx_user_date,priority:1;comment:用户 ID"`
+	UserName                  string     `gorm:"column:user_name;type:varchar(128);not null;default:'';comment:用户名"`
+	StartedAtMs               int64      `gorm:"column:started_at_ms;not null;default:0;index:idx_started_at_ms;index:idx_date_started,priority:2;index:idx_issue_started,priority:2;index:idx_invalidated_started,priority:2;comment:会话起始时间戳(ms)"`
+	StartedAt                 *time.Time `gorm:"column:started_at;type:datetime(3);comment:会话起始时间"`
+	DurationMs                int64      `gorm:"column:duration_ms;not null;default:0;comment:总耗时(ms)"`
+	TraceID                   string     `gorm:"column:trace_id;type:varchar(128);not null;default:'';comment:主 trace_id"`
+	Title                     string     `gorm:"column:title;type:varchar(512);not null;default:'';comment:列表展示标题"`
+	Chip                      string     `gorm:"column:chip;type:varchar(64);not null;default:'';index:idx_chip;comment:异常标签或健康标签"`
+	InputTokens               int64      `gorm:"column:input_tokens;not null;default:0;comment:输入 token"`
+	OutputTokens              int64      `gorm:"column:output_tokens;not null;default:0;comment:输出 token"`
+	TotalTokens               int64      `gorm:"column:total_tokens;not null;default:0;comment:总 token"`
+	AvgTokensPerTurn          int64      `gorm:"column:avg_tokens_per_turn;not null;default:0;comment:单轮平均 token"`
+	Turns                     int        `gorm:"column:turns;not null;default:0;comment:轮次"`
+	TraceCount                int        `gorm:"column:trace_count;not null;default:0;comment:trace 数"`
+	ToolCalls                 int        `gorm:"column:tool_calls;not null;default:0;comment:工具调用次数"`
+	UniqueTools               int        `gorm:"column:unique_tools;not null;default:0;comment:唯一工具数"`
+	ToolFailures              int        `gorm:"column:tool_failures;not null;default:0;comment:工具失败次数"`
+	ToolFailRateBP            int        `gorm:"column:tool_fail_rate_bp;not null;default:0;comment:工具失败率bp"`
+	ToolRetries               int        `gorm:"column:tool_retries;not null;default:0;comment:重复工具调用次数"`
+	MaxSerialRun              int        `gorm:"column:max_serial_run;not null;default:0;comment:同名工具最长连续调用次数"`
+	HasRootFail               bool       `gorm:"column:has_root_fail;not null;default:false;comment:是否主流程失败"`
+	HasLoop                   bool       `gorm:"column:has_loop;not null;default:false;comment:是否疑似死循环"`
+	HasFinalAnswer            bool       `gorm:"column:has_final_answer;not null;default:false;comment:是否产出最终答复"`
+	NoOpStreak                int        `gorm:"column:no_op_streak;not null;default:0;comment:连续空转次数"`
+	Score                     int        `gorm:"column:score;not null;default:0;comment:综合分"`
+	ResponseScore             int        `gorm:"column:response_score;not null;default:0;comment:响应维度分"`
+	StabilityScore            int        `gorm:"column:stability_score;not null;default:0;comment:稳定性分"`
+	ThinkingScore             int        `gorm:"column:thinking_score;not null;default:0;comment:思考质量分"`
+	ResourceScore             int        `gorm:"column:resource_score;not null;default:0;comment:资源使用分"`
+	OrchestrationScore        int        `gorm:"column:orchestration_score;not null;default:0;comment:编排分"`
+	AbnormalLevel             int        `gorm:"column:abnormal_level;not null;default:0;index:idx_abnormal_level;comment:异常等级"`
 	HasIssue                  bool       `gorm:"column:has_issue;not null;default:false;index:idx_issue_started,priority:1;comment:统一标签口径异常标记"`
 	ArtifactPublicationStatus string     `gorm:"column:artifact_publication_status;type:varchar(16);not null;default:'unknown';index:idx_pub_issue_started,priority:1;comment:产物发布状态 published/unpublished/unknown"`
 	RulesJSON                 string     `gorm:"column:rules_json;type:longtext;comment:规则检查结果JSON"`
@@ -52,8 +52,8 @@ type APISessionAggregate struct {
 	AggregateInvalidatedAt    *time.Time `gorm:"column:aggregate_invalidated_at;type:datetime(3);comment:聚合结果被标记失效时间"`
 	LastChangeDetectedAt      *time.Time `gorm:"column:last_change_detected_at;type:datetime(3);comment:最近一次检测到上游内容变更时间"`
 	AggregatedAt              time.Time  `gorm:"column:aggregated_at;type:datetime(3);not null;comment:聚合完成时间"`
-	CreatedAt          time.Time  `gorm:"column:created_at;comment:创建时间"`
-	UpdatedAt          time.Time  `gorm:"column:updated_at;comment:更新时间"`
+	CreatedAt                 time.Time  `gorm:"column:created_at;comment:创建时间"`
+	UpdatedAt                 time.Time  `gorm:"column:updated_at;comment:更新时间"`
 }
 
 func (APISessionAggregate) TableName() string { return "api_session_aggregates" }

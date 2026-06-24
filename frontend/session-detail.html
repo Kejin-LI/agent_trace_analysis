@@ -3370,6 +3370,7 @@
     const DETAIL_BUNDLE_CACHE_KEY_PREFIX = 'agenttrace.detail.bundle.v1:';
     const DETAIL_BUNDLE_CACHE_TTL_MS = 5 * 60 * 1000;
     const TRACE_FINGERPRINT_KEY_PREFIX = 'agenttrace.session.traceFingerprint.v1:';
+    const DETAIL_REFRESH_MAX_ATTEMPTS = 15;
 
     function detailSeedStorageKey(sessionId) {
       return DETAIL_SEED_KEY_PREFIX + String(sessionId || '');
@@ -3519,6 +3520,21 @@
           chip,
         }));
       } catch {}
+    }
+
+    let detailRefreshPollingTimer = null;
+    let detailRefreshPollingSession = '';
+    let detailRefreshPollingAttempts = 0;
+
+    function stopDetailRefreshPolling() {
+      if (detailRefreshPollingTimer) clearTimeout(detailRefreshPollingTimer);
+      detailRefreshPollingTimer = null;
+      detailRefreshPollingSession = '';
+      detailRefreshPollingAttempts = 0;
+    }
+
+    function detailRefreshPollDelay(attempt) {
+      return attempt < 5 ? 2000 : 5000;
     }
 
     function formatDetailDateTime(ms) {
@@ -3723,6 +3739,74 @@
       return { data: null, error: loadError };
     }
 
+    async function loadSessionFreshness(sessionId, opts) {
+      if (!window.AgentTraceDB || typeof window.AgentTraceDB.loadSessionFreshness !== 'function') return null;
+      try {
+        return await window.AgentTraceDB.loadSessionFreshness(sessionId, opts || {});
+      } catch (err) {
+        console.warn('loadSessionFreshness failed', err);
+        return null;
+      }
+    }
+
+    function markSessionAggregateInvalidated(real, freshness) {
+      if (!real) return;
+      clearInvalidatedAggregateFields(real);
+      real.aggregate_invalidated = true;
+      real.refresh_status = freshness?.refresh_status || '';
+      if (freshness?.trace_fingerprint) real.trace_fingerprint = freshness.trace_fingerprint;
+      if (Number(freshness?.source_updated_at_ms || 0) > 0) real.source_updated_at_ms = Number(freshness.source_updated_at_ms);
+      persistLatestDetailSeed(real, { aggregateInvalidated: true });
+      clearCachedDetailBundle(real.session_id || real.id);
+      renderSession(real, 'full');
+    }
+
+    async function refreshSessionDetailOnce(sessionId, opts) {
+      const realResult = await loadRealData(sessionId, opts);
+      const real = realResult.data;
+      if (!real) return false;
+      if (real.aggregate_invalidated) clearInvalidatedAggregateFields(real);
+      syncAggregateStateForLatestTrace(real);
+      real._durationBenchmark = real._durationBenchmark || await loadDurationBenchmark(real);
+      persistCachedDetailBundle(real);
+      renderSession(real, 'full');
+      return !real.__aggregateInvalidated && !real.aggregate_invalidated;
+    }
+
+    function startDetailRefreshPolling(sessionId, opts) {
+      if (!sessionId) return;
+      if (detailRefreshPollingSession === sessionId && detailRefreshPollingTimer) return;
+      stopDetailRefreshPolling();
+      detailRefreshPollingSession = sessionId;
+      const tick = async () => {
+        detailRefreshPollingAttempts += 1;
+        try {
+          const done = await refreshSessionDetailOnce(sessionId, opts);
+          if (done) {
+            stopDetailRefreshPolling();
+            return;
+          }
+        } catch (err) {
+          console.warn('detail refresh polling failed', err);
+        }
+        if (detailRefreshPollingAttempts >= DETAIL_REFRESH_MAX_ATTEMPTS) {
+          stopDetailRefreshPolling();
+          return;
+        }
+        detailRefreshPollingTimer = setTimeout(tick, detailRefreshPollDelay(detailRefreshPollingAttempts));
+      };
+      detailRefreshPollingTimer = setTimeout(tick, detailRefreshPollDelay(0));
+    }
+
+    async function runDetailFreshnessCheck(sessionId, real, opts) {
+      const freshness = await loadSessionFreshness(sessionId, opts);
+      if (!freshness || !freshness.needs_refresh) return false;
+      const target = real || (window.SESSION && window.SESSION._real) || readCachedDetailBundle(sessionId) || readDetailSeed(sessionId);
+      if (target) markSessionAggregateInvalidated(target, freshness);
+      startDetailRefreshPolling(sessionId, opts);
+      return true;
+    }
+
     function formatSummaryDateTime(d) {
       const pad = (n) => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -3735,6 +3819,11 @@
     // 仅用于展示：去掉 URL 透传进来的 .json 后缀（数据查找/请求仍用原始 id）。
     const idDisplay = String(id).replace(/\.json$/i, '');
     const detailSeed = readDetailSeed(id);
+    const detailRequestOpts = {
+      artifactStatus,
+      startTime: String(params.get('start_time') || '').trim(),
+      endTime: String(params.get('end_time') || '').trim(),
+    };
     if (detailSeed) renderSeedSession(detailSeed);
     const cachedDetail = readCachedDetailBundle(id);
     if (cachedDetail) {
@@ -4778,15 +4867,21 @@
 
     // ===== 5 分钟内优先复用详情缓存，超过 TTL 再重新拉完整 bundle =====
     (async function () {
-      if (cachedDetail) return;
-      const realResult = await loadRealData(id, { artifactStatus });
+      if (cachedDetail) {
+        await runDetailFreshnessCheck(id, cachedDetail, detailRequestOpts);
+        hideGlobalLoader();
+        return;
+      }
+      const realResult = await loadRealData(id, detailRequestOpts);
       const real = realResult.data;
       const lastLoadError = realResult.error || '';
       if (real) {
+        if (real.aggregate_invalidated) clearInvalidatedAggregateFields(real);
         syncAggregateStateForLatestTrace(real);
         real._durationBenchmark = real._durationBenchmark || await loadDurationBenchmark(real);
         persistCachedDetailBundle(real);
         renderSession(real, 'full');
+        await runDetailFreshnessCheck(id, real, detailRequestOpts);
       } else if (canUseFallbackMock() && FALLBACK_MOCK[id]) {
         renderSession(null, 'full');
       } else {

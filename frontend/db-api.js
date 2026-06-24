@@ -367,6 +367,9 @@
       session_id: raw.session_id || raw.id,
       artifact_id: raw.artifact_id || '',
       artifact_publication_status: normalizeArtifactPublicationStatus(raw.artifact_publication_status),
+      trace_fingerprint: raw.trace_fingerprint || '',
+      aggregate_invalidated: !!raw.aggregate_invalidated,
+      source_updated_at_ms: Number(raw.source_updated_at_ms || 0),
       title: stripSyntheticPromptPayload(raw.title) || (raw.session_id ? ('Session ' + raw.session_id) : 'Session'),
       user: raw.user || raw.user_id || 'anonymous',
       user_id: raw.user_id || raw.user || '',
@@ -545,6 +548,15 @@
     return normalizeSession(payload);
   }
 
+  async function loadSessionFreshness(sessionId, opts) {
+    const params = new URLSearchParams();
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    if (opts && opts.artifactStatus) params.set('artifact_status', opts.artifactStatus);
+    const qs = params.toString();
+    return await fetchJSON('/api/session-bundles/' + encodeURIComponent(sessionId) + '/freshness' + (qs ? '?' + qs : ''));
+  }
+
   window.AgentTraceDB = {
     loadSessions,
     loadDashboardSummary,
@@ -554,6 +566,7 @@
     loadAggregateStatus,
     backfillRange,
     loadSession,
+    loadSessionFreshness,
     getApiBase: function () { return resolvedBase || candidateBases()[0] || ''; },
     // buildUrl 把 "/api/x" 解析成与 fetchJSON 完全一致的最终 URL（含网关前缀），
     // 供 fetch/EventSource 等直接复用，避免本地与生产环境路径不一致。

@@ -213,7 +213,7 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 		}
 	}
 
-	return apiSessionBundle{
+	bundle := apiSessionBundle{
 		DetailVersion:     currentDetailBundleVersion,
 		SourceUpdatedAtMs: msFromTimePtr(src.SourceUpdatedAt),
 		SourceUpdatedAt:   timeToString(src.SourceUpdatedAt),
@@ -242,6 +242,8 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 		Truncation:        truncation,
 		Traces:            traces,
 	}
+	bundle.TraceFingerprint = computeQualityTraceFingerprint(bundle)
+	return bundle
 }
 
 func msFromTimePtr(v *time.Time) int64 {
