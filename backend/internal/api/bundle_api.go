@@ -22,6 +22,7 @@ const (
 	artifactStatusPublished    = "published"
 	artifactStatusUnpublished  = "unpublished"
 	currentDetailBundleVersion = 2
+	detailLookupHalfWindow     = 2 * time.Hour
 )
 
 // listReadTimeout 限定列表/大盘等读路径单次 DB 查询的最长等待时间。
@@ -39,6 +40,8 @@ func normalizeArtifactStatus(raw string) string {
 	}
 }
 
+// normalizePublicationStatusOrUnknown 把任意输入规整成 published/unpublished/unknown 三态之一，
+// 供聚合落库使用：无法判定时落 unknown，绝不写空串。
 func detailBundleNeedsRefresh(bundle apiSessionBundle) bool {
 	if len(bundle.Traces) == 0 {
 		return false
@@ -61,31 +64,65 @@ func detailBundleNeedsSourceRefresh(bundle apiSessionBundle, hit *modellog.Sessi
 }
 
 func detailLookupTimeRange(c *gin.Context, tr modellog.TimeRange, cachedBundle apiSessionBundle, hasCached bool) modellog.TimeRange {
-	detailTR := tr
-	if c.Query("start_time") == "" && c.Query("end_time") == "" {
-		if hasCached && cachedBundle.StartedAtMs > 0 {
-			st := time.UnixMilli(cachedBundle.StartedAtMs).Add(-2 * time.Hour)
-			et := time.UnixMilli(cachedBundle.StartedAtMs).Add(2 * time.Hour)
-			detailTR = modellog.TimeRange{
-				StartTime: st.Format("2006-01-02 15:04:05"),
-				EndTime:   et.Format("2006-01-02 15:04:05"),
-			}
-		}
+	if !hasCached || cachedBundle.StartedAtMs <= 0 {
+		return tr
 	}
-	return detailTR
+
+	sessionAt := time.UnixMilli(cachedBundle.StartedAtMs)
+	narrowTR := modellog.TimeRange{
+		StartTime: sessionAt.Add(-detailLookupHalfWindow).Format("2006-01-02 15:04:05"),
+		EndTime:   sessionAt.Add(detailLookupHalfWindow).Format("2006-01-02 15:04:05"),
+	}
+	if c.Query("start_time") == "" && c.Query("end_time") == "" {
+		return narrowTR
+	}
+
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return narrowTR
+	}
+	if sessionAt.Before(startAt) || sessionAt.After(endAt) {
+		return tr
+	}
+	if endAt.Sub(startAt) <= 2*detailLookupHalfWindow {
+		return tr
+	}
+	return narrowTR
 }
 
-func (h *Handler) resolveSessionPublicationStatus(ctx context.Context, key, cookie string, tr modellog.TimeRange) (*modellog.Session, string, error) {
+func (h *Handler) resolveSessionPublicationStatus(ctx context.Context, key, cookie string, tr modellog.TimeRange, statusHint string) (*modellog.Session, string, error) {
 	if h == nil || h.upstream == nil || key == "" {
 		return nil, "", nil
 	}
-	attempts := []struct {
+	appendAttempt := func(dst []struct {
 		onlyUnpublished bool
 		label           string
-	}{
-		{onlyUnpublished: true, label: artifactStatusUnpublished},
-		{onlyUnpublished: false, label: artifactStatusPublished},
+	}, onlyUnpublished bool, label string) []struct {
+		onlyUnpublished bool
+		label           string
+	} {
+		for _, item := range dst {
+			if item.label == label {
+				return dst
+			}
+		}
+		return append(dst, struct {
+			onlyUnpublished bool
+			label           string
+		}{onlyUnpublished: onlyUnpublished, label: label})
 	}
+	attempts := make([]struct {
+		onlyUnpublished bool
+		label           string
+	}, 0, 2)
+	switch normalizeArtifactStatus(statusHint) {
+	case artifactStatusUnpublished:
+		attempts = appendAttempt(attempts, true, artifactStatusUnpublished)
+	case artifactStatusPublished:
+		attempts = appendAttempt(attempts, false, artifactStatusPublished)
+	}
+	attempts = appendAttempt(attempts, true, artifactStatusUnpublished)
+	attempts = appendAttempt(attempts, false, artifactStatusPublished)
 	var lastErr error
 	for _, attempt := range attempts {
 		const pageSize = 500
@@ -419,9 +456,13 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	key := c.Param("session_id")
 	tr := timeRangeFromQuery(c)
 	cookie := h.effectiveCookie(c)
+	statusHint := normalizeArtifactStatus(c.Query("artifact_status"))
 	cachedBundle, hasCached, err := h.getCachedSessionBundle(key, "")
 	if err != nil {
 		log.Printf("session detail cached lookup failed key=%s err=%v", key, err)
+	}
+	if statusHint != "" {
+		cachedBundle.ArtifactPublicationStatus = statusHint
 	}
 	detailTR := detailLookupTimeRange(c, tr, cachedBundle, hasCached)
 
@@ -437,29 +478,11 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-	hit, hitStatus, resolveErr := h.resolveSessionPublicationStatus(ctx, key, cookie, detailTR)
-
-	if hitStatus != "" {
-		cachedBundle.ArtifactPublicationStatus = hitStatus
-	}
-	if hasCached && hasDetailTraces(cachedBundle) &&
-		!detailBundleNeedsRefresh(cachedBundle) &&
-		!detailBundleNeedsSourceRefresh(cachedBundle, hit) {
-		// DB 已有完整 bundle 时仍要实时刷新发布状态，避免详情页命中旧缓存。
-		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
-		return
-	}
-
-	if indexedBundle, indexedSrc, ok, err := h.getIndexedSessionBundle(key, ""); err != nil {
+	if indexedBundle, indexedSrc, ok, err := h.getIndexedSessionBundle(key, statusHint); err != nil {
 		log.Printf("session detail indexed lookup failed key=%s err=%v", key, err)
 	} else if ok {
 		if hasCached {
 			indexedBundle = mergeBundleWithCachedBundle(indexedBundle, cachedBundle)
-		}
-		if hitStatus != "" {
-			indexedBundle.ArtifactPublicationStatus = hitStatus
 		}
 		if h.aggregator != nil {
 			go func(src model.StgSessionSource, bundle apiSessionBundle) {
@@ -477,6 +500,21 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 			}(indexedSrc, indexedBundle)
 		}
 		c.JSON(http.StatusOK, h.applyQualityEvaluation(indexedBundle))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	hit, hitStatus, resolveErr := h.resolveSessionPublicationStatus(ctx, key, cookie, detailTR, statusHint)
+
+	if hitStatus != "" {
+		cachedBundle.ArtifactPublicationStatus = hitStatus
+	}
+	if hasCached && hasDetailTraces(cachedBundle) &&
+		!detailBundleNeedsRefresh(cachedBundle) &&
+		!detailBundleNeedsSourceRefresh(cachedBundle, hit) {
+		// DB 已有完整 bundle 时仍要实时刷新发布状态，避免详情页命中旧缓存。
+		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 		return
 	}
 
@@ -752,17 +790,19 @@ func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle
 	if row.RulesJSON != "" {
 		_ = json.Unmarshal([]byte(row.RulesJSON), &rules)
 	}
-	features := apiFeatures{
-		ToolCalls:        row.ToolCalls,
-		UniqueTools:      row.UniqueTools,
-		MaxSerialRun:     row.MaxSerialRun,
-		ToolFailures:     row.ToolFailures,
-		ToolFailRate:     float64(row.ToolFailRateBP) / 10000,
-		AvgTokensPerTurn: row.AvgTokensPerTurn,
-		ToolRetries:      row.ToolRetries,
-		HasRootFail:      row.HasRootFail,
-		HasLoop:          row.HasLoop,
+	features := apiFeatures{}
+	if row.FeaturesJSON != "" {
+		_ = json.Unmarshal([]byte(row.FeaturesJSON), &features)
 	}
+	features.ToolCalls = row.ToolCalls
+	features.UniqueTools = row.UniqueTools
+	features.MaxSerialRun = row.MaxSerialRun
+	features.ToolFailures = row.ToolFailures
+	features.ToolFailRate = float64(row.ToolFailRateBP) / 10000
+	features.AvgTokensPerTurn = row.AvgTokensPerTurn
+	features.ToolRetries = row.ToolRetries
+	features.HasRootFail = row.HasRootFail
+	features.HasLoop = row.HasLoop
 	return apiSessionBundle{
 		DetailVersion:             currentDetailBundleVersion,
 		SourceUpdatedAtMs:         msFromTimePtr(row.SourceUpdateAt),
@@ -782,6 +822,7 @@ func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle
 		OutputTokens:              row.OutputTokens,
 		ToolCalls:                 row.ToolCalls,
 		Turns:                     row.Turns,
+		EffectiveRounds:           features.EffectiveRounds,
 		TraceCount:                row.TraceCount,
 		Score:                     row.Score,
 		Color:                     "green",
@@ -846,6 +887,9 @@ func mergeBundleWithCachedBundle(bundle, cached apiSessionBundle) apiSessionBund
 	}
 	if bundle.Trace == "" {
 		bundle.Trace = cached.Trace
+	}
+	if bundle.EffectiveRounds == 0 {
+		bundle.EffectiveRounds = cached.EffectiveRounds
 	}
 	if bundle.StartedAtMs == 0 {
 		bundle.StartedAtMs = cached.StartedAtMs

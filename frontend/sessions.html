@@ -4,6 +4,22 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Agent Synapse 诊断平台 · Session</title>
+<meta name="description" content="Agent Synapse Session 明细页，按会话查看执行轨迹、质量评分与异常诊断信息。">
+<meta name="theme-color" content="#0B1220">
+<link rel="icon" href="./assets/agent-synapse-favicon.svg" type="image/svg+xml">
+<link rel="shortcut icon" href="./assets/agent-synapse-favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Agent Synapse 诊断平台">
+<meta property="og:title" content="Agent Synapse 诊断平台 · Session">
+<meta property="og:description" content="按会话查看执行轨迹、质量评分与异常诊断信息。">
+<meta property="og:image" content="./assets/agent-synapse-share-card.svg">
+<meta property="og:image:type" content="image/svg+xml">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Agent Synapse 诊断平台 · Session">
+<meta name="twitter:description" content="按会话查看执行轨迹、质量评分与异常诊断信息。">
+<meta name="twitter:image" content="./assets/agent-synapse-share-card.svg">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="./efficiency-helper.js?v=20260616-fix-score-cache"></script>
 <script src="./tag-system.js?v=20260616-fix-score-cache"></script>
@@ -1193,11 +1209,12 @@
       // 如果把它当成已聚合，会把缺失分数误渲染成 0。
       const isPending = meta.isPending;
       const traceCount = Number(s.trace_count || 0);
-      const turns = Number(s.turns || 0);
+      const effectiveRounds = Number(s.effective_rounds || 0);
+      const displayRounds = effectiveRounds > 0 ? effectiveRounds : traceCount;
       const durationMs = Number(s.duration_ms || 0);
       const hasTraceSkeleton = traceCount > 0 || !!s.trace || ((s.traces || []).length > 0);
       const hasPartialMetrics = hasTraceSkeleton || !!s.started_at_ms || !isPending;
-      const isTurnsCalculating = !isPending && turns <= 0 && hasPartialMetrics;
+      const isTurnsCalculating = !isPending && displayRounds <= 0 && hasPartialMetrics;
       const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
       const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="spinner"></span><span class="pending-dash">${label}</span></span>`;
       const durationPendingHtml = '<span class="pending-dash">计算中...</span>';
@@ -1226,13 +1243,13 @@
           </div>`;
       }
 
-      const hasRealTraceSummary = turns > 0 || traceCount > 0 || ((s.traces || []).length > 0);
+      const hasRealTraceSummary = displayRounds > 0 || traceCount > 0 || ((s.traces || []).length > 0);
       const metaLine = isPending
         ? `${displayId(s.id)} · <span class="pending-dash">指标聚合中…</span>`
         : isTurnsCalculating
-          ? `${displayId(s.id)} · <span class="pending-dash">步数计算中…</span> · ${traceCount || 1} traces`
+          ? `${displayId(s.id)} · <span class="pending-dash">轮次计算中…</span> · ${traceCount || 1} traces`
           : hasRealTraceSummary
-            ? `${displayId(s.id)} · ${turns || 0} turns · ${traceCount || 1} traces`
+            ? `${displayId(s.id)} · ${displayRounds || 0} 轮 · ${traceCount || 1} traces`
           : `${displayId(s.id)} · <span class="pending-dash">轮次待回填</span>`;
       const titleCellHtml = `
         <div class="min-w-0 cell-tip" data-tip='${encodeURIComponent(titleEsc)}'>

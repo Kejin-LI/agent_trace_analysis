@@ -250,6 +250,7 @@ type apiFeatures struct {
 	ToolRetries      int     `json:"tool_retries"`
 	HasRootFail      bool    `json:"has_root_fail"`
 	HasLoop          bool    `json:"has_loop"`
+	EffectiveRounds  int     `json:"effective_rounds,omitempty"`
 }
 
 type apiRadar struct {
@@ -315,6 +316,7 @@ type apiSessionBundle struct {
 	OutputTokens              int64                `json:"output_tokens"`
 	ToolCalls                 int                  `json:"tool_calls"`
 	Turns                     int                  `json:"turns"`
+	EffectiveRounds           int                  `json:"effective_rounds,omitempty"`
 	TraceCount                int                  `json:"trace_count"`
 	Score                     int                  `json:"score"`
 	Color                     string               `json:"color"`
@@ -571,6 +573,7 @@ func lightBundleFromSource(src model.StgSessionSource) apiSessionBundle {
 	if m, ok := readCachedMetrics(src.Extra); ok {
 		bundle.ToolCalls = m.ToolCalls
 		bundle.Turns = m.Turns
+		bundle.EffectiveRounds = m.EffectiveRounds
 		bundle.TraceCount = m.TraceCount
 		bundle.InputTokens = m.InputTokens
 		bundle.OutputTokens = m.OutputTokens
@@ -584,6 +587,7 @@ func lightBundleFromSource(src model.StgSessionSource) apiSessionBundle {
 			ToolFailures:     m.ToolFailures,
 			ToolFailRate:     m.ToolFailRate,
 			AvgTokensPerTurn: m.AvgTokensTurn,
+			EffectiveRounds:  m.EffectiveRounds,
 		}
 		// 异常标签 & 规则（驱动列表页"异常"列）。
 		if m.Chip != "" {
@@ -751,6 +755,8 @@ func buildSessionBundle(session model.StgArtifactSession, traceRows []model.StgA
 	for _, tr := range apiTraces {
 		turns += tr.Turns
 	}
+	effectiveRounds := countEffectiveRounds(apiTraces)
+	features.EffectiveRounds = effectiveRounds
 
 	return apiSessionBundle{
 		DetailVersion:     currentDetailBundleVersion,
@@ -769,6 +775,7 @@ func buildSessionBundle(session model.StgArtifactSession, traceRows []model.StgA
 		OutputTokens:      totalOut,
 		ToolCalls:         features.ToolCalls,
 		Turns:             turns,
+		EffectiveRounds:   effectiveRounds,
 		TraceCount:        len(apiTraces),
 		Score:             0,
 		Color:             "green",
@@ -1049,6 +1056,21 @@ func countRounds(spans []apiSpan) int {
 		}
 	}
 	return maxRound
+}
+
+func countEffectiveRounds(traces []apiTrace) int {
+	total := 0
+	for _, tr := range traces {
+		if cleanUserPrompt(tr.UserPrompt) == "" && cleanUserPrompt(tr.Title) == "" {
+			continue
+		}
+		if tr.RoundCount > 1 {
+			total += tr.RoundCount
+			continue
+		}
+		total++
+	}
+	return total
 }
 
 func bundlePagination(c *gin.Context) (limit, offset int) {

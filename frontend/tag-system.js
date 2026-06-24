@@ -15,6 +15,8 @@
       color: sourceColor,
       detail: opts.detail || '',
       priority: opts.priority || 50,
+      targetType: opts.targetType || '',
+      targetKey: opts.targetKey || '',
     };
   }
 
@@ -22,20 +24,20 @@
     const raw = String(rule?.failed_label || rule?.name || '').trim();
     const detail = rule?.detail || '';
     if (!raw) return null;
-    if (/trace\s*失败|调用未完成|根.*失败/i.test(raw)) return tag('trace 失败', { severity: 'bad', color: 'red', detail, priority: 5 });
-    if (/长上下文|Token|上下文超限/.test(raw)) return tag('长上下文超限', { severity: 'warn', color: 'orange', detail, priority: 30 });
-    if (/成本|费用|超支/.test(raw)) return tag('成本超支', { severity: 'bad', color: 'red', detail, priority: 18 });
-    if (/MCP.*重试|重试风暴/.test(raw)) return tag('MCP 重试风暴', { severity: 'bad', color: 'red', detail, priority: 10 });
-    if (/Skill.*重试|重试过高/.test(raw)) return tag('Skill 重试过高', { severity: 'warn', color: 'orange', detail, priority: 22 });
-    if (/工具.*失败|失败工具|工具失败/.test(raw)) return tag('工具失败', { severity: 'bad', color: 'red', detail, priority: 12 });
-    if (/死循环|循环/.test(raw)) return tag('行为死循环', { severity: 'bad', color: 'red', detail, priority: 14 });
-    if (/关键路径|耗时|响应/.test(raw)) return tag('关键路径过长', { severity: 'warn', color: 'orange', detail, priority: 28 });
-    if (/排队|等待资源/.test(raw)) return tag('排队过久', { severity: 'warn', color: 'orange', detail, priority: 32 });
-    if (/串行|并行度/.test(raw)) return tag('串行瓶颈', { severity: 'warn', color: 'orange', detail, priority: 34 });
-    if (/显存|OOM/.test(raw)) return tag('显存 OOM 重跑', { severity: 'bad', color: 'red', detail, priority: 16 });
-    if (/过度思考|慢思考/.test(raw)) return tag('慢思考无效', { severity: 'warn', color: 'purple', detail, priority: 38 });
-    if (/思考过简/.test(raw)) return tag('思考过简', { severity: 'warn', color: 'purple', detail, priority: 42 });
-    if (/轨迹异常|执行效率|步数|轮数/.test(raw)) return tag('轨迹异常', { severity: 'warn', color: 'orange', detail, priority: 26 });
+    if (/trace\s*失败|调用未完成|根.*失败/i.test(raw)) return tag('trace 失败', { severity: 'bad', color: 'red', detail, priority: 5, targetType: 'rule_dimension', targetKey: 'stability' });
+    if (/长上下文|Token|上下文超限/.test(raw)) return tag('长上下文超限', { severity: 'warn', color: 'orange', detail, priority: 30, targetType: 'rule_dimension', targetKey: 'resource' });
+    if (/成本|费用|超支/.test(raw)) return tag('成本超支', { severity: 'bad', color: 'red', detail, priority: 18, targetType: 'rule_dimension', targetKey: 'resource' });
+    if (/MCP.*重试|重试风暴/.test(raw)) return tag('MCP 重试风暴', { severity: 'bad', color: 'red', detail, priority: 10, targetType: 'rule_dimension', targetKey: 'stability' });
+    if (/Skill.*重试|重试过高/.test(raw)) return tag('Skill 重试过高', { severity: 'warn', color: 'orange', detail, priority: 22, targetType: 'rule_dimension', targetKey: 'stability' });
+    if (/工具.*失败|失败工具|工具失败/.test(raw)) return tag('工具失败', { severity: 'bad', color: 'red', detail, priority: 12, targetType: 'rule_dimension', targetKey: 'stability' });
+    if (/死循环|循环/.test(raw)) return tag('行为死循环', { severity: 'bad', color: 'red', detail, priority: 14, targetType: 'rule_dimension', targetKey: 'orchestration' });
+    if (/关键路径|耗时|响应/.test(raw)) return tag('关键路径过长', { severity: 'warn', color: 'orange', detail, priority: 28, targetType: 'rule_dimension', targetKey: 'response' });
+    if (/排队|等待资源/.test(raw)) return tag('排队过久', { severity: 'warn', color: 'orange', detail, priority: 32, targetType: 'rule_dimension', targetKey: 'response' });
+    if (/串行|并行度/.test(raw)) return tag('串行瓶颈', { severity: 'warn', color: 'orange', detail, priority: 34, targetType: 'rule_dimension', targetKey: 'orchestration' });
+    if (/显存|OOM/.test(raw)) return tag('显存 OOM 重跑', { severity: 'bad', color: 'red', detail, priority: 16, targetType: 'rule_dimension', targetKey: 'resource' });
+    if (/过度思考|慢思考/.test(raw)) return tag('慢思考无效', { severity: 'warn', color: 'purple', detail, priority: 38, targetType: 'rule_dimension', targetKey: 'thinking' });
+    if (/思考过简/.test(raw)) return tag('思考过简', { severity: 'warn', color: 'purple', detail, priority: 42, targetType: 'rule_dimension', targetKey: 'thinking' });
+    if (/轨迹异常|执行效率|步数|轮数/.test(raw)) return tag('轨迹异常', { severity: 'warn', color: 'orange', detail, priority: 26, targetType: 'rule_dimension', targetKey: 'orchestration' });
     return tag(raw, { severity: 'warn', color: 'orange', detail, priority: 60 });
   }
 
@@ -220,23 +222,23 @@
     const hallucinationScore = score(llm.hallucination_risk_score);
     const reason = llm.reason || llm.score_basis || '';
 
-    if (llm.resolved === '未解决' || (resolvedScore !== null && resolvedScore < 50)) out.push(tag('问题未解决', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 8 }));
-    else if (llm.resolved === '部分解决' || (resolvedScore !== null && resolvedScore < 70)) out.push(tag('部分解决', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 24 }));
+    if (llm.resolved === '未解决' || (resolvedScore !== null && resolvedScore < 50)) out.push(tag('问题未解决', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 8, targetType: 'llm_dimension', targetKey: 'resolved' }));
+    else if (llm.resolved === '部分解决' || (resolvedScore !== null && resolvedScore < 70)) out.push(tag('部分解决', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 24, targetType: 'llm_dimension', targetKey: 'resolved' }));
 
-    if (llm.intent_match === '明显答非所问' || (intentScore !== null && intentScore < 50)) out.push(tag('答非所问', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 9 }));
-    else if (llm.intent_match === '部分偏离' || (intentScore !== null && intentScore < 70)) out.push(tag('意图偏离', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 25 }));
+    if (llm.intent_match === '明显答非所问' || (intentScore !== null && intentScore < 50)) out.push(tag('答非所问', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 9, targetType: 'llm_dimension', targetKey: 'intent_match' }));
+    else if (llm.intent_match === '部分偏离' || (intentScore !== null && intentScore < 70)) out.push(tag('意图偏离', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 25, targetType: 'llm_dimension', targetKey: 'intent_match' }));
 
-    if (llm.sentiment === '强负向' || (sentimentScore !== null && sentimentScore < 35)) out.push(tag('用户强负向', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 11 }));
-    else if (llm.sentiment === '负向' || (sentimentScore !== null && sentimentScore < 60)) out.push(tag('用户负向', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 27 }));
+    if (llm.sentiment === '强负向' || (sentimentScore !== null && sentimentScore < 35)) out.push(tag('用户强负向', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 11, targetType: 'llm_dimension', targetKey: 'sentiment' }));
+    else if (llm.sentiment === '负向' || (sentimentScore !== null && sentimentScore < 60)) out.push(tag('用户负向', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 27, targetType: 'llm_dimension', targetKey: 'sentiment' }));
 
-    if (llm.efficiency_feel === '偏低效' || (efficiencyScore !== null && efficiencyScore < 50)) out.push(tag('效率偏低', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 29 }));
-    else if (efficiencyScore !== null && efficiencyScore < 70) out.push(tag('效率一般', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 33 }));
+    if (llm.efficiency_feel === '偏低效' || (efficiencyScore !== null && efficiencyScore < 50)) out.push(tag('效率偏低', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 29, targetType: 'llm_dimension', targetKey: 'efficiency_feel' }));
+    else if (efficiencyScore !== null && efficiencyScore < 70) out.push(tag('效率一般', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 33, targetType: 'llm_dimension', targetKey: 'efficiency_feel' }));
 
-    if (llm.actionability === '空泛不可执行' || (actionScore !== null && actionScore < 50)) out.push(tag('建议空泛', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 20 }));
-    else if (llm.actionability === '需要补充信息' || (actionScore !== null && actionScore < 70)) out.push(tag('需补充信息', { source: 'llm', severity: 'warn', color: 'purple', detail: reason, priority: 36 }));
+    if (llm.actionability === '空泛不可执行' || (actionScore !== null && actionScore < 50)) out.push(tag('建议空泛', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 20, targetType: 'llm_dimension', targetKey: 'actionability' }));
+    else if (llm.actionability === '需要补充信息' || (actionScore !== null && actionScore < 70)) out.push(tag('需补充信息', { source: 'llm', severity: 'warn', color: 'purple', detail: reason, priority: 36, targetType: 'llm_dimension', targetKey: 'actionability' }));
 
-    if (llm.hallucination_risk === '高' || (hallucinationScore !== null && hallucinationScore < 40)) out.push(tag('幻觉风险高', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 7 }));
-    else if (llm.hallucination_risk === '中' || (hallucinationScore !== null && hallucinationScore < 70)) out.push(tag('幻觉风险', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 23 }));
+    if (llm.hallucination_risk === '高' || (hallucinationScore !== null && hallucinationScore < 40)) out.push(tag('幻觉风险高', { source: 'llm', severity: 'bad', color: 'red', detail: reason, priority: 7, targetType: 'llm_dimension', targetKey: 'hallucination_risk' }));
+    else if (llm.hallucination_risk === '中' || (hallucinationScore !== null && hallucinationScore < 70)) out.push(tag('幻觉风险', { source: 'llm', severity: 'warn', color: 'orange', detail: reason, priority: 23, targetType: 'llm_dimension', targetKey: 'hallucination_risk' }));
 
     return out;
   }

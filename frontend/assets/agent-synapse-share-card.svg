@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="60" x2="1080" y2="570" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1220"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="glowA" x1="140" y1="40" x2="480" y2="290" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0071E3" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#0071E3" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="glowB" x1="840" y1="90" x2="1090" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BF5AF2" stop-opacity=".30"/>
+      <stop offset="1" stop-color="#BF5AF2" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="syn" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0071E3"/>
+      <stop offset="1" stop-color="#BF5AF2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <ellipse cx="250" cy="80" rx="280" ry="180" fill="url(#glowA)"/>
+  <ellipse cx="960" cy="120" rx="260" ry="170" fill="url(#glowB)"/>
+  <g filter="url(#shadow)">
+    <rect x="72" y="72" width="1056" height="486" rx="36" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/>
+  </g>
+  <g transform="translate(134 170)">
+    <rect x="0" y="0" width="126" height="126" rx="34" fill="#0F172A" stroke="rgba(255,255,255,0.12)"/>
+    <g transform="translate(18 18)">
+      <path d="M22 22L45 41M72 18L45 41M45 41L28 72M45 41L68 69" stroke="url(#syn)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="22" cy="22" r="9" fill="url(#syn)"/>
+      <circle cx="72" cy="18" r="7.5" fill="url(#syn)"/>
+      <circle cx="28" cy="72" r="7.5" fill="url(#syn)"/>
+      <circle cx="68" cy="69" r="8.5" fill="url(#syn)"/>
+      <circle cx="45" cy="41" r="11.5" fill="url(#syn)"/>
+    </g>
+  </g>
+  <text x="294" y="232" fill="#F8FAFC" font-size="58" font-family="Inter, Arial, sans-serif" font-weight="700">Agent Synapse</text>
+  <text x="294" y="292" fill="#C7D2FE" font-size="30" font-family="Inter, Arial, sans-serif" font-weight="600">诊断平台</text>
+  <text x="134" y="386" fill="#E5E7EB" font-size="28" font-family="Inter, Arial, sans-serif" font-weight="500">
+    面向 AI Agent 的诊断与分析平台，帮助团队定位执行问题、
+  </text>
+  <text x="134" y="428" fill="#E5E7EB" font-size="28" font-family="Inter, Arial, sans-serif" font-weight="500">
+    评估会话质量并提升系统稳定性。
+  </text>
+  <g transform="translate(134 472)">
+    <rect width="238" height="42" rx="21" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.12)"/>
+    <text x="22" y="28" fill="#C7D2FE" font-size="20" font-family="Inter, Arial, sans-serif" font-weight="600">Telemetry + GPT Evaluation</text>
+  </g>
+</svg>

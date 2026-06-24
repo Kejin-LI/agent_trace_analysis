@@ -25,6 +25,7 @@ type cachedMetrics struct {
 	HasRootFail        bool     `json:"has_root_fail"`
 	HasLoop            bool     `json:"has_loop"`
 	Turns              int      `json:"turns"`
+	EffectiveRounds    int      `json:"effective_rounds,omitempty"`
 	TraceCount         int      `json:"trace_count"`
 	StartedAtMs        int64    `json:"started_at_ms"`
 	DurationMs         int64    `json:"duration_ms"`
@@ -63,6 +64,7 @@ func extractCachedMetrics(b apiSessionBundle) cachedMetrics {
 		HasRootFail:        b.Features.HasRootFail,
 		HasLoop:            b.Features.HasLoop,
 		Turns:              b.Turns,
+		EffectiveRounds:    b.EffectiveRounds,
 		TraceCount:         b.TraceCount,
 		StartedAtMs:        b.StartedAtMs,
 		DurationMs:         b.DurationMs,
@@ -193,9 +195,11 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 	for _, tr := range traces {
 		turns += tr.Turns
 	}
+	effectiveRounds := countEffectiveRounds(traces)
 
 	features, rules := deriveSessionSignals(traces, totalDuration, totalIn, totalOut)
 	features.ToolCalls = toolCalls
+	features.EffectiveRounds = effectiveRounds
 
 	var truncation *apiTruncationNotice
 	if pr != nil && pr.Truncation != nil && pr.Truncation.Truncated {
@@ -227,6 +231,7 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 		OutputTokens:      totalOut,
 		ToolCalls:         toolCalls,
 		Turns:             turns,
+		EffectiveRounds:   effectiveRounds,
 		TraceCount:        len(traces),
 		Score:             0,
 		Color:             "green",

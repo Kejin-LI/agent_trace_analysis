@@ -1298,6 +1298,7 @@ func applyCachedMetricsToBundle(b apiSessionBundle, m cachedMetrics) apiSessionB
 	b.OutputTokens = m.OutputTokens
 	b.ToolCalls = m.ToolCalls
 	b.Turns = m.Turns
+	b.EffectiveRounds = m.EffectiveRounds
 	b.TraceCount = m.TraceCount
 	b.Score = m.Score
 	b.Radar = m.Radar
@@ -1311,6 +1312,7 @@ func applyCachedMetricsToBundle(b apiSessionBundle, m cachedMetrics) apiSessionB
 		ToolRetries:      m.ToolRetries,
 		HasRootFail:      m.HasRootFail,
 		HasLoop:          m.HasLoop,
+		EffectiveRounds:  m.EffectiveRounds,
 	}
 	if m.Chip != "" {
 		b.Chip = m.Chip

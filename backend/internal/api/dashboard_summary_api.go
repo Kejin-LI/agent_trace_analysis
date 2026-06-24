@@ -605,6 +605,7 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 		Select([]string{
 			"session_id",
 			"artifact_id",
+                        "duration_ms",
 			"score",
 			"response_score",
 			"stability_score",
@@ -621,6 +622,7 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 		bundles = append(bundles, apiSessionBundle{
 			SessionID:  row.SessionID,
 			ArtifactID: row.ArtifactID,
+                        DurationMs: row.DurationMs,
 			Score:      row.Score,
 			Radar: apiRadar{
 				Response:      row.ResponseScore,
