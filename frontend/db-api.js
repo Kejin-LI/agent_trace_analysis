@@ -476,6 +476,9 @@
     const params = new URLSearchParams({ limit: String(limit) });
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    // artifact_status=all|published|unpublished：缺省 all（不过滤）。
+    const artifactStatus = normalizeArtifactPublicationStatus(opts && opts.artifactStatus);
+    if (artifactStatus) params.set('artifact_status', artifactStatus);
     const payload = await fetchJSON('/api/anomaly-sessions?' + params.toString());
     const sessions = (payload?.data || []).map(normalizeSession);
     return {
@@ -483,10 +486,33 @@
       total: Number(payload?.filtered_total ?? payload?.total ?? sessions.length) || sessions.length,
       candidateTotal: Number(payload?.candidate_total || 0) || sessions.length,
       truncated: Boolean(payload?.truncated),
+      artifactStatus: payload?.artifact_status || 'all',
       limit: payload?.limit || 0,
       offset: payload?.offset || 0,
       anomalyOnly: true,
       apiBase: resolvedBase,
+    };
+  }
+
+  // loadAnomalyPublicationStatus 是混合实时策略的“上游校准”一跳：拉取时间窗内每个
+  // session 的实时发布状态映射（list-only，后端不解析产物内容）。上游不可用时返回
+  // available=false，调用方据此降级到 DB 快照状态。
+  async function loadAnomalyPublicationStatus(opts) {
+    const params = new URLSearchParams();
+    if (opts && opts.startTime) params.set('start_time', opts.startTime);
+    if (opts && opts.endTime) params.set('end_time', opts.endTime);
+    const qs = params.toString();
+    const payload = await fetchJSON('/api/anomaly-publication-status' + (qs ? '?' + qs : ''));
+    const raw = (payload && payload.data) || {};
+    const statusBySession = Object.create(null);
+    Object.keys(raw).forEach((sid) => {
+      const status = normalizeArtifactPublicationStatus(raw[sid]);
+      if (sid && status) statusBySession[sid] = status;
+    });
+    return {
+      statusBySession,
+      available: Boolean(payload && payload.available),
+      reason: (payload && payload.reason) || '',
     };
   }
 
@@ -524,6 +550,7 @@
     loadDashboardSummary,
     loadTopAnomalySessions,
     loadAnomalySessions,
+    loadAnomalyPublicationStatus,
     loadAggregateStatus,
     backfillRange,
     loadSession,
@@ -536,5 +563,6 @@
       return base + finalPath;
     },
     scoreBand,
+    normalizeArtifactPublicationStatus,
   };
 })();

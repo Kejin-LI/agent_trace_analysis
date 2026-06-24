@@ -21,6 +21,7 @@ import (
 const (
 	artifactStatusPublished    = "published"
 	artifactStatusUnpublished  = "unpublished"
+	artifactStatusUnknown      = "unknown"
 	currentDetailBundleVersion = 2
 	detailLookupHalfWindow     = 2 * time.Hour
 )
@@ -42,6 +43,19 @@ func normalizeArtifactStatus(raw string) string {
 
 // normalizePublicationStatusOrUnknown 把任意输入规整成 published/unpublished/unknown 三态之一，
 // 供聚合落库使用：无法判定时落 unknown，绝不写空串。
+func normalizePublicationStatusOrUnknown(raw string) string {
+	if s := normalizeArtifactStatus(raw); s != "" {
+		return s
+	}
+	return artifactStatusUnknown
+}
+
+// bundlePublicationStatusFromStored 把聚合表里存的三态值映射成 bundle 对外暴露的口径：
+// published/unpublished 原样透出，unknown（或历史空值）映射为空串，前端据此显示“未知/待校准”。
+func bundlePublicationStatusFromStored(stored string) string {
+	return normalizeArtifactStatus(stored)
+}
+
 func detailBundleNeedsRefresh(bundle apiSessionBundle) bool {
 	if len(bundle.Traces) == 0 {
 		return false
@@ -643,6 +657,9 @@ type sessionAggregateQueryFilters struct {
 	SessionID    string
 	ArtifactID   string
 	HasIssueOnly bool
+	// ArtifactStatus 限定发布状态：published / unpublished；空串表示不过滤（全部）。
+	// 仅当聚合表已具备 artifact_publication_status 列时生效，否则静默忽略以优雅降级。
+	ArtifactStatus string
 }
 
 func (h *Handler) sessionAggregateRangeQuery(ctx context.Context, tr modellog.TimeRange, filters sessionAggregateQueryFilters) (*gorm.DB, time.Time, time.Time, bool) {
@@ -673,6 +690,9 @@ func (h *Handler) sessionAggregateRangeQuery(ctx context.Context, tr modellog.Ti
 	}
 	if filters.HasIssueOnly && apiSessionAggregateHasIssueColumn(h.db) {
 		q = q.Where("has_issue = ?", true)
+	}
+	if status := normalizeArtifactStatus(filters.ArtifactStatus); status != "" && apiSessionAggregateHasPublicationStatusColumn(h.db) {
+		q = q.Where("artifact_publication_status = ?", status)
 	}
 	return q, startAt, endAt, true
 }
@@ -810,7 +830,7 @@ func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle
 		ID:                        pickFirstNonEmpty(row.SessionID, row.ArtifactID),
 		SessionID:                 row.SessionID,
 		ArtifactID:                row.ArtifactID,
-		ArtifactPublicationStatus: artifactStatusPublished,
+		ArtifactPublicationStatus: bundlePublicationStatusFromStored(row.ArtifactPublicationStatus),
 		User:                      row.UserName,
 		UserID:                    row.UserID,
 		Title:                     pickFirstNonEmpty(row.Title, "Session "+pickFirstNonEmpty(row.SessionID, row.ArtifactID)),

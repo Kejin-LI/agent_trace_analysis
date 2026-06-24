@@ -78,6 +78,16 @@ const (
 	accessTriggeredLowPriorityDays  = 30
 	highPriorityQueueSize           = 8
 	lowPriorityQueueSize            = 24
+	// 历史 session 增量刷新建议参数：
+	// - 热增量扫描：每 10 分钟一次，只扫最近 20 分钟 update_at/source_updated_at 变化；
+	// - 详情页兜底：用户打开详情页时做 freshness check，必要时将当前 session 提升优先级入队；
+	// - 日级/周级补漏：用于兜底，不走高频链路。
+	//
+	// 当前提交先落库结构与模型定义，后续再把扫描器/队列消费器按该参数接入，
+	// 避免一次性把重逻辑混进现有聚合 worker，扩大 OOM 与回归风险。
+	sessionHotIncrementalScanInterval = 10 * time.Minute
+	sessionHotIncrementalLookback     = 20 * time.Minute
+	sessionRefreshLeaseTTL            = 5 * time.Minute
 )
 
 // staleRunningTimeout 判定 running 状态为"陈旧"（残留自被杀实例）的阈值。
@@ -583,21 +593,22 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "forbidden")
 }
 
-func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, tr modellog.TimeRange, includePublished bool) ([]modellog.Session, error) {
+func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, tr modellog.TimeRange, includePublished bool) ([]modellog.Session, map[string]string, error) {
 	requests := []struct {
 		onlyUnpublished bool
 		label           string
 	}{
-		{onlyUnpublished: true, label: "unpublished"},
+		{onlyUnpublished: true, label: artifactStatusUnpublished},
 	}
 	if includePublished {
 		requests = append(requests, struct {
 			onlyUnpublished bool
 			label           string
-		}{onlyUnpublished: false, label: "published"})
+		}{onlyUnpublished: false, label: artifactStatusPublished})
 	}
 
 	sessions := make([]modellog.Session, 0)
+	statusBySession := make(map[string]string)
 	seen := make(map[string]struct{})
 	for _, req := range requests {
 		resp, err := a.upstream.List(ctx, cookie, modellog.ListRequest{
@@ -607,7 +618,7 @@ func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, t
 			OnlyUnpublishedArtifacts: req.onlyUnpublished,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("upstream list %s: %w", req.label, err)
+			return nil, nil, fmt.Errorf("upstream list %s: %w", req.label, err)
 		}
 		if resp == nil {
 			continue
@@ -623,10 +634,14 @@ func (a *Aggregator) listAggregateSessions(ctx context.Context, cookie string, t
 				}
 				seen[key] = struct{}{}
 			}
+			if sid := strings.TrimSpace(s.SessionID); sid != "" {
+				// 两趟互斥：未发布先于已发布，dedup 保证每个 session 只标一次。
+				statusBySession[sid] = req.label
+			}
 			sessions = append(sessions, s)
 		}
 	}
-	return sessions, nil
+	return sessions, statusBySession, nil
 }
 
 func aggregateSessionKey(s modellog.Session) string {
@@ -659,7 +674,7 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	sessions, err := a.listAggregateSessions(ctx, cookie, tr, includePublished)
+	sessions, statusBySession, err := a.listAggregateSessions(ctx, cookie, tr, includePublished)
 	if err != nil {
 		errAt := time.Now()
 		a.upsertDayStatus(dateValue, "failed", 0, 0, 0, 0, 0, err.Error(), &startedAt, nil, &errAt, 0, aggregateFetchConcurrency)
@@ -750,7 +765,8 @@ func (a *Aggregator) runAggregate(cookie, date string, includePublished bool) {
 				src := sessionToStgSource(s)
 				bundle := buildBundleFromTOS(src, pr)
 				m := extractCachedMetrics(bundle)
-				if err := a.upsertSessionAggregate(dateValue, src, bundle, m); err != nil {
+				pubStatus := normalizePublicationStatusOrUnknown(statusBySession[s.SessionID])
+				if err := a.upsertSessionAggregate(dateValue, src, bundle, m, pubStatus); err != nil {
 					log.Printf("aggregator: %s session %s upsert failed attempt=%d: %v", date, s.SessionID, attempt+1, err)
 					roundMu.Lock()
 					nextPending = append(nextPending, s)
@@ -921,7 +937,7 @@ func (a *Aggregator) upsertDayStatus(date time.Time, status string, sessionCount
 	}
 }
 
-func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSessionSource, bundle apiSessionBundle, m cachedMetrics) error {
+func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSessionSource, bundle apiSessionBundle, m cachedMetrics, pubStatus string) error {
 	rulesJSON := "[]"
 	if len(m.Rules) > 0 {
 		buf, err := json.Marshal(m.Rules)
@@ -970,6 +986,7 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		"orchestration_score",
 		"abnormal_level",
 		"has_issue",
+		"artifact_publication_status",
 		"chip",
 		"rules_json",
 		"features_json",
@@ -981,46 +998,47 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		"updated_at",
 	}
 	row := model.APISessionAggregate{
-		SessionID:          src.SessionID,
-		ArtifactID:         src.ArtifactID,
-		AggregateDate:      date,
-		UserID:             src.UserID,
-		UserName:           src.UserName,
-		StartedAtMs:        bundle.StartedAtMs,
-		StartedAt:          msToTimePtr(bundle.StartedAtMs),
-		DurationMs:         m.DurationMs,
-		TraceID:            m.Trace,
-		Title:              m.Title,
-		Chip:               m.Chip,
-		InputTokens:        m.InputTokens,
-		OutputTokens:       m.OutputTokens,
-		TotalTokens:        m.TotalTokens,
-		AvgTokensPerTurn:   m.AvgTokensTurn,
-		Turns:              m.Turns,
-		TraceCount:         m.TraceCount,
-		ToolCalls:          m.ToolCalls,
-		UniqueTools:        m.UniqueTools,
-		ToolFailures:       m.ToolFailures,
-		ToolFailRateBP:     int(m.ToolFailRate * 10000),
-		ToolRetries:        m.ToolRetries,
-		MaxSerialRun:       m.MaxSerialRun,
-		HasRootFail:        m.HasRootFail,
-		HasLoop:            m.HasLoop,
-		HasFinalAnswer:     m.HasFinalAnswer,
-		NoOpStreak:         m.NoOpStreak,
-		Score:              m.Score,
-		ResponseScore:      m.ResponseScore,
-		StabilityScore:     m.StabilityScore,
-		ThinkingScore:      m.ThinkingScore,
-		ResourceScore:      m.ResourceScore,
-		OrchestrationScore: m.OrchestrationScore,
-		AbnormalLevel:      m.AbnormalLevel,
-		HasIssue:           aggregateIssueFlagForSession(a.db, src.SessionID, src.ArtifactID, rulesJSON),
-		RulesJSON:          rulesJSON,
-		FeaturesJSON:       featuresJSON,
-		SourceCreateAt:     src.SourceCreatedAt,
-		SourceUpdateAt:     src.SourceUpdatedAt,
-		AggregatedAt:       time.Now(),
+		SessionID:                 src.SessionID,
+		ArtifactID:                src.ArtifactID,
+		AggregateDate:             date,
+		UserID:                    src.UserID,
+		UserName:                  src.UserName,
+		StartedAtMs:               bundle.StartedAtMs,
+		StartedAt:                 msToTimePtr(bundle.StartedAtMs),
+		DurationMs:                m.DurationMs,
+		TraceID:                   m.Trace,
+		Title:                     m.Title,
+		Chip:                      m.Chip,
+		InputTokens:               m.InputTokens,
+		OutputTokens:              m.OutputTokens,
+		TotalTokens:               m.TotalTokens,
+		AvgTokensPerTurn:          m.AvgTokensTurn,
+		Turns:                     m.Turns,
+		TraceCount:                m.TraceCount,
+		ToolCalls:                 m.ToolCalls,
+		UniqueTools:               m.UniqueTools,
+		ToolFailures:              m.ToolFailures,
+		ToolFailRateBP:            int(m.ToolFailRate * 10000),
+		ToolRetries:               m.ToolRetries,
+		MaxSerialRun:              m.MaxSerialRun,
+		HasRootFail:               m.HasRootFail,
+		HasLoop:                   m.HasLoop,
+		HasFinalAnswer:            m.HasFinalAnswer,
+		NoOpStreak:                m.NoOpStreak,
+		Score:                     m.Score,
+		ResponseScore:             m.ResponseScore,
+		StabilityScore:            m.StabilityScore,
+		ThinkingScore:             m.ThinkingScore,
+		ResourceScore:             m.ResourceScore,
+		OrchestrationScore:        m.OrchestrationScore,
+		AbnormalLevel:             m.AbnormalLevel,
+		HasIssue:                  aggregateIssueFlagForSession(a.db, src.SessionID, src.ArtifactID, rulesJSON),
+		ArtifactPublicationStatus: normalizePublicationStatusOrUnknown(pubStatus),
+		RulesJSON:                 rulesJSON,
+		FeaturesJSON:              featuresJSON,
+		SourceCreateAt:            src.SourceCreatedAt,
+		SourceUpdateAt:            src.SourceUpdatedAt,
+		AggregatedAt:              time.Now(),
 	}
 	tx := a.db
 	if a.hasBundleJSONColumn() {
@@ -1032,6 +1050,14 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 	if !apiSessionAggregateHasIssueColumn(a.db) {
 		tx = tx.Omit("has_issue")
 		updateColumns = removeString(updateColumns, "has_issue")
+	}
+	if !apiSessionAggregateHasPublicationStatusColumn(a.db) {
+		tx = tx.Omit("artifact_publication_status")
+		updateColumns = removeString(updateColumns, "artifact_publication_status")
+	} else if row.ArtifactPublicationStatus == artifactStatusUnknown {
+		// 防覆盖：本次无法判定发布状态时，新插入仍写 unknown，但绝不在 OnConflict 更新里
+		// 用 unknown 把已校准的 published/unpublished 覆盖回 unknown（混合实时策略下尤为重要）。
+		updateColumns = removeString(updateColumns, "artifact_publication_status")
 	}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "session_id"}},
@@ -1084,7 +1110,7 @@ func (a *Aggregator) PersistBundle(src model.StgSessionSource, bundle apiSession
 	}
 	date := aggregateDateForBundle(src, bundle)
 	m := extractCachedMetrics(bundle)
-	if err := a.upsertSessionAggregate(date, src, bundle, m); err != nil {
+	if err := a.upsertSessionAggregate(date, src, bundle, m, bundle.ArtifactPublicationStatus); err != nil {
 		return err
 	}
 	return a.refreshDailySummary(date)
