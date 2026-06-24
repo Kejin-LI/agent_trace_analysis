@@ -11,7 +11,7 @@ type APISessionAggregate struct {
 	AggregateDate      time.Time  `gorm:"column:aggregate_date;type:date;not null;index:idx_aggregate_date;index:idx_date_started,priority:1;index:idx_user_date,priority:2;comment:聚合归属自然日"`
 	UserID             string     `gorm:"column:user_id;type:varchar(64);not null;default:'';index:idx_user_date,priority:1;comment:用户 ID"`
 	UserName           string     `gorm:"column:user_name;type:varchar(128);not null;default:'';comment:用户名"`
-	StartedAtMs        int64      `gorm:"column:started_at_ms;not null;default:0;index:idx_started_at_ms;index:idx_date_started,priority:2;index:idx_issue_started,priority:2;comment:会话起始时间戳(ms)"`
+	StartedAtMs        int64      `gorm:"column:started_at_ms;not null;default:0;index:idx_started_at_ms;index:idx_date_started,priority:2;index:idx_issue_started,priority:2;index:idx_invalidated_started,priority:2;comment:会话起始时间戳(ms)"`
 	StartedAt          *time.Time `gorm:"column:started_at;type:datetime(3);comment:会话起始时间"`
 	DurationMs         int64      `gorm:"column:duration_ms;not null;default:0;comment:总耗时(ms)"`
 	TraceID            string     `gorm:"column:trace_id;type:varchar(128);not null;default:'';comment:主 trace_id"`
@@ -40,13 +40,18 @@ type APISessionAggregate struct {
 	ResourceScore      int        `gorm:"column:resource_score;not null;default:0;comment:资源使用分"`
 	OrchestrationScore int        `gorm:"column:orchestration_score;not null;default:0;comment:编排分"`
 	AbnormalLevel      int        `gorm:"column:abnormal_level;not null;default:0;index:idx_abnormal_level;comment:异常等级"`
-	HasIssue           bool       `gorm:"column:has_issue;not null;default:false;index:idx_issue_started,priority:1;comment:统一标签口径异常标记"`
-	RulesJSON          string     `gorm:"column:rules_json;type:longtext;comment:规则检查结果JSON"`
-	FeaturesJSON       string     `gorm:"column:features_json;type:longtext;comment:特征明细JSON"`
-	BundleJSON         string     `gorm:"column:bundle_json;type:longtext;comment:详情页完整bundle缓存JSON"`
-	SourceCreateAt     *time.Time `gorm:"column:source_create_at;type:datetime(3);comment:上游 create_at"`
-	SourceUpdateAt     *time.Time `gorm:"column:source_update_at;type:datetime(3);comment:上游 update_at"`
-	AggregatedAt       time.Time  `gorm:"column:aggregated_at;type:datetime(3);not null;comment:聚合完成时间"`
+	HasIssue                  bool       `gorm:"column:has_issue;not null;default:false;index:idx_issue_started,priority:1;comment:统一标签口径异常标记"`
+	ArtifactPublicationStatus string     `gorm:"column:artifact_publication_status;type:varchar(16);not null;default:'unknown';index:idx_pub_issue_started,priority:1;comment:产物发布状态 published/unpublished/unknown"`
+	RulesJSON                 string     `gorm:"column:rules_json;type:longtext;comment:规则检查结果JSON"`
+	FeaturesJSON              string     `gorm:"column:features_json;type:longtext;comment:特征明细JSON"`
+	BundleJSON                string     `gorm:"column:bundle_json;type:longtext;comment:详情页完整bundle缓存JSON"`
+	SourceCreateAt            *time.Time `gorm:"column:source_create_at;type:datetime(3);comment:上游 create_at"`
+	SourceUpdateAt            *time.Time `gorm:"column:source_update_at;type:datetime(3);index:idx_source_update_trace,priority:1;comment:上游 update_at"`
+	TraceFingerprint          string     `gorm:"column:trace_fingerprint;type:varchar(64);not null;default:'';index:idx_source_update_trace,priority:2;comment:当前聚合结果对应的trace指纹"`
+	AggregateInvalidated      bool       `gorm:"column:aggregate_invalidated;not null;default:false;index:idx_invalidated_started,priority:1;comment:是否检测到上游变更、当前聚合结果已失效"`
+	AggregateInvalidatedAt    *time.Time `gorm:"column:aggregate_invalidated_at;type:datetime(3);comment:聚合结果被标记失效时间"`
+	LastChangeDetectedAt      *time.Time `gorm:"column:last_change_detected_at;type:datetime(3);comment:最近一次检测到上游内容变更时间"`
+	AggregatedAt              time.Time  `gorm:"column:aggregated_at;type:datetime(3);not null;comment:聚合完成时间"`
 	CreatedAt          time.Time  `gorm:"column:created_at;comment:创建时间"`
 	UpdatedAt          time.Time  `gorm:"column:updated_at;comment:更新时间"`
 }

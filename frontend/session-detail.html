@@ -3383,6 +3383,13 @@
       return DETAIL_BUNDLE_CACHE_KEY_PREFIX + String(sessionId || '');
     }
 
+    function clearCachedDetailBundle(sessionId) {
+      if (!sessionId) return;
+      try {
+        sessionStorage.removeItem(detailBundleCacheKey(sessionId));
+      } catch {}
+    }
+
     function hashTraceFingerprint(text) {
       let hash = 2166136261;
       const input = String(text || '');
@@ -3450,10 +3457,20 @@
         if (!raw) return null;
         const entry = JSON.parse(raw);
         const ageMs = Date.now() - Number(entry?.ts || 0);
-        if (!entry || !entry.data || !Number.isFinite(ageMs) || ageMs < 0 || ageMs > DETAIL_BUNDLE_CACHE_TTL_MS) return null;
+        if (!entry || !entry.data || !Number.isFinite(ageMs) || ageMs < 0 || ageMs > DETAIL_BUNDLE_CACHE_TTL_MS) {
+          clearCachedDetailBundle(sessionId);
+          return null;
+        }
         const cached = entry.data;
         const cachedId = String(cached?.session_id || cached?.id || '').trim();
-        if (!cachedId || cachedId !== String(sessionId)) return null;
+        if (!cachedId || cachedId !== String(sessionId)) {
+          clearCachedDetailBundle(sessionId);
+          return null;
+        }
+        if (cached?.__aggregateInvalidated) {
+          clearCachedDetailBundle(sessionId);
+          return null;
+        }
         return cached;
       } catch {
         return null;
@@ -3463,6 +3480,10 @@
     function persistCachedDetailBundle(real) {
       const sessionId = String(real?.session_id || real?.id || '').trim();
       if (!sessionId) return;
+      if (real?.__aggregateInvalidated) {
+        clearCachedDetailBundle(sessionId);
+        return;
+      }
       try {
         sessionStorage.setItem(detailBundleCacheKey(sessionId), JSON.stringify({
           ts: Date.now(),
@@ -3653,6 +3674,7 @@
         return false;
       }
       clearInvalidatedAggregateFields(real);
+      clearCachedDetailBundle(sessionId);
       window.__llmJudgeResult = null;
       window.__llmJudgeRaw = null;
       clearSessionsRangeCache();

@@ -49,6 +49,14 @@ func apiSessionAggregateHasIssueColumn(db *gorm.DB) bool {
 	return ok
 }
 
+func apiSessionAggregateHasPublicationStatusColumn(db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	_, ok := apiSessionAggregateColumns(db)["artifact_publication_status"]
+	return ok
+}
+
 func rulesJSONHasIssue(raw string) bool {
 	if raw == "" {
 		return false
