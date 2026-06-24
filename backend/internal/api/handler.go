@@ -207,6 +207,7 @@ func (h *Handler) Register(r *gin.Engine) {
 		}
 		g.GET("/session-bundles", h.listSessionBundles)
 		g.GET("/session-bundles/:session_id", h.getSessionBundle)
+		g.GET("/session-bundles/:session_id/freshness", h.getSessionBundleFreshness)
 		g.GET("/dashboard-summary", h.getDashboardSummary)
 		g.GET("/top-anomaly-sessions", h.getTopAnomalySessions)
 		g.GET("/anomaly-sessions", h.getAnomalySessions)
@@ -306,6 +307,8 @@ type apiSessionBundle struct {
 	SessionID                 string               `json:"session_id"`
 	ArtifactID                string               `json:"artifact_id"`
 	ArtifactPublicationStatus string               `json:"artifact_publication_status,omitempty"`
+	TraceFingerprint          string               `json:"trace_fingerprint,omitempty"`
+	AggregateInvalidated      bool                 `json:"aggregate_invalidated,omitempty"`
 	User                      string               `json:"user"`
 	UserID                    string               `json:"user_id"`
 	Title                     string               `json:"title"`

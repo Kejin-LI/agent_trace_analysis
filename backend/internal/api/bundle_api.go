@@ -524,7 +524,7 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 	if hitStatus != "" {
 		cachedBundle.ArtifactPublicationStatus = hitStatus
 	}
-	if hasCached && hasDetailTraces(cachedBundle) &&
+	if hasCached && !cachedBundle.AggregateInvalidated && hasDetailTraces(cachedBundle) &&
 		!detailBundleNeedsRefresh(cachedBundle) &&
 		!detailBundleNeedsSourceRefresh(cachedBundle, hit) {
 		// DB 已有完整 bundle 时仍要实时刷新发布状态，避免详情页命中旧缓存。
@@ -831,6 +831,8 @@ func buildBundleFromAggregateRow(row model.APISessionAggregate) apiSessionBundle
 		SessionID:                 row.SessionID,
 		ArtifactID:                row.ArtifactID,
 		ArtifactPublicationStatus: bundlePublicationStatusFromStored(row.ArtifactPublicationStatus),
+		TraceFingerprint:          strings.TrimSpace(row.TraceFingerprint),
+		AggregateInvalidated:      row.AggregateInvalidated,
 		User:                      row.UserName,
 		UserID:                    row.UserID,
 		Title:                     pickFirstNonEmpty(row.Title, "Session "+pickFirstNonEmpty(row.SessionID, row.ArtifactID)),
@@ -895,6 +897,12 @@ func mergeBundleWithCachedBundle(bundle, cached apiSessionBundle) apiSessionBund
 	}
 	if bundle.ArtifactPublicationStatus == "" {
 		bundle.ArtifactPublicationStatus = cached.ArtifactPublicationStatus
+	}
+	if bundle.TraceFingerprint == "" {
+		bundle.TraceFingerprint = cached.TraceFingerprint
+	}
+	if !bundle.AggregateInvalidated {
+		bundle.AggregateInvalidated = cached.AggregateInvalidated
 	}
 	if bundle.User == "" {
 		bundle.User = cached.User

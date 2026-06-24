@@ -224,6 +224,7 @@ func NewAggregator(db *gorm.DB, client *modellog.Client, fetcher *tracelog.Fetch
 	// DB 里的聚合状态会永远停在 running，既误导监控也会阻塞同日期重试。
 	a.cleanupStaleRunning()
 	go a.worker()
+	go a.refreshQueueLoop()
 	go a.nightlyCron()
 	return a, nil
 }
@@ -994,9 +995,13 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		"trace_id",
 		"source_create_at",
 		"source_update_at",
+		"trace_fingerprint",
+		"aggregate_invalidated",
+		"aggregate_invalidated_at",
 		"aggregated_at",
 		"updated_at",
 	}
+	traceFingerprint := computeQualityTraceFingerprint(bundle)
 	row := model.APISessionAggregate{
 		SessionID:                 src.SessionID,
 		ArtifactID:                src.ArtifactID,
@@ -1038,6 +1043,9 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		FeaturesJSON:              featuresJSON,
 		SourceCreateAt:            src.SourceCreatedAt,
 		SourceUpdateAt:            src.SourceUpdatedAt,
+		TraceFingerprint:          traceFingerprint,
+		AggregateInvalidated:      false,
+		AggregateInvalidatedAt:    nil,
 		AggregatedAt:              time.Now(),
 	}
 	tx := a.db
@@ -1058,6 +1066,15 @@ func (a *Aggregator) upsertSessionAggregate(date time.Time, src model.StgSession
 		// 防覆盖：本次无法判定发布状态时，新插入仍写 unknown，但绝不在 OnConflict 更新里
 		// 用 unknown 把已校准的 published/unpublished 覆盖回 unknown（混合实时策略下尤为重要）。
 		updateColumns = removeString(updateColumns, "artifact_publication_status")
+	}
+	if !apiSessionAggregateHasTraceFingerprintColumn(a.db) {
+		tx = tx.Omit("trace_fingerprint")
+		updateColumns = removeString(updateColumns, "trace_fingerprint")
+	}
+	if !apiSessionAggregateHasAggregateInvalidatedColumn(a.db) {
+		tx = tx.Omit("aggregate_invalidated", "aggregate_invalidated_at")
+		updateColumns = removeString(updateColumns, "aggregate_invalidated")
+		updateColumns = removeString(updateColumns, "aggregate_invalidated_at")
 	}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "session_id"}},
