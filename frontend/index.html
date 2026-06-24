@@ -4,17 +4,25 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- SEO & Social Media Metadata -->
-  <title>Agent Synapse 诊断平台</title>
-  <meta name="description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化执行规整、工具稳定、重复空转、资源开销、调度编排 5 维客观健康度，并叠加 GPT-5.5 语义体验评测。">
+<title>Agent Synapse 诊断平台</title>
+<meta name="description" content="面向 AI Agent 的诊断与分析平台，帮助团队定位执行问题、评估会话质量并提升系统稳定性。">
+<meta name="theme-color" content="#0B1220">
+<link rel="icon" href="./assets/agent-synapse-favicon.svg" type="image/svg+xml">
+<link rel="shortcut icon" href="./assets/agent-synapse-favicon.svg" type="image/svg+xml">
 
-  <!-- Open Graph / Facebook / Feishu -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://kejin-li.github.io/agent_trace_analysis/">
-  <meta property="og:title" content="Agent Synapse 诊断平台">
-  <meta property="og:description" content="给 Agent 装一个体检中心。基于 OpenTelemetry 链路埋点，逐次会话量化执行规整、工具稳定、重复空转、资源开销、调度编排 5 维客观健康度，并叠加 GPT-5.5 语义体验评测。">
-  <!-- 飞书和微信等通常抓取 og:image 作为卡片图标或预览图，这里生成一个带渐变背景和图标的占位 SVG 充当 Logo -->
-  <meta property="og:image" content="https://api.dicebear.com/7.x/shapes/svg?seed=AgentSynapse&backgroundColor=0071E3,BF5AF2">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Agent Synapse 诊断平台">
+<meta property="og:title" content="Agent Synapse 诊断平台">
+<meta property="og:description" content="面向 AI Agent 的诊断与分析平台，帮助团队定位执行问题、评估会话质量并提升系统稳定性。">
+<meta property="og:image" content="./assets/agent-synapse-share-card.svg">
+<meta property="og:image:type" content="image/svg+xml">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Agent Synapse 诊断平台">
+<meta name="twitter:description" content="面向 AI Agent 的诊断与分析平台，帮助团队定位执行问题、评估会话质量并提升系统稳定性。">
+<meta name="twitter:image" content="./assets/agent-synapse-share-card.svg">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -727,6 +735,7 @@
     const DASHBOARD_CACHE_PREFIX = 'agenttrace.dashboard.rangeCache.v1:';
     const PENDING_SESSION_QUALITY_UPDATE_KEY = 'agenttrace.sessions.pendingQualityUpdate.v1';
     const rangeCache = new Map();
+    let dashboardSummaryRefreshPromise = null;
 
     function readDashboardCache(key) {
       if (rangeCache.has(key)) return rangeCache.get(key);
@@ -767,6 +776,28 @@
       try {
         sessionStorage.removeItem(PENDING_SESSION_QUALITY_UPDATE_KEY);
       } catch {}
+    }
+
+    function patchAffectsDashboardLLMSummary(patch) {
+      if (!patch) return false;
+      return patch.aggregate_invalidated
+        || patch.llm_judge_result !== undefined
+        || patch.llm_score !== undefined
+        || patch.llm_judge_score !== undefined
+        || patch.llm_eval_status !== undefined
+        || patch.llm_evaluated_at !== undefined;
+    }
+
+    function patchInCurrentDashboardRange(patch) {
+      if (!patch) return false;
+      const startedAtMs = Number(patch.started_at_ms || 0);
+      if (!(startedAtMs > 0)) return true;
+      const { query } = currentRangeQuery(getCurrentAppliedRange());
+      if (!query?.startTime || !query?.endTime) return true;
+      const startMs = Date.parse(String(query.startTime).replace(' ', 'T'));
+      const endMs = Date.parse(String(query.endTime).replace(' ', 'T'));
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return true;
+      return startedAtMs >= startMs && startedAtMs <= endMs;
     }
 
     function dashboardSessionMatchesPatch(session, patch) {
@@ -825,17 +856,65 @@
       delete session.__dashboardMeta;
     }
 
+    function adjustDashboardSummaryForPatch(prevSession, nextSession) {
+      const summary = window.dashboardMeta?.summary;
+      if (!summary) return false;
+      const prevHadLLM = !!pickLLMResult(prevSession);
+      const nextHadLLM = !!pickLLMResult(nextSession);
+      if (prevHadLLM === nextHadLLM) return false;
+      const nextCount = Math.max(0, Number(summary.llm_evaluated_count || 0) + (nextHadLLM ? 1 : -1));
+      summary.llm_evaluated_count = nextCount;
+      return true;
+    }
+
+    async function refreshDashboardSummaryForCurrentRange() {
+      if (dashboardSummaryRefreshPromise) return dashboardSummaryRefreshPromise;
+      if (!window.AgentTraceDB?.loadDashboardSummary) return false;
+      const { query, key } = currentRangeQuery(getCurrentAppliedRange());
+      dashboardSummaryRefreshPromise = (async () => {
+        const summary = await window.AgentTraceDB.loadDashboardSummary(query);
+        if (!summary) return false;
+        window.dashboardMeta = Object.assign({}, window.dashboardMeta || {}, { summary });
+        if (key && appliedRangeKey === key && Array.isArray(window.dashboardData)) {
+          writeDashboardCache(key, {
+            ts: Date.now(),
+            sessions: window.dashboardData,
+            meta: window.dashboardMeta,
+          });
+          window.renderDashboard(window.dashboardData, window.dashboardMeta);
+        }
+        return true;
+      })().finally(() => {
+        dashboardSummaryRefreshPromise = null;
+      });
+      return dashboardSummaryRefreshPromise;
+    }
+
     function applyPendingSessionQualityUpdate() {
       const patch = readPendingSessionQualityUpdate();
-      if (!patch || !Array.isArray(window.dashboardData) || !window.dashboardData.length) return false;
+      if (!patch) return false;
       let updated = false;
-      window.dashboardData.forEach(session => {
-        if (!dashboardSessionMatchesPatch(session, patch)) return;
-        applyPatchToDashboardSession(session, patch);
-        updated = true;
-      });
+      let summaryAdjusted = false;
+      if (Array.isArray(window.dashboardData) && window.dashboardData.length) {
+        window.dashboardData.forEach(session => {
+          if (!dashboardSessionMatchesPatch(session, patch)) return;
+          const prevSession = JSON.parse(JSON.stringify(session));
+          applyPatchToDashboardSession(session, patch);
+          summaryAdjusted = adjustDashboardSummaryForPatch(prevSession, session) || summaryAdjusted;
+          updated = true;
+        });
+      }
       if (updated) {
         window.renderDashboard(window.dashboardData, window.dashboardMeta || {});
+      }
+      const shouldRefreshSummary = patchAffectsDashboardLLMSummary(patch) && patchInCurrentDashboardRange(patch);
+      if (shouldRefreshSummary) {
+        refreshDashboardSummaryForCurrentRange()
+          .then((ok) => {
+            if (ok || updated || summaryAdjusted) clearPendingSessionQualityUpdate();
+          })
+          .catch(() => {});
+      } else if (updated || summaryAdjusted) {
         clearPendingSessionQualityUpdate();
       }
       return updated;
@@ -1562,11 +1641,13 @@
       const color = hasDisplayScore ? (meta.scoreBand || scoreBand(score)) : 'tertiary';
       const titleEsc = escapeHtml(s.title || ('Session ' + displayId(s.id)));
       const ano = meta.anomaly;
-      const roundCount = Number(s.trace_count || 0);
+      const traceCount = Number(s.trace_count || 0);
+      const effectiveRounds = Number(s.effective_rounds || 0);
+      const displayRounds = effectiveRounds > 0 ? effectiveRounds : traceCount;
       const durationMs = Number(s.duration_ms || 0);
-      const hasTraceSkeleton = roundCount > 0 || !!s.trace || ((s.traces || []).length > 0);
+      const hasTraceSkeleton = traceCount > 0 || !!s.trace || ((s.traces || []).length > 0);
       const hasPartialMetrics = hasTraceSkeleton || !!s.started_at_ms || !isPending;
-      const isRoundsCalculating = !isPending && roundCount <= 0 && hasPartialMetrics;
+      const isRoundsCalculating = !isPending && displayRounds <= 0 && hasPartialMetrics;
       const isDurationCalculating = !isPending && durationMs <= 0 && hasPartialMetrics;
       const metricPendingHtml = (label = '计算中…') => `<span class="metric-pending"><span class="pending-dash">${label}</span></span>`;
       const calculatingHtml = metricPendingHtml('计算中...');
@@ -1608,12 +1689,12 @@
         <td class="py-3.5">
           <div class="min-w-0">
             <a href="${detailHref}" class="text-[13px] font-medium hover:text-[--apple-blue] truncate block">${titleEsc}</a>
-            <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5 truncate">${escapeHtml(displayId(s.id))} · ${escapeHtml(s.user || 'anonymous')} · ${s.trace_count || 1} traces</div>
+            <div class="text-[11px] text-[--text-tertiary] num-mono mt-0.5 truncate">${escapeHtml(displayId(s.id))} · ${escapeHtml(s.user || 'anonymous')} · ${traceCount || 1} traces</div>
           </div>
         </td>
         <td class="py-3.5">${chipsHtml}</td>
         <td class="py-3.5 pr-3 text-right num-mono">${(isPending || isDurationCalculating) ? calculatingHtml : fmtDuration(durationMs)}</td>
-        <td class="py-3.5 pl-3 text-right num-mono">${(isPending || isRoundsCalculating) ? calculatingHtml : roundCount}</td>
+        <td class="py-3.5 pl-3 text-right num-mono">${(isPending || isRoundsCalculating) ? calculatingHtml : displayRounds}</td>
         <td class="py-3.5 text-right text-[--text-secondary] num-mono">${fmtTime(s.started_at_ms)}</td>
         <td class="py-3.5 pr-5 text-right">
           <a href="${detailHref}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/5 hover:bg-[--apple-blue] hover:text-white text-[12px] transition-colors group">

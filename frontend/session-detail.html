@@ -4,6 +4,22 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Session 详情 · Agent Synapse</title>
+<meta name="description" content="Agent Synapse Session 详情页，查看单次会话的执行分析、证据链、评分结果和诊断结论。">
+<meta name="theme-color" content="#0B1220">
+<link rel="icon" href="./assets/agent-synapse-favicon.svg" type="image/svg+xml">
+<link rel="shortcut icon" href="./assets/agent-synapse-favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Agent Synapse 诊断平台">
+<meta property="og:title" content="Session 详情 · Agent Synapse">
+<meta property="og:description" content="查看单次会话的执行分析、证据链、评分结果和诊断结论。">
+<meta property="og:image" content="./assets/agent-synapse-share-card.svg">
+<meta property="og:image:type" content="image/svg+xml">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Session 详情 · Agent Synapse">
+<meta name="twitter:description" content="查看单次会话的执行分析、证据链、评分结果和诊断结论。">
+<meta name="twitter:image" content="./assets/agent-synapse-share-card.svg">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -315,6 +331,12 @@
     color: var(--text-tertiary); font-size: 10px; letter-spacing: 0.01em;
   }
   .eval-row:last-child { border-bottom: none; }
+  .eval-row.issue-nav-highlight {
+    border-radius: 12px;
+    background: rgba(0,113,227,0.10);
+    box-shadow: inset 0 0 0 1px rgba(0,113,227,0.14);
+    animation: issueTargetFlash 1.4s ease;
+  }
   .eval-dim { color: var(--text-primary); font-weight: 500; }
   .eval-head .eval-dim { color: var(--text-tertiary); font-weight: 500; }
   .eval-band { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -326,6 +348,11 @@
   .eval-ev-clamp:hover { color: var(--text-primary); }
   .eval-card {
     height: 100%; display: flex; flex-direction: column;
+  }
+  @keyframes issueTargetFlash {
+    0% { background: rgba(0,113,227,0.18); box-shadow: inset 0 0 0 1px rgba(0,113,227,0.22), 0 0 0 0 rgba(0,113,227,0.18); }
+    55% { background: rgba(0,113,227,0.10); box-shadow: inset 0 0 0 1px rgba(0,113,227,0.16), 0 0 0 8px rgba(0,113,227,0.06); }
+    100% { background: rgba(0,113,227,0.02); box-shadow: inset 0 0 0 1px rgba(0,113,227,0.06), 0 0 0 0 rgba(0,113,227,0); }
   }
   .eval-card-list { flex: 1; }
   .diag-chip {
@@ -428,7 +455,24 @@
   .scroll-x::-webkit-scrollbar { height: 6px; }
   .scroll-x::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 9999px; }
 
-  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
+    border-radius: 9999px; font-size: 11px; font-weight: 500;
+    border: none;
+    line-height: 1.5;
+  }
+  .chip.is-nav {
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .chip.is-nav:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  }
+  .chip.is-nav:focus-visible {
+    outline: 2px solid rgba(0,113,227,0.28);
+    outline-offset: 2px;
+  }
   .badge-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
 
   .seg { background: rgba(120,120,128,0.12); border-radius: 8px; padding: 2px; display: inline-flex; }
@@ -892,21 +936,6 @@
     border-top: 1px dashed rgba(0,0,0,0.08);
     letter-spacing: 0.3px;
   }
-  .agent-step-prompt {
-    max-width: 100%;
-    width: fit-content;
-    margin: -3px auto 6px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 10.5px;
-    line-height: 1.45;
-    color: var(--text-tertiary);
-    background: rgba(120,120,128,0.08);
-    border: 1px solid rgba(120,120,128,0.10);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .agent-turn-model {
     display: inline-flex;
     align-items: center;
@@ -1364,12 +1393,42 @@
   }
 
   /* 源码视图 */
+  #art-pane-source {
+    box-sizing: border-box;
+    padding: 0 16px 16px;
+  }
+  .art-pane-shell {
+    position: relative;
+  }
+  .art-pane-shell > * {
+    box-sizing: border-box;
+  }
+  .art-pane-copy-btn {
+    position: absolute;
+    top: 12px;
+    right: 0;
+    z-index: 1;
+  }
+  .artifact-partial-notice {
+    width: 100%;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    border-radius: 10px;
+    color: #9a3412;
+    font-size: 11px;
+    line-height: 1.6;
+  }
   .code-view {
     background: #1D1D1F; color: #F5F5F7;
     border-radius: 12px; padding: 16px 18px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 11.5px; line-height: 1.7;
     overflow: auto; max-height: 560px;
+    width: 100%;
+    margin: 0;
+    box-sizing: border-box;
   }
   .code-view .ln {
     display: inline-block; width: 32px;
@@ -1914,11 +1973,13 @@
 
           <!-- 源码视图 -->
           <div id="art-pane-source" class="art-pane" style="display:none; position: relative;">
-            <button class="px-2.5 h-7 rounded-md bg-white/10 hover:bg-white/20 text-[11px] text-white/90 flex items-center gap-1.5 absolute top-3 right-4 transition-colors" onclick="const t=this; navigator.clipboard.writeText(document.getElementById('artifact-source').textContent); const o=t.innerHTML; t.innerHTML='<svg class=\'w-3 h-3\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\' stroke-width=\'2\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M5 13l4 4L19 7\'/></svg>已复制'; setTimeout(()=>t.innerHTML=o,2000)">
-              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-              复制源码
-            </button>
-            <pre class="code-view"><code id="artifact-source"></code></pre>
+            <div class="art-pane-shell">
+              <button class="art-pane-copy-btn px-2.5 h-7 rounded-md bg-white/10 hover:bg-white/20 text-[11px] text-white/90 flex items-center gap-1.5 transition-colors" onclick="const t=this; navigator.clipboard.writeText(document.getElementById('artifact-source').textContent); const o=t.innerHTML; t.innerHTML='<svg class=\'w-3 h-3\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\' stroke-width=\'2\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M5 13l4 4L19 7\'/></svg>已复制'; setTimeout(()=>t.innerHTML=o,2000)">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                复制源码
+              </button>
+              <pre class="code-view"><code id="artifact-source"></code></pre>
+            </div>
           </div>
 
           <!-- Diff 视图 -->
@@ -2046,7 +2107,28 @@
 
   function locateChatStep(spanId) {
     if (!spanId) return;
-    locateSpanInChat(spanId, {});
+    const raw = String(spanId || '').trim();
+    const stream = document.getElementById('chat-stream');
+    if (!stream) return;
+    const real = (window.SESSION && window.SESSION._real) || null;
+    const locators = getTraceStepLocators(real);
+    let stepNo = Number(raw);
+    if (!(Number.isFinite(stepNo) && stepNo > 0) && raw && locators.spanMap.has(raw)) {
+      const loc = locators.spanMap.get(raw);
+      stepNo = Number(loc && loc.step);
+    }
+    if (Number.isFinite(stepNo) && stepNo > 0) {
+      const stepAnchor = stream.querySelector(`.agent-turn-sep[data-step-no="${stepNo}"]`);
+      if (stepAnchor) {
+        stepAnchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        stepAnchor.classList.remove('chat-locate-flash');
+        void stepAnchor.offsetWidth;
+        stepAnchor.classList.add('chat-locate-flash');
+        setTimeout(() => stepAnchor.classList.remove('chat-locate-flash'), 1400);
+        return;
+      }
+    }
+    locateSpanInChat(raw, {});
   }
   window.locateChatStep = locateChatStep;
 
@@ -2068,7 +2150,7 @@
     const seenSteps = new Set();
     const stepChips = locs.map(loc => {
       const step = Number(loc.step);
-      const spanId = loc.spanId || loc.span_id || '';
+      const spanId = loc.anchorSpanId || loc.navSpanId || loc.spanId || loc.span_id || '';
       if (!spanId || !Number.isFinite(step) || step <= 0 || seenSteps.has(step)) return '';
       seenSteps.add(step);
       const spanArg = encodeURIComponent(String(spanId));
@@ -2100,7 +2182,12 @@
         spans.forEach(sp => {
           if (sp.span_type === 'model' && displayModelIds.has(sp.span_id)) {
             step += 1;
-            lastStep = { round: grp.displayRoundIndex || Number(sp.round_index) || NaN, step, spanId: sp.span_id };
+            lastStep = {
+              round: grp.displayRoundIndex || Number(sp.round_index) || NaN,
+              step,
+              spanId: sp.span_id,
+              anchorSpanId: sp.span_id,
+            };
             spanMap.set(sp.span_id, lastStep);
             stepMap.set(step, lastStep);
             return;
@@ -2110,6 +2197,7 @@
               round: grp.displayRoundIndex || Number(sp.round_index) || NaN,
               step: lastStep ? lastStep.step : NaN,
               spanId: sp.span_id,
+              anchorSpanId: lastStep ? (lastStep.anchorSpanId || lastStep.spanId) : sp.span_id,
             };
             spanMap.set(sp.span_id, loc);
           }
@@ -2253,17 +2341,34 @@
       const list = [];
       const readOutputs = new Map();
       const toolSpanWrites = new Set();
+
+      function rememberRead(path, ts, output) {
+        if (!path || typeof output !== 'string' || !output.length) return;
+        const arr = readOutputs.get(path) || [];
+        arr.push({ ts: Number(ts || 0), output });
+        readOutputs.set(path, arr);
+      }
+
+      function latestReadBefore(path, ts) {
+        const arr = readOutputs.get(path) || [];
+        if (!arr.length) return '';
+        const targetTs = Number(ts || 0);
+        if (!(targetTs > 0)) return arr[arr.length - 1].output || '';
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (Number(arr[i].ts || 0) <= targetTs) return arr[i].output || '';
+        }
+        return arr[arr.length - 1].output || '';
+      }
       
       real.traces.forEach((t, ti) => {
         (t.spans || []).forEach(sp => {
+          const spanTs = sp.started_at_ms || (t.started_at_ms || 0);
           // —— 收集 read_file 工具的输出，作为后续 replace 的基线 ——
           if (sp.span_type === 'tool' && /read/i.test(sp.span_name || '')) {
             const inp = safeJSON(sp.input);
             const path = inp?.filePath || inp?.file_path || inp?.path || '';
             const out = sp.output;
-            if (path && typeof out === 'string' && out.length > 0) {
-              readOutputs.set(path, out);
-            }
+            rememberRead(path, spanTs, out);
           }
           
           // —— 来源 1：独立的 tool span（span_type === 'tool'）——
@@ -2277,7 +2382,6 @@
             if (!inp || typeof inp !== 'object') return;
             const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
             if (!path || typeof path !== 'string') return;
-            if (!/(^|[\\/])[^\\/]+\.\w{1,8}$/.test(path)) return;
             
             let content = '';
             let oldStr = '';
@@ -2301,7 +2405,7 @@
               kind: window.pathKind ? window.pathKind(name, path) : 'code',
               roundIndex: ti + 1,
               roundTotal: real.traces.length,
-              ts: sp.started_at_ms || (t.started_at_ms || 0),
+              ts: spanTs,
               durationMs: sp.duration_ms || 0,
               statusOk: sp.status_code === 0,
               spanId: sp.span_id,
@@ -2330,14 +2434,13 @@
             if (!inp || typeof inp !== 'object') return;
             const path = inp.filePath || inp.file_path || inp.path || inp.outputPath || inp.output_path || inp.target_path;
             if (!path || typeof path !== 'string') return;
-            if (!/(^|[\\/])[^\\/]+\.\w{1,8}$/.test(path)) return;
             if (isWrite && toolSpanWrites.has(path + '::' + name.replace(/^Tool:/i, '').replace(/_file$/i, '').replace(/_content$/i, ''))) return;
             
             let content = '';
             let oldStr = '';
             
             if (isRead) {
-              content = readOutputs.get(path) || '';
+              content = latestReadBefore(path, spanTs);
               if (!content) return;
             } else {
               if (typeof inp.content === 'string') content = inp.content;
@@ -2355,7 +2458,7 @@
               kind: window.pathKind ? window.pathKind(name, path) : 'code',
               roundIndex: ti + 1,
               roundTotal: real.traces.length,
-              ts: sp.started_at_ms || (t.started_at_ms || 0),
+              ts: spanTs,
               durationMs: sp.duration_ms || 0,
               statusOk: true,
               spanId: sp.span_id,
@@ -2369,6 +2472,33 @@
     // 把同一 path 多次写入聚合成"多版本"
     function buildFiles(arts) {
       const map = new Map();
+      function inferPartialWriteReason(path, nextContent, beforeContent, tool, oldStr) {
+        const next = String(nextContent || '');
+        const prev = String(beforeContent || '');
+        if (!next || !prev) return '';
+        const trimmed = next.trim();
+        const prevTrimmed = prev.trim();
+        if (!trimmed || !prevTrimmed) return '';
+
+        const nextLen = trimmed.length;
+        const prevLen = prevTrimmed.length;
+        const lineCount = next.split('\n').length;
+        const ratio = nextLen / Math.max(prevLen, 1);
+        const ext = (path.split('.').pop() || '').toLowerCase();
+        const isCodeLike = /^(tsx?|jsx?|vue|css|less|scss|html?|json|ya?ml|md|py|go|java|kt|swift|rb|rs|php|c|cc|cpp|h)$/i.test(ext);
+        const startsMidBlock = /^[ \t]{2,}\S/.test(next)
+          && !/^\s*(import|export|const|let|var|function|class|interface|type|enum|declare|\/\/|\/\*|#|<(!doctype|html|template|script|style)|\{|\[)/i.test(next);
+        const incompleteEnding = isCodeLike && !/[;}\]>`'"]\s*$/.test(trimmed);
+        const suspiciouslySmall = (prevLen >= 1200 && nextLen <= 420)
+          || (prevLen >= 700 && nextLen <= 260)
+          || (prevLen >= 400 && nextLen <= 180);
+        const patchLikeTool = /replace|edit|rewrite|update|append|insert/i.test(String(tool || ''));
+
+        if (patchLikeTool && oldStr && ratio < 0.7 && lineCount <= 24) return 'patch_fragment';
+        if (suspiciouslySmall && lineCount <= 18 && (startsMidBlock || incompleteEnding || ratio < 0.25)) return 'snippet_fragment';
+        return '';
+      }
+
       arts.forEach(a => {
         const arr = map.get(a.path) || [];
         arr.push(a);
@@ -2389,28 +2519,39 @@
           }
           if (!a.isWrite) return;
 
+          const beforeContent = currentContent;
           let versionContent = currentContent;
           let isFullContent = true;
+          let partialReason = '';
           writeCount++;
 
           if (/replace|edit/i.test(a.tool) || (a.oldStr && a.tool && !/write/i.test(a.tool))) {
-            if (currentContent && a.oldStr && a.content) {
-              const newContent = currentContent.replace(a.oldStr, a.content);
-              if (newContent !== currentContent) {
-                currentContent = newContent;
+            if (currentContent && a.oldStr && typeof a.content === 'string') {
+              if (currentContent.includes(a.oldStr)) {
+                currentContent = currentContent.replace(a.oldStr, a.content);
+                versionContent = currentContent;
+              } else if (a.content === currentContent) {
                 versionContent = currentContent;
               } else {
                 versionContent = a.content;
                 isFullContent = false;
+                partialReason = 'patch_fragment';
               }
-            } else if (a.content) {
+            } else if (typeof a.content === 'string' && a.content) {
               versionContent = a.content;
               isFullContent = false;
+              partialReason = 'patch_fragment';
             }
           } else {
             if (a.content) {
-              currentContent = a.content;
-              versionContent = a.content;
+              partialReason = inferPartialWriteReason(path, a.content, beforeContent, a.tool, a.oldStr);
+              if (partialReason) {
+                versionContent = a.content;
+                isFullContent = false;
+              } else {
+                currentContent = a.content;
+                versionContent = a.content;
+              }
             }
           }
 
@@ -2419,6 +2560,11 @@
               ...a,
               content: versionContent,
               isFullContent,
+              partialReason,
+              fullBeforeContent: beforeContent,
+              fullAfterContent: isFullContent ? versionContent : '',
+              patchOldContent: a.oldStr || '',
+              patchNewContent: a.content || '',
               ver: `v${writeCount}`,
               isLatest: false,
               prev: versions.length > 0 ? versions[versions.length - 1] : null,
@@ -2610,7 +2756,8 @@
       document.getElementById('ver-meta-round').textContent = `轮 ${v.roundIndex} / ${v.roundTotal}`;
       // 行级 add/del 估算
       const newLines = (v.content || '').split('\n').length;
-      const oldLines = (v.oldStr || (v.prev ? v.prev.content : '') || '').split('\n').length;
+      const oldBaseContent = (v.prev && v.prev.isFullContent) ? (v.prev.content || '') : (v.fullBeforeContent || v.patchOldContent || '');
+      const oldLines = oldBaseContent.split('\n').length;
       const add = Math.max(0, newLines - oldLines);
       const del = Math.max(0, oldLines - newLines);
       document.getElementById('ver-meta-add').textContent = add ? `+${add}` : '+0';
@@ -2637,6 +2784,28 @@
       });
 
       const hint = document.getElementById('art-view-hint');
+      const sourcePane = document.getElementById('art-pane-source');
+      const sourceShell = sourcePane.querySelector('.art-pane-shell');
+      let sourceNotice = sourcePane.querySelector('.artifact-partial-notice');
+      if (sourceNotice && sourceNotice.parentElement !== sourceShell) {
+        sourceNotice.remove();
+        sourceNotice = null;
+      }
+      if (!sourceNotice) {
+        sourceNotice = document.createElement('div');
+        sourceNotice.className = 'artifact-partial-notice';
+        sourceNotice.style.display = 'none';
+        sourceShell.insertBefore(sourceNotice, sourceShell.querySelector('.code-view'));
+      }
+      if (v.isFullContent === false) {
+        const reasonText = v.partialReason === 'patch_fragment'
+          ? '当前版本只拿到了局部 patch，缺少完整文件快照。'
+          : '当前版本疑似只记录了局部写入片段，缺少完整文件快照。';
+        sourceNotice.textContent = `${reasonText} 源码与 diff 仅供参考。`;
+        sourceNotice.style.display = 'block';
+      } else {
+        sourceNotice.style.display = 'none';
+      }
 
       if (currentView === 'preview') {
         const pane = document.getElementById('art-pane-preview');
@@ -2644,22 +2813,25 @@
         let htmlContent = v.content || '';
         const ext = (f.path.split('.').pop() || '').toLowerCase();
         const isCodeFile = ['tsx', 'jsx', 'js', 'ts'].includes(ext);
-        const isFragment = isCodeFile && v.isFullContent === false;
+        const isFragment = v.isFullContent === false;
         
         if (isFragment) {
+          const fragmentReason = v.partialReason === 'patch_fragment'
+            ? '该版本只记录了局部 patch，无法还原为完整文件。'
+            : '该版本只记录了局部写入片段，无法还原为完整文件。';
           pane.innerHTML = [
             '<div style="padding: 32px 24px; max-width: 520px; margin: 0 auto; color: var(--text-secondary); font-size: 13px; line-height: 1.7;">',
             '  <div style="text-align: center;">',
             '    <div style="font-size: 28px; margin-bottom: 12px;">🧩</div>',
             '    <div style="font-weight: 500; color: var(--text-primary); margin-bottom: 6px; font-size: 14px;">本版仅为代码片段，无法整体预览</div>',
-            '    <div style="font-size: 12px; color: var(--text-tertiary);">该版本由 <code style="background:#f5f5f7;padding:1px 5px;border-radius:3px;font-size:11px;">replace</code> 工具产生 patch，无法独立渲染。</div>',
+            `    <div style="font-size: 12px; color: var(--text-tertiary);">${fragmentReason}</div>`,
             '  </div>',
             '  <div style="margin-top: 20px; padding: 12px 14px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; font-size: 12px; color: #9a3412; line-height: 1.65;">',
             '    <div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;"><span>⚠️</span><span>Trace 数据不完整说明</span></div>',
             '    <div style="color: #7c2d12;">',
-            '      对话本身没有缺失轮次，但当前会话的 OTel trace 中 <b>未记录工具执行结果</b>（缺少 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">tool span</code> 的 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">output</code>）。',
-            '      所以 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">read_file</code> 读到的原文件内容、以及 <code style="background:#fed7aa;padding:1px 4px;border-radius:3px;font-size:11px;">replace</code> 落盘后的最终文件，都无法从 trace 反推。',
-            '      <div style="margin-top: 6px;">→ 根治需 <b>trace 采集端补齐 tool span 的 output 字段</b>。</div>',
+            '      当前版本不是稳定的磁盘快照，而是从 trace 中反推出来的局部结果。',
+            '      当 trace 里只保留了 patch 片段、局部写入内容，或缺少足够的前置基线时，页面无法可靠还原完整文件。',
+            '      <div style="margin-top: 6px;">→ 这类版本可用于看局部改动，但不应被当成完整源码。</div>',
             '    </div>',
             '  </div>',
             '  <div style="margin-top: 12px; text-align: center; font-size: 12px; color: var(--text-tertiary);">',
@@ -2836,35 +3008,56 @@
         const lines = (v.content || '').split('\n');
         const html = lines.map((l, i) => `<span class="ln">${i + 1}</span>${escapeHtml(l)}`).join('\n');
         document.getElementById('artifact-source').innerHTML = html;
-        hint.textContent = `${lines.length} 行 · ${humanSize((v.content||'').length)}`;
+        hint.textContent = v.isFullContent === false
+          ? `片段源码 · ${lines.length} 行 · ${humanSize((v.content||'').length)} · 仅供参考`
+          : `${lines.length} 行 · ${humanSize((v.content||'').length)}`;
       } else {
         renderDiff(v);
-        hint.textContent = v.prev ? `${v.prev.ver || '上一版'} → ${v.ver} · 行级对比` : (v.oldStr ? `本版 patch 对比` : '初版无前序版本可对比');
+        hint.textContent = v.isFullContent === false
+          ? `${v.prev?.ver || '上一版'} → ${v.ver} · 片段 diff · 仅供参考`
+          : v.prev
+          ? `${v.prev.ver || '上一版'} → ${v.ver} · 行级对比`
+          : ((v.patchOldContent || v.patchNewContent) ? '本版 patch 片段对比' : '初版无前序版本可对比');
       }
     }
 
     function renderDiff(v) {
       const diffEl = document.getElementById('artifact-diff');
-      let oldText, newText;
-      if (v.oldStr) {
-        // edit/patch 工具：直接对比 oldString → newString
-        oldText = v.oldStr;
-        newText = v.content;
-      } else if (v.prev) {
+      let oldText = '';
+      let newText = '';
+      let oldLabel = 'prev';
+      let newLabel = v.ver;
+      if (v.isFullContent && typeof v.fullBeforeContent === 'string' && (v.fullBeforeContent || v.prev)) {
+        oldText = v.prev?.content ?? v.fullBeforeContent ?? '';
+        newText = v.fullAfterContent || v.content || '';
+        oldLabel = v.prev?.ver || '基线';
+      } else if (v.prev && v.prev.isFullContent && v.isFullContent) {
         oldText = v.prev.content || '';
         newText = v.content || '';
+        oldLabel = v.prev.ver || '上一版';
+      } else if (v.patchOldContent || v.patchNewContent) {
+        oldText = v.patchOldContent || '';
+        newText = v.patchNewContent || '';
+        oldLabel = 'patch old';
+        newLabel = `${v.ver} patch`;
       } else {
         diffEl.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-tertiary); font-size: 12px;">初版，没有上一版可对比。</div>';
         return;
       }
-      diffEl.innerHTML = renderLineDiff(oldText.split('\n'), newText.split('\n'), `${v.prev?.ver || 'prev'}`, v.ver);
+      const reliabilityHint = (!v.isFullContent)
+        ? '<div style="padding:10px 14px;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(255,159,10,0.08);color:#9a3412;font-size:11px;">当前版本不是完整文件快照，diff 基于局部片段或不完整基线生成，仅供参考。</div>'
+        : '';
+      diffEl.innerHTML = reliabilityHint + renderLineDiff(oldText.split('\n'), newText.split('\n'), oldLabel, newLabel);
     }
 
     function renderLineDiff(a, b, oldLabel, newLabel) {
       const m = a.length, n = b.length;
+      if (a.join('\n') === b.join('\n')) {
+        return '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px;">本版与上一版完全一致</div>';
+      }
       // 大文件保护
       if (m * n > 2_000_000) {
-        return `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px;">文件过大（${m} × ${n} 行），跳过 diff 渲染</div>`;
+        return renderLargeLineDiff(a, b, oldLabel, newLabel);
       }
       const dp = Array.from({length: m + 1}, () => new Uint16Array(n + 1));
       for (let i = m - 1; i >= 0; i--) {
@@ -2895,6 +3088,46 @@
         } else { inHunk = false; }
       });
       return html || '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px;">本版与上一版完全一致</div>';
+    }
+
+    function renderLargeLineDiff(a, b, oldLabel, newLabel) {
+      let start = 0;
+      let endA = a.length - 1;
+      let endB = b.length - 1;
+      while (start <= endA && start <= endB && a[start] === b[start]) start++;
+      while (endA >= start && endB >= start && a[endA] === b[endB]) {
+        endA--;
+        endB--;
+      }
+      const prefix = a.slice(Math.max(0, start - 3), start);
+      const removed = a.slice(start, endA + 1);
+      const added = b.slice(start, endB + 1);
+      const suffix = a.slice(endA + 1, Math.min(a.length, endA + 4));
+      const lines = [];
+      lines.push(`<div class="diff-hunk">@@ ${oldLabel} → ${newLabel} @@</div>`);
+      prefix.forEach((line, idx) => {
+        const ln = start - prefix.length + idx + 1;
+        lines.push(`<div class="diff-line ctx"><span class="ln">${ln}</span><span class="sign"> </span><span class="content">${escapeHtml(line)}</span></div>`);
+      });
+      const maxRender = 200;
+      removed.slice(0, maxRender).forEach((line, idx) => {
+        lines.push(`<div class="diff-line del"><span class="ln">${start + idx + 1}</span><span class="sign">-</span><span class="content">${escapeHtml(line)}</span></div>`);
+      });
+      if (removed.length > maxRender) {
+        lines.push(`<div class="diff-line ctx"><span class="ln">…</span><span class="sign"> </span><span class="content">省略 ${removed.length - maxRender} 行删除内容</span></div>`);
+      }
+      added.slice(0, maxRender).forEach((line, idx) => {
+        lines.push(`<div class="diff-line add"><span class="ln">${start + idx + 1}</span><span class="sign">+</span><span class="content">${escapeHtml(line)}</span></div>`);
+      });
+      if (added.length > maxRender) {
+        lines.push(`<div class="diff-line ctx"><span class="ln">…</span><span class="sign"> </span><span class="content">省略 ${added.length - maxRender} 行新增内容</span></div>`);
+      }
+      suffix.forEach((line, idx) => {
+        const ln = endA + 2 + idx;
+        lines.push(`<div class="diff-line ctx"><span class="ln">${ln}</span><span class="sign"> </span><span class="content">${escapeHtml(line)}</span></div>`);
+      });
+      lines.unshift(`<div style="padding:10px 14px;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(0,113,227,0.06);color:var(--text-secondary);font-size:11px;">文件较大，已切换为首尾锚点 diff。删除 ${removed.length} 行，新增 ${added.length} 行。</div>`);
+      return lines.join('');
     }
 
     // 视图切换
@@ -3134,6 +3367,8 @@
     };
 
     const DETAIL_SEED_KEY_PREFIX = 'agenttrace.detail-seed.';
+    const DETAIL_BUNDLE_CACHE_KEY_PREFIX = 'agenttrace.detail.bundle.v1:';
+    const DETAIL_BUNDLE_CACHE_TTL_MS = 5 * 60 * 1000;
     const TRACE_FINGERPRINT_KEY_PREFIX = 'agenttrace.session.traceFingerprint.v1:';
 
     function detailSeedStorageKey(sessionId) {
@@ -3142,6 +3377,10 @@
 
     function traceFingerprintStorageKey(sessionId) {
       return TRACE_FINGERPRINT_KEY_PREFIX + String(sessionId || '');
+    }
+
+    function detailBundleCacheKey(sessionId) {
+      return DETAIL_BUNDLE_CACHE_KEY_PREFIX + String(sessionId || '');
     }
 
     function hashTraceFingerprint(text) {
@@ -3202,6 +3441,34 @@
       } catch {
         return null;
       }
+    }
+
+    function readCachedDetailBundle(sessionId) {
+      if (!sessionId) return null;
+      try {
+        const raw = sessionStorage.getItem(detailBundleCacheKey(sessionId));
+        if (!raw) return null;
+        const entry = JSON.parse(raw);
+        const ageMs = Date.now() - Number(entry?.ts || 0);
+        if (!entry || !entry.data || !Number.isFinite(ageMs) || ageMs < 0 || ageMs > DETAIL_BUNDLE_CACHE_TTL_MS) return null;
+        const cached = entry.data;
+        const cachedId = String(cached?.session_id || cached?.id || '').trim();
+        if (!cachedId || cachedId !== String(sessionId)) return null;
+        return cached;
+      } catch {
+        return null;
+      }
+    }
+
+    function persistCachedDetailBundle(real) {
+      const sessionId = String(real?.session_id || real?.id || '').trim();
+      if (!sessionId) return;
+      try {
+        sessionStorage.setItem(detailBundleCacheKey(sessionId), JSON.stringify({
+          ts: Date.now(),
+          data: real,
+        }));
+      } catch {}
     }
 
     function persistLatestDetailSeed(real, options = {}) {
@@ -3394,11 +3661,26 @@
       return true;
     }
 
+    function resolveDetailLoadOptions(sessionId, opts) {
+      const next = Object.assign({}, opts || {});
+      if (next.startTime && next.endTime) return next;
+      const seed = readDetailSeed(sessionId);
+      const startedAtMs = Number(seed?.startedAtMs || 0);
+      if (!(startedAtMs > 0)) return next;
+      const center = new Date(startedAtMs);
+      const start = new Date(center.getTime() - 2 * 60 * 60 * 1000);
+      const end = new Date(center.getTime() + 2 * 60 * 60 * 1000);
+      next.startTime = formatSummaryDateTime(start);
+      next.endTime = formatSummaryDateTime(end);
+      return next;
+    }
+
     async function loadRealData(sessionId, opts) {
       if (sessionId === 'clarify-demo') return { data: buildClarifyDemoSession(), error: '' };
       let loadError = '';
       try {
-        const r = await window.AgentTraceDB.loadSession(sessionId, opts);
+        const requestOpts = resolveDetailLoadOptions(sessionId, opts);
+        const r = await window.AgentTraceDB.loadSession(sessionId, requestOpts);
         if (r) return { data: r, error: '' };
       } catch (e) {
         loadError = e && e.message ? e.message : String(e || '');
@@ -3432,6 +3714,12 @@
     const idDisplay = String(id).replace(/\.json$/i, '');
     const detailSeed = readDetailSeed(id);
     if (detailSeed) renderSeedSession(detailSeed);
+    const cachedDetail = readCachedDetailBundle(id);
+    if (cachedDetail) {
+      syncAggregateStateForLatestTrace(cachedDetail);
+      renderSession(cachedDetail, 'full');
+      hideGlobalLoader();
+    }
 
     async function loadDurationBenchmark(real) {
       if (!real || !window.AgentTraceDB || typeof window.AgentTraceDB.loadDashboardSummary !== 'function') return null;
@@ -4347,6 +4635,7 @@
           const v = r[d.key];
           const rt = ratingOf(v);
           return {
+            key: d.key,
             name: d.label,
             question: d.q,
             formula: d.formula,
@@ -4390,7 +4679,7 @@
               const evText = ruleEvidenceText(ev) || (row.score != null && row.score >= 85 ? '本维度处于健康区间' : '—');
               const evCell = renderEvalEvidenceCell(evHTML || evHealthy, evText);
               return `
-              <div class="eval-row rule-dim-row">
+              <div class="eval-row rule-dim-row" data-rule-dimension-key="${escapeHTML(row.key || '')}">
                 <span class="eval-dim">${escapeHTML(row.name)}</span>
                 <span class="eval-band" style="color:${st.color}">${row.score == null ? 'N/A' : row.score}</span>
                 <span class="eval-ev eval-ev-clamp"${evalEvidenceFullAttr(evText)}>${evCell}</span>
@@ -4465,14 +4754,16 @@
       }
     }
 
-    // ===== 详情页每次打开都直接拉完整 bundle，避免沿用上一版聚合骨架 =====
+    // ===== 5 分钟内优先复用详情缓存，超过 TTL 再重新拉完整 bundle =====
     (async function () {
+      if (cachedDetail) return;
       const realResult = await loadRealData(id, { artifactStatus });
       const real = realResult.data;
       const lastLoadError = realResult.error || '';
       if (real) {
         syncAggregateStateForLatestTrace(real);
-        real._durationBenchmark = await loadDurationBenchmark(real);
+        real._durationBenchmark = real._durationBenchmark || await loadDurationBenchmark(real);
+        persistCachedDetailBundle(real);
         renderSession(real, 'full');
       } else if (canUseFallbackMock() && FALLBACK_MOCK[id]) {
         renderSession(null, 'full');
@@ -4502,6 +4793,50 @@
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  function flashIssueTarget(el) {
+    if (!el) return;
+    el.classList.remove('issue-nav-highlight');
+    // force reflow so repeated clicks can retrigger animation
+    void el.offsetWidth;
+    el.classList.add('issue-nav-highlight');
+    clearTimeout(el.__issueFlashTimer);
+    el.__issueFlashTimer = setTimeout(() => {
+      el.classList.remove('issue-nav-highlight');
+    }, 1500);
+  }
+
+  function locateIssueTarget(targetType, targetKey) {
+    const type = String(targetType || '').trim();
+    const key = String(targetKey || '').trim();
+    if (!type || !key) return false;
+    let target = null;
+    if (type === 'llm_dimension') {
+      target = document.querySelector(`.llm-judge-row[data-llm-dimension-key="${CSS.escape(key)}"]`);
+    } else if (type === 'rule_dimension') {
+      target = document.querySelector(`.rule-dim-row[data-rule-dimension-key="${CSS.escape(key)}"]`);
+    }
+    if (!target) return false;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    flashIssueTarget(target);
+    return true;
+  }
+  window.locateIssueTarget = locateIssueTarget;
+
+  function bindStatusChipNavigation() {
+    const chipContainer = document.getElementById('status-chip-container');
+    if (!chipContainer || chipContainer.dataset.issueNavBound === '1') return;
+    chipContainer.addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-issue-target-type][data-issue-target-key]');
+      if (!chip) return;
+      const ok = locateIssueTarget(chip.dataset.issueTargetType, chip.dataset.issueTargetKey);
+      if (ok) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    chipContainer.dataset.issueNavBound = '1';
+  }
+
   window.renderStatusFusionChips = function renderStatusFusionChips() {
     const chipContainer = document.getElementById('status-chip-container');
     if (!chipContainer) return;
@@ -4519,9 +4854,14 @@
       const color = t.color || 'orange';
       const sourceText = t.source === 'llm' ? 'GPT-5.5' : t.source === 'rule' ? '规则' : '综合';
       const title = [sourceText, t.detail].filter(Boolean).join(' · ');
+      const navAttrs = t.targetType && t.targetKey
+        ? ` type="button" class="chip is-nav" data-issue-target-type="${escapeHTML(t.targetType)}" data-issue-target-key="${escapeHTML(t.targetKey)}"`
+        : ` class="chip"`;
+      const tagName = (t.targetType && t.targetKey) ? 'button' : 'span';
       chipContainer.insertAdjacentHTML('beforeend',
-        `<span class="chip" title="${escapeHTML(title)}" style="background:color-mix(in srgb, var(--apple-${color}) 12%, transparent);color:var(--apple-${color})">${escapeHTML(t.label)}</span>`);
+        `<${tagName}${navAttrs} title="${escapeHTML(title)}" style="background:color-mix(in srgb, var(--apple-${color}) 12%, transparent);color:var(--apple-${color})">${escapeHTML(t.label)}</${tagName}>`);
     });
+    bindStatusChipNavigation();
   };
 
   function renderInlineMarkdown(text) {
@@ -5107,17 +5447,18 @@
 
   // 框架注入的上下文包裹标签（兼容单复数）。新版 Agent 框架会把这些注入块拼在真实提问之前
   // 塞进同一条 user 消息：<system-reminder(s)> / <project-memory> / <related-conversation(s)>。
-  const INJECTED_CONTEXT_TAGS = ['system-reminders?', 'project-memory', 'related-conversations?'];
-  // 注入块的闭合标签。用作切分锚点：闭合标签（含）之前视为注入上下文，之后才是真实用户输入。
-  // 这样即使上游只截到了残缺标签（如缺开标签、只剩 </system-reminder>）也能正确分离；
-  // 同时真实用户几乎不可能手打出闭合标签，误判率极低。
-  const INJECTED_CLOSE_TAG_RE = /<\/(system-reminders?|project-memory|related-conversations?)>/gi;
+  // 这里改成函数返回，避免脚本前半段调用 stripInjectedContext/extractInjectedContext 时踩到 const TDZ。
+  function injectedContextTags() {
+    return ['system-reminders?', 'project-memory', 'related-conversations?'];
+  }
 
   // 返回最后一个注入闭合标签的结束位置（即真实用户输入的起点）；无则返回 -1。
   function lastInjectedCloseEnd(raw) {
+    // 运行时即时创建正则，避免在脚本尚未执行到常量初始化位置时抛出
+    // “Cannot access 'INJECTED_CLOSE_TAG_RE' before initialization”。
+    const closeTagRe = /<\/(system-reminders?|project-memory|related-conversations?)>/gi;
     let end = -1, m;
-    INJECTED_CLOSE_TAG_RE.lastIndex = 0;
-    while ((m = INJECTED_CLOSE_TAG_RE.exec(raw)) !== null) end = m.index + m[0].length;
+    while ((m = closeTagRe.exec(raw)) !== null) end = m.index + m[0].length;
     return end;
   }
 
@@ -5129,7 +5470,7 @@
     if (end >= 0) return raw.slice(0, end).trim();
     // 回退：仅命中成对标签的旧逻辑（极端情况下闭合标签缺失但成对块存在）。
     const blocks = [];
-    INJECTED_CONTEXT_TAGS.forEach(tag => {
+    injectedContextTags().forEach(tag => {
       const re = new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi');
       let m;
       while ((m = re.exec(raw)) !== null) blocks.push(m[0].trim());
@@ -5145,7 +5486,7 @@
     if (end >= 0) return raw.slice(end).trim();
     // 回退：仅命中成对标签的旧逻辑。
     let cleaned = raw;
-    INJECTED_CONTEXT_TAGS.forEach(tag => {
+    injectedContextTags().forEach(tag => {
       cleaned = cleaned.replace(new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi'), '');
     });
     return cleaned.trim();
@@ -6078,14 +6419,16 @@
   ],
   "reason": "一句话说明最关键判断"
 }`;
-  const LLM_JUDGE_DIMENSION_META = [
-    { key: 'resolved', label: '问题解决', points: 30, brief: '看事情是否真正办成', detail: '核心问题是否真正闭环；声称完成但无证据，仍按未真正解决处理。' },
-    { key: 'intent_match', label: '意图匹配', points: 18, brief: '看回答有没有对准真实诉求', detail: '重点看是否偏离用户原始目标和最新追问。' },
-    { key: 'efficiency_feel', label: '效率体感', points: 15, brief: '看相对任务难度是否拖沓', detail: '只从语义上判断体感效率，规则侧不负责判断任务难度。' },
-    { key: 'sentiment', label: '用户情绪', points: 15, brief: '看用户有没有明显挫败感', detail: '只看情绪词，不因为“问题没解决”而重复压低本维度。' },
-    { key: 'actionability', label: '可执行性', points: 12, brief: '看建议能不能直接照着做', detail: '优先看是否给出步骤、命令、文件位置或验证方式。' },
-    { key: 'hallucination_risk', label: '幻觉风险', points: 10, brief: '看有没有凭空编造', detail: '只查事实/API/引用/结论是否臆造，不重复处理“完成声明无证据”。' },
-  ];
+  function llmJudgeDimensionMeta() {
+    return [
+      { key: 'resolved', label: '问题解决', points: 30, brief: '看事情是否真正办成', detail: '核心问题是否真正闭环；声称完成但无证据，仍按未真正解决处理。' },
+      { key: 'intent_match', label: '意图匹配', points: 18, brief: '看回答有没有对准真实诉求', detail: '重点看是否偏离用户原始目标和最新追问。' },
+      { key: 'efficiency_feel', label: '效率体感', points: 15, brief: '看相对任务难度是否拖沓', detail: '只从语义上判断体感效率，规则侧不负责判断任务难度。' },
+      { key: 'sentiment', label: '用户情绪', points: 15, brief: '看用户有没有明显挫败感', detail: '只看情绪词，不因为“问题没解决”而重复压低本维度。' },
+      { key: 'actionability', label: '可执行性', points: 12, brief: '看建议能不能直接照着做', detail: '优先看是否给出步骤、命令、文件位置或验证方式。' },
+      { key: 'hallucination_risk', label: '幻觉风险', points: 10, brief: '看有没有凭空编造', detail: '只查事实/API/引用/结论是否臆造，不重复处理“完成声明无证据”。' },
+    ];
+  }
   function llmScoreBandState(score) {
     const n = Number(score);
     if (!Number.isFinite(n)) return { label: '无法判断', color: 'var(--text-tertiary)', icon: '?', style: 'font-weight:700;flex-shrink:0;line-height:1.3' };
@@ -6097,7 +6440,7 @@
   function renderJudgeProtocolHTML(result) {
     const score = Number.isFinite(Number(result?.score)) ? Number(result.score) : null;
     const scoreBasis = String(result?.score_basis || '').trim();
-    const rows = LLM_JUDGE_DIMENSION_META.map((item) => {
+    const rows = llmJudgeDimensionMeta().map((item) => {
       const dimScore = Number.isFinite(Number(result?.[`${item.key}_score`])) ? Number(result[`${item.key}_score`]) : null;
       const dimLabel = String(result?.[item.key] || '').trim();
       const current = dimScore === null ? '' : ` 本次 ${dimScore} 分${dimLabel ? `（${escapeHTML(dimLabel)}）` : ''}。`;
@@ -6470,17 +6813,21 @@
         if (spanId && llmEvidenceLocators.spanMap.has(spanId)) {
           const loc = llmEvidenceLocators.spanMap.get(spanId);
           return {
-            round: Number.isFinite(round) && round > 0 ? round : loc.round,
-            step: Number.isFinite(step) && step > 0 ? step : loc.step,
+            // 一旦能通过 spanId 命中本地展示定位表，就以当前详情页的展示口径为准，
+            // 避免原始 evidence.step 仍是旧/异口径编号，出现“按钮写第 8 步，实际跳到第 23 步”。
+            round: loc.round,
+            step: loc.step,
             spanId,
+            anchorSpanId: loc.anchorSpanId || loc.spanId || spanId,
           };
         }
         if (Number.isFinite(step) && step > 0 && llmEvidenceLocators.stepMap.has(step)) {
           const loc = llmEvidenceLocators.stepMap.get(step);
           return {
-            round: Number.isFinite(round) && round > 0 ? round : loc.round,
-            step,
+            round: loc.round,
+            step: loc.step,
             spanId: loc.spanId,
+            anchorSpanId: loc.anchorSpanId || loc.spanId,
           };
         }
         return {
@@ -6539,7 +6886,7 @@
           ${rows.map(r => {
             const state = llmJudgeRowState(r);
             return `
-            <div class="eval-row llm-judge-row">
+            <div class="eval-row llm-judge-row" data-llm-dimension-key="${escapeHTML(r.key)}">
               <span class="eval-dim">${escapeHTML(r.name)}</span>
               <span class="eval-band" style="color:${state.color}">${Number.isFinite(Number(r.score)) ? r.score : 'N/A'}</span>
               <span class="eval-ev eval-ev-clamp"${evalEvidenceFullAttr(evidenceText(r))}>${renderEvalEvidenceCell(evidenceCol(r), evidenceText(r))}</span>
@@ -7674,6 +8021,22 @@
 
   const GANTT_ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2];
   let ganttZoom = 1;
+  let ganttExpandedRoundIds = new Set();
+  let ganttExpandedStateSessionKey = '';
+
+  function captureExpandedGanttRounds() {
+    const body = document.getElementById('gantt-body');
+    if (!body) return new Set();
+    const expanded = new Set();
+    body.querySelectorAll('.gantt-row[data-parent-id=""]').forEach(row => {
+      const rowId = String(row.getAttribute('data-row-id') || '').trim();
+      const toggle = row.querySelector('.gantt-toggle');
+      if (rowId && toggle && !toggle.classList.contains('is-collapsed')) {
+        expanded.add(rowId);
+      }
+    });
+    return expanded;
+  }
 
   function nearestGanttZoomIndex() {
     let best = 0;
@@ -7716,6 +8079,7 @@
     const rerender = () => {
       syncGanttZoomButtons();
       const real = (window.SESSION && window.SESSION._real) || null;
+      ganttExpandedRoundIds = captureExpandedGanttRounds();
       if (real) renderGantt(real);
     };
     const stepZoom = (delta) => {
@@ -7756,6 +8120,11 @@
     const axisViewport = document.getElementById('gantt-axis-viewport');
     const metaEl = document.getElementById('gantt-meta');
     if (!card || !body || !axisEl || !axisViewport) return;
+    const sessionKey = String((window.SESSION && window.SESSION.id) || new URLSearchParams(location.search).get('id') || '');
+    if (sessionKey !== ganttExpandedStateSessionKey) {
+      ganttExpandedStateSessionKey = sessionKey;
+      ganttExpandedRoundIds = new Set();
+    }
     bindGanttZoomControls();
     const convo = buildConversationGroups(real);
     const groups = convo.groups || [];
@@ -7955,7 +8324,7 @@
 
     // 5) 生成「可见树」：
     // NeekoTurn 仅作为内部容器保留，不渲染成可见行；其子节点直接提升到 round 下展示。
-    const flat = []; // [{span, depth, rootIdx}]
+    const flat = []; // [{span, depth, rootIdx, rootId}]
     const visibleParentMap = new Map();
     const visibleChildrenMap = new Map();
     let rootCounter = 0;
@@ -7965,20 +8334,21 @@
       if (!visibleChildrenMap.has(parentId)) visibleChildrenMap.set(parentId, []);
       visibleChildrenMap.get(parentId).push(child);
     }
-    function dfs(node, depth, rootIdx, visibleParentId = '') {
+    function dfs(node, depth, rootIdx, visibleParentId = '', rootId = '') {
       const kids = childrenMap.get(node.span_id) || [];
       const isHiddenSegment = node.span_name === 'NeekoTurn' && !(node._is_round || node.span_type === 'round');
       if (!isHiddenSegment) {
-        flat.push({ span: node, depth, rootIdx });
+        flat.push({ span: node, depth, rootIdx, rootId: rootId || node.span_id });
         addVisibleEdge(visibleParentId, node);
       }
       const nextParentId = isHiddenSegment ? visibleParentId : node.span_id;
       const nextDepth = isHiddenSegment ? depth : depth + 1;
-      kids.forEach(k => dfs(k, nextDepth, rootIdx, nextParentId));
+      const nextRootId = rootId || node.span_id;
+      kids.forEach(k => dfs(k, nextDepth, rootIdx, nextParentId, nextRootId));
     }
     roots.forEach(r => {
       rootCounter++;
-      dfs(r, 0, rootCounter, '');
+      dfs(r, 0, rootCounter, '', r.span_id);
     });
 
     const maxDepth = flat.reduce((m, f) => Math.max(m, f.depth), 0);
@@ -8037,7 +8407,7 @@
       return `${m}m${r.toFixed(0)}s`;
     };
 
-    const html = flat.map(({ span: sp, depth, rootIdx }) => {
+    const html = flat.map(({ span: sp, depth, rootIdx, rootId }) => {
       const tm = typeMap(sp);
       const offsetMs = (sp.started_at_ms || 0) - t0;
       const left = Math.max(0, Math.min(100, offsetMs / totalMs * 100));
@@ -8059,9 +8429,10 @@
       const hasKids = (visibleChildrenMap.get(sp.span_id) || []).length > 0;
       // 关键：用 DFS 的 depth 判定根（而不是原始 parent_id），这样孤立 LLM 被挂到 Turn 下时 depth=1 会被默认隐藏
       const isRoot = depth === 0;
-      // 默认将根节点折叠
-      const collapsedClass = isRoot && hasKids ? 'is-collapsed' : '';
-      const hiddenClass = !isRoot ? 'is-hidden' : ''; // 初始状态隐藏子节点
+      const isExpandedRoot = isRoot && ganttExpandedRoundIds.has(sp.span_id);
+      // 默认将根节点折叠，但保留用户手动展开过的 round 根状态
+      const collapsedClass = isRoot && hasKids && !isExpandedRoot ? 'is-collapsed' : '';
+      const hiddenClass = !isRoot && !ganttExpandedRoundIds.has(rootId) ? 'is-hidden' : '';
       // data-parent-id 用「挂载后」的真实父节点 id（用于折叠/展开事件）
       const mountedParentId = visibleParentMap.get(sp.span_id) || '';
       const spLabel = labelOf(sp, rootIdx);
@@ -8119,6 +8490,12 @@
         e.stopPropagation(); // 阻止触发气泡选中
         const spanId = btn.getAttribute('data-toggle');
         const isCollapsed = btn.classList.toggle('is-collapsed');
+        const row = btn.closest('.gantt-row');
+        const isRootRow = !String(row?.getAttribute('data-parent-id') || '').trim();
+        if (isRootRow && spanId) {
+          if (isCollapsed) ganttExpandedRoundIds.delete(spanId);
+          else ganttExpandedRoundIds.add(spanId);
+        }
         
         // 递归寻找所有子孙节点并控制显示隐藏
         const toggleChildren = (pid, hide) => {
@@ -8222,8 +8599,6 @@
       let totalLLMms = 0;
       const artifacts = [];
       const nextUserReply = normalizeClarifyReply(grp.clarifyReply);
-      const showStepPromptContext = (grp.traces || []).length > 1;
-
       grp.traces.forEach((t, ti) => {
         const spans = (t.spans || []).slice().sort((a, b) => (a.started_at_ms || 0) - (b.started_at_ms || 0));
         const toolSpans = spans.filter(s => s.span_type === 'tool');
@@ -8237,14 +8612,7 @@
           globalStepIdx++;
           const sepStyle = (ti === 0 && isFirstSpanInTrace) ? ' style="margin-top:4px"' : '';
           const modelName = (sp.custom_tags || {}).model_name || 'LLM';
-          parts.push(`<div class="agent-turn-sep" data-span-id="${escapeHTML(sp.span_id)}"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
-          if (showStepPromptContext) {
-            const stepPrompt = pickPromptForSpan(sp, t, { preferTracePrompt: true });
-            if (stepPrompt) {
-              const clippedPrompt = stepPrompt.length > 72 ? `${stepPrompt.slice(0, 72)}…` : stepPrompt;
-              parts.push(`<div class="agent-step-prompt" title="${escapeHTML(stepPrompt)}">回复问题：${escapeHTML(clippedPrompt)}</div>`);
-            }
-          }
+          parts.push(`<div class="agent-turn-sep" data-span-id="${escapeHTML(sp.span_id)}" data-step-no="${globalStepIdx}"${sepStyle}>第 ${globalStepIdx} / ${totalSteps} 步</div>`);
           isFirstSpanInTrace = false;
 
           const { text, reasoning, tool_calls } = extractAssistantOutput(sp);

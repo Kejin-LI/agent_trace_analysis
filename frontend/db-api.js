@@ -349,6 +349,9 @@
     const allSpans = traces.flatMap(t => t.spans || []);
     const modelSpans = allSpans.filter(sp => sp.span_type === 'model');
     const turns = modelSpans.length || Number(raw.turns || 0) || traces.length;
+    const effectiveRounds = Number(raw.effective_rounds ?? raw.effectiveRounds ?? featuresRaw.effective_rounds ?? featuresRaw.effectiveRounds ?? 0)
+      || traces.filter(t => String(t.user_prompt || '').trim()).length
+      || 0;
     const durationMs = Number(raw.duration_ms || 0) || traces.reduce((sum, t) => sum + Number(t.duration_ms || 0), 0);
     const inputTokens = Number(raw.input_tokens || 0) || traces.reduce((sum, t) => sum + Number(t.input_tokens || 0), 0);
     const outputTokens = Number(raw.output_tokens || 0) || traces.reduce((sum, t) => sum + Number(t.output_tokens || 0), 0);
@@ -375,6 +378,7 @@
       output_tokens: outputTokens,
       trace_count: Number(raw.trace_count || 0) || traces.length,
       turns,
+      effective_rounds: effectiveRounds,
       tool_calls: Number(raw.tool_calls || 0) || Number(featuresRaw.tool_calls || 0),
       features: featuresRaw,
       rules: rulesRaw,
