@@ -8,7 +8,7 @@
 //	{
 //	  "base_url": "https://ark.cn-beijing.volces.com/api/v3",
 //	  "api_key":  "方舟 API Key",
-//	  "model":    "豆包2.0 推理接入点 ID（ep-xxx）"
+//	  "model":    "豆包 2.0 Pro 接入点 ID（ep-xxx）"
 //	}
 package ark
 
