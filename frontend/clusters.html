@@ -86,6 +86,13 @@
   .spark-empty { font-size: 10.5px; fill: var(--text-tertiary); text-anchor: middle; letter-spacing: 0.02em; }
   .spark-wrap { position: relative; }
   .spark-wrap.hover .cursor, .spark-wrap.hover .dot-hit { opacity: 1; }
+    .compare-spark-wrap { overflow: visible; }
+    .compare-spark-canvas { overflow: hidden; }
+    .compare-spark-axis {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 6px; font-size: 9.5px; color: var(--text-tertiary);
+      font-variant-numeric: tabular-nums;
+    }
 
   /* 苹果风 tooltip · sparkline */
   .spark-tip {
@@ -391,7 +398,7 @@
 
 <script src="./efficiency-helper.js"></script>
 <script src="./tag-system.js"></script>
-<script src="./db-api.js?v=20260618-issue-count-unified"></script>
+<script src="./db-api.js?v=20260624-local-preview-fallback"></script>
 <script src="./range-picker.js"></script>
 <script>
 /* ============== 异常聚类 · 真实数据驱动 ==============
@@ -963,9 +970,8 @@ function syncStatusControls() {
   });
   const seg = document.getElementById('status-seg');
   if (seg) {
-    // 对比模式下三态视图无意义，弱化分段控件（但保留可读）。
-    seg.style.opacity = STATE.compareMode ? '0.4' : '';
-    seg.style.pointerEvents = STATE.compareMode ? 'none' : '';
+      // 对比模式下隐藏单视图的状态分段控件，退出对比模式后恢复。
+      seg.style.display = STATE.compareMode ? 'none' : 'inline-flex';
   }
   const cmp = document.getElementById('compare-toggle');
   if (cmp) {
@@ -1026,14 +1032,12 @@ function renderSingleView() {
   // 概览
   const clusters = buildClusters(effective);
   const loadedAffectedCount = countAffectedSessionsFromClusters(clusters);
-  const isAll = !STATE.statusFilter || STATE.statusFilter === 'all';
-  const scopedSessionCount = countUniqueSessions(scoped) || loadedAffectedCount;
+    const isAll = !STATE.statusFilter || STATE.statusFilter === 'all';
+    const scopedSessionCount = countUniqueSessions(scoped) || loadedAffectedCount;
   const affectedCount = isAll
     ? (Number(STATE.anomalyTotal || 0) || loadedAffectedCount)
     : scopedSessionCount;
-  const totalCount = isAll
-    ? (Number(STATE.summary?.total || 0) || ALL_SESSIONS.length || affectedCount)
-    : scopedSessionCount;
+    const totalCount = Number(STATE.summary?.total || 0) || ALL_SESSIONS.length || affectedCount;
   document.getElementById('ovw-cluster-count').textContent = clusters.length;
   document.getElementById('ovw-affected').textContent = affectedCount;
   document.getElementById('ovw-total').textContent = totalCount;
@@ -1077,12 +1081,11 @@ function buildClustersByStatus(status, calibMap) {
   return buildClusters(effective);
 }
 
-// renderCompareView 按 cluster.label 同名对齐「已发布 vs 未发布」两套聚簇结果：
-// 顶部对比摘要条 + 每个标签一行对比卡（双向计数条 + 差值徽标）。刻意不画 sparkline，
-// 用轻量计数条替代，避免对比列表里成倍的 SVG/hover 绑定拖慢渲染。
+  // renderCompareView 按 cluster.label 同名对齐「已发布 vs 未发布」两套聚簇结果：
+  // 顶部对比摘要条 + 三列问题卡。每张卡展示两侧趋势折线与底部占比对比条。
 function renderCompareView() {
   const grid = document.getElementById('clusterGrid');
-  grid.className = 'space-y-3';
+  grid.className = 'space-y-5';
   const calibMap = currentCalibMap();
   const pubClusters = buildClustersByStatus('published', calibMap);
   const unpubClusters = buildClustersByStatus('unpublished', calibMap);
@@ -1095,10 +1098,17 @@ function renderCompareView() {
         byLabel.set(c.label, {
           label: c.label, source: c.source, color: c.color,
           dimension: c.dimension, sourceText: c.sourceText,
-          published: 0, unpublished: 0,
+            published: 0, unpublished: 0,
+            pubSessions: [], unpubSessions: [],
+            publishedAvgScore: null, unpublishedAvgScore: null,
         });
       }
-      byLabel.get(c.label)[side] = c.hitCount;
+        const row = byLabel.get(c.label);
+        row[side] = c.hitCount;
+        if (side === 'published') row.pubSessions = c.sessions || [];
+        if (side === 'unpublished') row.unpubSessions = c.sessions || [];
+        if (side === 'published') row.publishedAvgScore = Number.isFinite(c.avgScore) ? c.avgScore : null;
+        if (side === 'unpublished') row.unpublishedAvgScore = Number.isFinite(c.avgScore) ? c.avgScore : null;
     });
   };
   ingest(pubClusters, 'published');
@@ -1132,8 +1142,13 @@ function renderCompareView() {
     return;
   }
 
-  // 计数条以全列表最大单侧命中数为基准归一化，确保不同行之间条长可比。
+  // 对比模式下的趋势图应与“当前参与对比的 session 集合”使用同一时间锚点，
+  // 避免计数有值但趋势桶全落空，最终退化成一条水平线。
+  const compareSessions = rows.flatMap(r => []
+    .concat(r.pubSessions || [])
+    .concat(r.unpubSessions || []));
   renderCompareRow._max = Math.max(1, ...rows.map(r => Math.max(r.published, r.unpublished)));
+  const compareBuckets = genBuckets(STATE.range, compareSessions.length ? compareSessions : ALL_SESSIONS);
   const totalPubHits = rows.reduce((a, r) => a + r.published, 0);
   const totalUnpubHits = rows.reduce((a, r) => a + r.unpublished, 0);
 
@@ -1146,87 +1161,267 @@ function renderCompareView() {
       labelCount: rows.length,
       unalignedAffected,
     })}
-    <div class="space-y-3">
-      ${rows.map(renderCompareRow).join('')}
+    <div class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 items-stretch">
+        ${rows.map(r => renderCompareRow(r, compareBuckets)).join('')}
     </div>`;
   bindHelpTooltips(grid);
+    Array.from(grid.querySelectorAll('[data-compare-card]')).forEach((card, idx) => {
+      bindCompareSparkHover(card, rows[idx], compareBuckets);
+    });
 }
 
 function renderCompareSummaryBar(s) {
-  return `
-    <div class="glass rounded-2xl px-5 py-4 flex items-center justify-between gap-6 flex-wrap">
-      <div class="flex items-center gap-6">
-        <div>
-          <div class="text-[11px] text-[--text-tertiary] mb-1">已发布 Session 异常命中</div>
-          <div class="flex items-baseline gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-[--apple-green] inline-block"></span>
-            <span class="text-[22px] font-semibold num-mono leading-none">${s.totalPubHits}</span>
-            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.pubAffectedSessions} 个受影响 session</span>
+    return `
+      <div class="glass rounded-2xl px-5 py-4 flex items-center justify-between gap-6 flex-wrap">
+        <div class="flex items-center gap-6">
+          <div>
+            <div class="text-[11px] text-[--text-tertiary] mb-1">已发布受影响 Session</div>
+            <div class="flex items-baseline gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-[--apple-green] inline-block"></span>
+              <span class="text-[22px] font-semibold num-mono leading-none">${s.pubAffectedSessions}</span>
+              <span class="text-[11px] text-[--text-tertiary]">个 session · ${s.totalPubHits} 次命中</span>
+            </div>
+          </div>
+          <div class="w-px h-9 bg-black/10"></div>
+          <div>
+            <div class="text-[11px] text-[--text-tertiary] mb-1">未发布受影响 Session</div>
+            <div class="flex items-baseline gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-[--apple-orange] inline-block"></span>
+              <span class="text-[22px] font-semibold num-mono leading-none">${s.unpubAffectedSessions}</span>
+              <span class="text-[11px] text-[--text-tertiary]">个 session · ${s.totalUnpubHits} 次命中</span>
+            </div>
           </div>
         </div>
-        <div class="w-px h-9 bg-black/10"></div>
-        <div>
-          <div class="text-[11px] text-[--text-tertiary] mb-1">未发布 Session 异常命中</div>
-          <div class="flex items-baseline gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-[--apple-orange] inline-block"></span>
-            <span class="text-[22px] font-semibold num-mono leading-none">${s.totalUnpubHits}</span>
-            <span class="text-[11px] text-[--text-tertiary]">命中 · ${s.unpubAffectedSessions} 个受影响 session</span>
-          </div>
+        <div class="text-[11px] text-[--text-tertiary] num-mono">
+          共 <span class="font-semibold text-[--text-secondary]">${s.labelCount}</span> 类异常 · 按命中总数排序
         </div>
-      </div>
-      <div class="text-[11px] text-[--text-tertiary] num-mono">
-        共 <span class="font-semibold text-[--text-secondary]">${s.labelCount}</span> 类异常 · 按命中总数排序
-      </div>
-      ${s.unalignedAffected > 0 ? `
-        <div class="w-full text-[11px] text-[--apple-orange] num-mono">
-          另有 ${s.unalignedAffected} 个受影响 session 暂无明确发布状态，未参与对比
-        </div>` : ''}
-    </div>`;
+        ${s.unalignedAffected > 0 ? `
+          <div class="w-full text-[11px] text-[--apple-orange] num-mono">
+            另有 ${s.unalignedAffected} 个受影响 session 暂无明确发布状态，未参与对比
+          </div>` : ''}
+      </div>`;
 }
 
-function renderCompareRow(r) {
-  const accent = r.color || (r.source === 'llm' ? 'purple' : 'blue');
-  const base = renderCompareRow._max || 1;
-  const pubW = Math.round((r.published / base) * 100);
-  const unpubW = Math.round((r.unpublished / base) * 100);
-  const delta = r.unpublished - r.published;
-  let deltaChip = '';
-  if (delta > 0) {
-    deltaChip = `<span class="chip bg-[--apple-orange]/12 text-[--apple-orange]">未发布多 ${delta}</span>`;
-  } else if (delta < 0) {
-    deltaChip = `<span class="chip bg-[--apple-green]/12 text-[--apple-green]">已发布多 ${-delta}</span>`;
-  } else {
-    deltaChip = `<span class="chip bg-black/5 text-[--text-tertiary]">持平</span>`;
+  function renderCompareRow(r, buckets) {
+    const accent = r.color || (r.source === 'llm' ? 'purple' : 'blue');
+    const delta = r.unpublished - r.published;
+    const total = r.published + r.unpublished;
+    const pubShare = total ? Math.round((r.published / total) * 100) : 0;
+    const unpubShare = total ? 100 - pubShare : 0;
+    const pubTrend = compareTrendSeries(r.pubSessions, buckets);
+    const unpubTrend = compareTrendSeries(r.unpubSessions, buckets);
+    const trendMax = Math.max(1, ...pubTrend, ...unpubTrend);
+    const tooltipHtml = compareIssueTooltipHtml(r);
+    const pubPath = sparkPolyline(pubTrend, 320, 64, trendMax);
+    const unpubPath = sparkPolyline(unpubTrend, 320, 64, trendMax);
+    const pubArea = sparkAreaPath(pubTrend, 320, 64, trendMax);
+    const unpubArea = sparkAreaPath(unpubTrend, 320, 64, trendMax);
+    const axis = compareAxisLabels(buckets);
+    let deltaChip = '';
+    if (delta > 0) {
+      deltaChip = `<span class="chip bg-[--apple-orange]/12 text-[--apple-orange]">未发布多 ${delta}</span>`;
+    } else if (delta < 0) {
+      deltaChip = `<span class="chip bg-[--apple-green]/12 text-[--apple-green]">已发布多 ${-delta}</span>`;
+    } else {
+      deltaChip = `<span class="chip bg-black/5 text-[--text-tertiary]">持平</span>`;
+    }
+    return `
+      <div class="glass rounded-2xl p-5 lift h-full flex flex-col" data-compare-card="1">
+        <div class="flex items-start justify-between gap-3 mb-4">
+          <div class="chip bg-[--apple-${accent}]/10 text-[--apple-${accent}] max-w-full issue-help help">
+            <span class="badge-dot bg-[--apple-${accent}]"></span><span>${escapeHtml(r.label)}</span>
+            <div class="help-tip">${tooltipHtml}</div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
+            ${deltaChip}
+            <div class="text-[10px] text-[--text-secondary] px-1.5 py-0.5 rounded border border-black/10">${escapeHtml(r.dimension || '其他')}</div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl bg-white/55 border border-white/70 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <div class="flex items-center gap-4 text-[11px]">
+              <div class="flex items-center gap-1.5 text-[--text-secondary]">
+                <span class="w-1.5 h-1.5 rounded-full bg-[--apple-green]"></span>
+                <span>已发布</span>
+                <span class="num-mono text-[--text-primary] font-semibold">${r.published}</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-[--text-secondary]">
+                <span class="w-1.5 h-1.5 rounded-full bg-[--apple-orange]"></span>
+                <span>未发布</span>
+                <span class="num-mono text-[--text-primary] font-semibold">${r.unpublished}</span>
+              </div>
+            </div>
+          </div>
+
+            <div class="spark-wrap compare-spark-wrap">
+              <div class="compare-spark-canvas h-16">
+              <svg class="spark compare-spark w-full h-full" viewBox="0 0 320 64" preserveAspectRatio="none">
+                <line class="baseline" x1="0" y1="56" x2="320" y2="56"></line>
+                <path class="area" d="${pubArea}" style="fill:var(--apple-green);opacity:.08"></path>
+                <path class="area" d="${unpubArea}" style="fill:var(--apple-orange);opacity:.08"></path>
+                <polyline points="${pubPath}" fill="none" stroke="var(--apple-green)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                <polyline points="${unpubPath}" fill="none" stroke="var(--apple-orange)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                <line class="cursor" x1="0" y1="0" x2="0" y2="64"></line>
+                <circle class="dot-hit compare-dot-pub" cx="0" cy="0" r="3" stroke="var(--apple-green)" fill="white"></circle>
+                <circle class="dot-hit compare-dot-unpub" cx="0" cy="0" r="3" stroke="var(--apple-orange)" fill="white"></circle>
+              </svg>
+            </div>
+            <div class="compare-spark-axis">
+              <span>${escapeHtml(axis.start)}</span>
+              <span>${escapeHtml(axis.end)}</span>
+            </div>
+            <div class="spark-tip"></div>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-black/5">
+          <div class="flex items-center justify-between text-[10.5px] text-[--text-tertiary] num-mono mb-2">
+            <span>占比对比</span>
+            <span><span class="text-[--apple-green]">${pubShare}%</span> / <span class="text-[--apple-orange]">${unpubShare}%</span></span>
+          </div>
+          <div class="h-2.5 rounded-full bg-black/5 overflow-hidden flex ring-1 ring-black/5">
+            <div class="h-full bg-[--apple-green]" style="width:${pubShare}%;"></div>
+            <div class="h-full bg-[--apple-orange]" style="width:${unpubShare}%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-[--text-tertiary] mt-1.5">
+            <span>已发布 ${r.published}</span>
+            <span>未发布 ${r.unpublished}</span>
+          </div>
+        </div>
+      </div>`;
   }
-  return `
-    <div class="glass rounded-2xl p-4 lift">
-      <div class="flex items-center justify-between gap-3 mb-3">
-        <div class="chip bg-[--apple-${accent}]/10 text-[--apple-${accent}]">
-          <span class="badge-dot bg-[--apple-${accent}]"></span><span>${escapeHtml(r.label)}</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          ${deltaChip}
-          <div class="text-[10px] text-[--text-secondary] px-1.5 py-0.5 rounded border border-black/10">${escapeHtml(r.dimension || '其他')}</div>
-        </div>
-      </div>
-      <div class="space-y-2">
-        ${renderCompareBar('已发布', 'green', r.published, pubW)}
-        ${renderCompareBar('未发布', 'orange', r.unpublished, unpubW)}
-      </div>
-    </div>`;
-}
 
-function renderCompareBar(label, tone, count, widthPct) {
-  return `
-    <div class="flex items-center gap-3">
-      <div class="w-12 text-[11px] text-[--text-secondary] shrink-0">${label}</div>
-      <div class="flex-1 h-2 rounded-full bg-black/5 overflow-hidden">
-        <div class="h-full rounded-full" style="width:${Math.max(count > 0 ? 4 : 0, widthPct)}%;background:var(--apple-${tone});"></div>
-      </div>
-      <div class="w-8 text-right text-[12px] num-mono font-semibold shrink-0">${count}</div>
-    </div>`;
-}
+  function compareIssueTooltipHtml(row) {
+    const explanation = anomalyExplanation(row.label, row.source, row.dimension);
+    const weightedScore = weightedCompareAvgScore(row);
+    return `
+      <div class="tip-title">${escapeHtml(row.label)}</div>
+      <div>${escapeHtml(explanation)}</div>
+      <hr>
+      <div class="tip-row"><span>问题来源</span><span>${escapeHtml(row.sourceText || sourceLabel(row.source))}</span></div>
+      <div class="tip-row"><span>所属维度</span><span>${escapeHtml(row.dimension || '其他')}</span></div>
+      <div class="tip-row"><span>已发布命中</span><span>${row.published}</span></div>
+      <div class="tip-row"><span>未发布命中</span><span>${row.unpublished}</span></div>
+      ${weightedScore !== null ? `<div class="tip-row"><span>平均健康度</span><span>${weightedScore}</span></div>` : ''}
+    `;
+  }
 
+  function weightedCompareAvgScore(row) {
+    const pub = Number(row.publishedAvgScore);
+    const unpub = Number(row.unpublishedAvgScore);
+    const pubWeight = Number(row.published || 0);
+    const unpubWeight = Number(row.unpublished || 0);
+    const total = pubWeight + unpubWeight;
+    if (!total) return null;
+    let sum = 0;
+    let used = 0;
+    if (Number.isFinite(pub) && pubWeight > 0) { sum += pub * pubWeight; used += pubWeight; }
+    if (Number.isFinite(unpub) && unpubWeight > 0) { sum += unpub * unpubWeight; used += unpubWeight; }
+    if (!used) return null;
+    return Math.round(sum / used);
+  }
+
+  function bindCompareSparkHover(card, row, buckets) {
+    const wrap = card.querySelector('.compare-spark-wrap');
+    const svg = card.querySelector('.compare-spark');
+    const cursor = card.querySelector('.cursor');
+    const pubDot = card.querySelector('.compare-dot-pub');
+    const unpubDot = card.querySelector('.compare-dot-unpub');
+    const tip = card.querySelector('.spark-tip');
+    if (!wrap || !svg || !tip || !row) return;
+    const pubSeries = compareTrendSeries(row.pubSessions, buckets);
+    const unpubSeries = compareTrendSeries(row.unpubSessions, buckets);
+    const max = Math.max(1, ...pubSeries, ...unpubSeries);
+    const pubPoints = sparkPointObjects(pubSeries, 320, 64, max);
+    const unpubPoints = sparkPointObjects(unpubSeries, 320, 64, max);
+    const pointCount = Math.max(pubPoints.length, unpubPoints.length);
+    if (!pointCount) return;
+
+    function showAt(i) {
+      const pubPoint = pubPoints[Math.min(i, pubPoints.length - 1)] || { x: 0, y: 57 };
+      const unpubPoint = unpubPoints[Math.min(i, unpubPoints.length - 1)] || { x: 0, y: 57 };
+      const label = (buckets && buckets[i] && buckets[i].label) || '未知时间';
+      const rect = svg.getBoundingClientRect();
+      const px = rect.width * (pubPoint.x / 320);
+      const py = rect.height * (Math.min(pubPoint.y, unpubPoint.y) / 64);
+      if (cursor) { cursor.setAttribute('x1', pubPoint.x); cursor.setAttribute('x2', pubPoint.x); }
+      if (pubDot) { pubDot.setAttribute('cx', pubPoint.x); pubDot.setAttribute('cy', pubPoint.y); }
+      if (unpubDot) { unpubDot.setAttribute('cx', unpubPoint.x); unpubDot.setAttribute('cy', unpubPoint.y); }
+      tip.innerHTML = `
+        <div class="tip-time">${label}</div>
+        <div><span class="tip-val" style="color:var(--apple-green)">${pubSeries[i] || 0}</span><span class="tip-delta"> 已发布</span></div>
+        <div><span class="tip-val" style="color:var(--apple-orange)">${unpubSeries[i] || 0}</span><span class="tip-delta"> 未发布</span></div>
+      `;
+      tip.style.left = px + 'px';
+      tip.style.top = (py - 6) + 'px';
+      tip.classList.add('show');
+      wrap.classList.add('hover');
+    }
+
+    function hide() {
+      tip.classList.remove('show');
+      wrap.classList.remove('hover');
+    }
+
+    wrap.addEventListener('mousemove', (e) => {
+      const rect = svg.getBoundingClientRect();
+      const ratio = (e.clientX - rect.left) / rect.width;
+      const nearest = Math.max(0, Math.min(pointCount - 1, Math.round(ratio * (pointCount - 1))));
+      showAt(nearest);
+    });
+    wrap.addEventListener('mouseenter', () => showAt(pointCount - 1));
+    wrap.addEventListener('mouseleave', hide);
+  }
+
+  function compareTrendSeries(sessions, buckets) {
+    const safeBuckets = buckets || [];
+    const counts = safeBuckets.map(() => 0);
+    (sessions || []).forEach(s => {
+      const t = s.started_at_ms || 0;
+      for (let i = 0; i < safeBuckets.length; i++) {
+        const b = safeBuckets[i];
+        if (t >= b.ts && t < b.ts + b.span) {
+          counts[i]++;
+          break;
+      }
+      }
+    });
+    return counts.length ? counts : [0, 0];
+  }
+
+  function sparkPolyline(series, width, height, maxValue) {
+    return sparkPointObjects(series, width, height, maxValue)
+      .map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+      .join(' ');
+  }
+
+  function sparkAreaPath(series, width, height, maxValue) {
+    const points = sparkPointObjects(series, width, height, maxValue);
+    if (!points.length) return '';
+    const line = points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    return `${line} L${points[points.length - 1].x.toFixed(1)},${height} L${points[0].x.toFixed(1)},${height} Z`;
+  }
+
+  function compareAxisLabels(buckets) {
+    const safe = buckets || [];
+    const first = safe[0]?.label || '起点';
+    const last = safe[safe.length - 1]?.label || '终点';
+    return { start: first, end: last };
+  }
+
+  function sparkPointObjects(series, width, height, maxValue) {
+    const values = (series || []).length > 1 ? series : [0, 0];
+    const max = Math.max(1, Number(maxValue) || 0, ...values);
+    const padX = 4;
+    const padY = 7;
+    const step = (width - padX * 2) / Math.max(1, values.length - 1);
+    return values.map((v, i) => {
+      const x = padX + i * step;
+      const y = height - padY - (Number(v || 0) / max) * (height - padY * 2);
+      return { x, y, idx: i };
+    });
+  }
 
 function rangeLabel(range, customFrom, customTo) {
   if (range === 'custom' && customFrom && customTo) {
@@ -1317,7 +1512,7 @@ function renderLoadingState(label) {
     } else {
       STATE.customFrom = null;
       STATE.customTo = null;
-    }
+  }
     const { query, key } = currentRangeQuery();
     const cached = STATE.rangeCache[key];
     if (cached) {

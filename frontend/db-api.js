@@ -423,6 +423,85 @@
     return session;
   }
 
+  let localPreviewSessionsPromise = null;
+
+  function fallbackPreviewPublicationStatus(raw, index) {
+    const normalized = normalizeArtifactPublicationStatus(raw && raw.artifact_publication_status);
+    if (normalized) return normalized;
+    return index % 2 === 0 ? 'published' : 'unpublished';
+  }
+
+  function sessionInRange(session, opts) {
+    const startedAtMs = Number(session && session.started_at_ms || 0);
+    const startMs = opts && opts.startTime ? Date.parse(opts.startTime) : NaN;
+    const endMs = opts && opts.endTime ? Date.parse(opts.endTime) : NaN;
+    if (!startedAtMs) return true;
+    if (Number.isFinite(startMs) && startedAtMs < startMs) return false;
+    if (Number.isFinite(endMs) && startedAtMs > endMs) return false;
+    return true;
+  }
+
+  function sessionHasPreviewAnomaly(session) {
+    return (session && Array.isArray(session.rules) && session.rules.some(r => r && r.passed === false))
+      || Number.isFinite(Number(session && session.llm_score))
+      || !!(session && session.llm_judge_result);
+  }
+
+  async function loadLocalPreviewSessions() {
+    if (!localPreviewSessionsPromise) {
+      localPreviewSessionsPromise = fetch('./data/sessions.json', { cache: 'no-store' })
+        .then(resp => {
+          if (!resp.ok) throw new Error('HTTP ' + resp.status + ' @ ./data/sessions.json');
+          return resp.json();
+        })
+        .then(payload => {
+          const rawSessions = Array.isArray(payload && payload.sessions) ? payload.sessions : [];
+          return rawSessions.map((raw, index) => normalizeSession({
+            ...raw,
+            artifact_publication_status: fallbackPreviewPublicationStatus(raw, index),
+          }));
+        });
+    }
+    return localPreviewSessionsPromise;
+  }
+
+  async function loadLocalPreviewAnomalySessions(opts) {
+    const sessions = (await loadLocalPreviewSessions())
+      .filter(sessionHasPreviewAnomaly)
+      .filter(Boolean);
+    return {
+      sessions,
+      total: sessions.length,
+      candidateTotal: sessions.length,
+      truncated: false,
+      artifactStatus: normalizeArtifactPublicationStatus(opts && opts.artifactStatus) || 'all',
+      limit: sessions.length,
+      offset: 0,
+      anomalyOnly: true,
+      apiBase: 'local-preview',
+    };
+  }
+
+  async function loadLocalPreviewDashboardSummary(opts) {
+    const sessions = await loadLocalPreviewSessions();
+    return { total: sessions.length };
+  }
+
+  async function loadLocalPreviewPublicationStatus(opts) {
+    const sessions = await loadLocalPreviewSessions();
+    const statusBySession = Object.create(null);
+    sessions.forEach((session) => {
+      const sid = session && (session.session_id || session.id);
+      const status = normalizeArtifactPublicationStatus(session && session.artifact_publication_status);
+      if (sid && status) statusBySession[sid] = status;
+    });
+    return {
+      statusBySession,
+      available: true,
+      reason: 'local_preview_fallback',
+    };
+  }
+
   async function loadSessions(opts) {
     const requestedLimit = Number(opts && opts.limit);
     const limit = Number.isFinite(requestedLimit)
@@ -446,7 +525,12 @@
     const params = new URLSearchParams();
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
-    return await fetchJSON('/api/dashboard-summary' + (params.toString() ? '?' + params.toString() : ''));
+    try {
+      return await fetchJSON('/api/dashboard-summary' + (params.toString() ? '?' + params.toString() : ''));
+    } catch (err) {
+      if (!isLocalEnv()) throw err;
+      return await loadLocalPreviewDashboardSummary(opts);
+    }
   }
 
   async function loadTopAnomalySessions(opts) {
@@ -482,19 +566,24 @@
     // artifact_status=all|published|unpublished：缺省 all（不过滤）。
     const artifactStatus = normalizeArtifactPublicationStatus(opts && opts.artifactStatus);
     if (artifactStatus) params.set('artifact_status', artifactStatus);
-    const payload = await fetchJSON('/api/anomaly-sessions?' + params.toString());
-    const sessions = (payload?.data || []).map(normalizeSession);
-    return {
-      sessions,
-      total: Number(payload?.filtered_total ?? payload?.total ?? sessions.length) || sessions.length,
-      candidateTotal: Number(payload?.candidate_total || 0) || sessions.length,
-      truncated: Boolean(payload?.truncated),
-      artifactStatus: payload?.artifact_status || 'all',
-      limit: payload?.limit || 0,
-      offset: payload?.offset || 0,
-      anomalyOnly: true,
-      apiBase: resolvedBase,
-    };
+      try {
+        const payload = await fetchJSON('/api/anomaly-sessions?' + params.toString());
+        const sessions = (payload?.data || []).map(normalizeSession);
+        return {
+          sessions,
+          total: Number(payload?.filtered_total ?? payload?.total ?? sessions.length) || sessions.length,
+          candidateTotal: Number(payload?.candidate_total || 0) || sessions.length,
+          truncated: Boolean(payload?.truncated),
+          artifactStatus: payload?.artifact_status || 'all',
+          limit: payload?.limit || 0,
+          offset: payload?.offset || 0,
+          anomalyOnly: true,
+          apiBase: resolvedBase,
+        };
+      } catch (err) {
+        if (!isLocalEnv()) throw err;
+        return await loadLocalPreviewAnomalySessions(opts);
+      }
   }
 
   // loadAnomalyPublicationStatus 是混合实时策略的“上游校准”一跳：拉取时间窗内每个
@@ -505,18 +594,23 @@
     if (opts && opts.startTime) params.set('start_time', opts.startTime);
     if (opts && opts.endTime) params.set('end_time', opts.endTime);
     const qs = params.toString();
-    const payload = await fetchJSON('/api/anomaly-publication-status' + (qs ? '?' + qs : ''));
-    const raw = (payload && payload.data) || {};
-    const statusBySession = Object.create(null);
-    Object.keys(raw).forEach((sid) => {
-      const status = normalizeArtifactPublicationStatus(raw[sid]);
-      if (sid && status) statusBySession[sid] = status;
-    });
-    return {
-      statusBySession,
-      available: Boolean(payload && payload.available),
-      reason: (payload && payload.reason) || '',
-    };
+      try {
+        const payload = await fetchJSON('/api/anomaly-publication-status' + (qs ? '?' + qs : ''));
+        const raw = (payload && payload.data) || {};
+        const statusBySession = Object.create(null);
+        Object.keys(raw).forEach((sid) => {
+          const status = normalizeArtifactPublicationStatus(raw[sid]);
+          if (sid && status) statusBySession[sid] = status;
+        });
+        return {
+          statusBySession,
+          available: Boolean(payload && payload.available),
+          reason: (payload && payload.reason) || '',
+        };
+      } catch (err) {
+        if (!isLocalEnv()) throw err;
+        return await loadLocalPreviewPublicationStatus(opts);
+      }
   }
 
   async function loadAggregateStatus(opts) {
