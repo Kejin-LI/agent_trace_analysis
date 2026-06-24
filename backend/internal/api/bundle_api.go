@@ -22,6 +22,7 @@ const (
 	artifactStatusPublished    = "published"
 	artifactStatusUnpublished  = "unpublished"
 	currentDetailBundleVersion = 2
+	detailLookupHalfWindow     = 2 * time.Hour
 )
 
 // listReadTimeout 限定列表/大盘等读路径单次 DB 查询的最长等待时间。
@@ -39,6 +40,8 @@ func normalizeArtifactStatus(raw string) string {
 	}
 }
 
+// normalizePublicationStatusOrUnknown 把任意输入规整成 published/unpublished/unknown 三态之一，
+// 供聚合落库使用：无法判定时落 unknown，绝不写空串。
 func detailBundleNeedsRefresh(bundle apiSessionBundle) bool {
 	if len(bundle.Traces) == 0 {
 		return false
@@ -61,18 +64,30 @@ func detailBundleNeedsSourceRefresh(bundle apiSessionBundle, hit *modellog.Sessi
 }
 
 func detailLookupTimeRange(c *gin.Context, tr modellog.TimeRange, cachedBundle apiSessionBundle, hasCached bool) modellog.TimeRange {
-	detailTR := tr
-	if c.Query("start_time") == "" && c.Query("end_time") == "" {
-		if hasCached && cachedBundle.StartedAtMs > 0 {
-			st := time.UnixMilli(cachedBundle.StartedAtMs).Add(-2 * time.Hour)
-			et := time.UnixMilli(cachedBundle.StartedAtMs).Add(2 * time.Hour)
-			detailTR = modellog.TimeRange{
-				StartTime: st.Format("2006-01-02 15:04:05"),
-				EndTime:   et.Format("2006-01-02 15:04:05"),
-			}
-		}
+	if !hasCached || cachedBundle.StartedAtMs <= 0 {
+		return tr
 	}
-	return detailTR
+
+	sessionAt := time.UnixMilli(cachedBundle.StartedAtMs)
+	narrowTR := modellog.TimeRange{
+		StartTime: sessionAt.Add(-detailLookupHalfWindow).Format("2006-01-02 15:04:05"),
+		EndTime:   sessionAt.Add(detailLookupHalfWindow).Format("2006-01-02 15:04:05"),
+	}
+	if c.Query("start_time") == "" && c.Query("end_time") == "" {
+		return narrowTR
+	}
+
+	startAt, endAt, ok := parseTimeRangeBounds(tr)
+	if !ok {
+		return narrowTR
+	}
+	if sessionAt.Before(startAt) || sessionAt.After(endAt) {
+		return tr
+	}
+	if endAt.Sub(startAt) <= 2*detailLookupHalfWindow {
+		return tr
+	}
+	return narrowTR
 }
 
 func (h *Handler) resolveSessionPublicationStatus(ctx context.Context, key, cookie string, tr modellog.TimeRange, statusHint string) (*modellog.Session, string, error) {

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/model"
 	"code.byted.org/aidp-playground/agentic_trace_server/internal/tracelog"
@@ -167,5 +170,57 @@ func TestDetailBundleNeedsSourceRefresh(t *testing.T) {
 	}
 	if !detailBundleNeedsSourceRefresh(bundle, &modellog.Session{UpdateAt: "2026-06-23 10:00:01"}) {
 		t.Fatalf("newer upstream update should force refresh")
+	}
+}
+
+func TestDetailLookupTimeRangeWithoutQueryNarrowsAroundCachedSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/session-bundles/ses_test", nil)
+
+	sessionAt := time.Date(2026, 6, 23, 15, 26, 0, 0, time.Local)
+	got := detailLookupTimeRange(c, modellog.TimeRange{
+		StartTime: "2026-06-01 00:00:00",
+		EndTime:   "2026-06-30 23:59:59",
+	}, apiSessionBundle{StartedAtMs: sessionAt.UnixMilli()}, true)
+
+	if got.StartTime != "2026-06-23 13:26:00" || got.EndTime != "2026-06-23 17:26:00" {
+		t.Fatalf("detailLookupTimeRange() = %+v, want narrow window around cached session", got)
+	}
+}
+
+func TestDetailLookupTimeRangeWideQueryNarrowsAroundCachedSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/session-bundles/ses_test?start_time=2026-06-23+14:56:44&end_time=2026-06-24+14:56:44", nil)
+
+	sessionAt := time.Date(2026, 6, 23, 15, 26, 0, 0, time.Local)
+	got := detailLookupTimeRange(c, modellog.TimeRange{
+		StartTime: "2026-06-23 14:56:44",
+		EndTime:   "2026-06-24 14:56:44",
+	}, apiSessionBundle{StartedAtMs: sessionAt.UnixMilli()}, true)
+
+	if got.StartTime != "2026-06-23 13:26:00" || got.EndTime != "2026-06-23 17:26:00" {
+		t.Fatalf("detailLookupTimeRange() = %+v, want narrow window around cached session", got)
+	}
+}
+
+func TestDetailLookupTimeRangeKeepsNarrowUserQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/session-bundles/ses_test?start_time=2026-06-23+14:00:00&end_time=2026-06-23+16:00:00", nil)
+
+	tr := modellog.TimeRange{
+		StartTime: "2026-06-23 14:00:00",
+		EndTime:   "2026-06-23 16:00:00",
+	}
+	sessionAt := time.Date(2026, 6, 23, 15, 26, 0, 0, time.Local)
+	got := detailLookupTimeRange(c, tr, apiSessionBundle{StartedAtMs: sessionAt.UnixMilli()}, true)
+
+	if got != tr {
+		t.Fatalf("detailLookupTimeRange() = %+v, want original narrow query %+v", got, tr)
 	}
 }
