@@ -718,6 +718,36 @@
   .msg-user.user-md table.md-table tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
   }
+  .user-doc-fold {
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid rgba(255,255,255,0.16);
+  }
+  .user-doc-fold-head {
+    display: flex; align-items: center; gap: 6px;
+    cursor: pointer; user-select: none;
+    font-size: 10.5px; line-height: 1.4;
+    color: rgba(255,255,255,0.82);
+  }
+  .user-doc-fold-head:hover {
+    color: rgba(255,255,255,0.96);
+  }
+  .user-doc-fold-caret {
+    width: 10px; flex: none; font-size: 9px;
+  }
+  .user-doc-fold-tag {
+    margin-left: auto;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 9.5px;
+    color: rgba(255,255,255,0.76);
+    background: rgba(255,255,255,0.12);
+  }
+  .user-doc-fold-body {
+    display: none;
+    margin-top: 7px;
+    padding-top: 2px;
+  }
 
   /* 工具/Skill/MCP 调用 - 单行 chip 风格（在气泡内紧跟回复） */
   .tool-line {
@@ -5993,6 +6023,50 @@
       </div>`;
   }
 
+  function splitUserPromptForDisplay(text) {
+    const raw = preservePromptText(text);
+    if (!raw || raw.length < 260) return null;
+    const markers = [
+      '\n\n【PRD需求全文】',
+      '\n【PRD需求全文】',
+      '\n\n## ',
+      '\n## ',
+      '\n\n### ',
+      '\n### ',
+      '\n【送标字段Schema】：',
+      '\n【答案字段Schema】：',
+      '\n| 模式 | 输出内容 | 说明 |',
+    ];
+    let cut = -1;
+    markers.forEach(marker => {
+      const idx = raw.indexOf(marker);
+      if (idx > 0 && (cut < 0 || idx < cut)) cut = idx;
+    });
+    if (cut < 0) return null;
+    const lead = raw.slice(0, cut).trim();
+    const detail = raw.slice(cut).trim();
+    if (!lead || !detail) return null;
+    if (lead.length > 180 || detail.length < 120) return null;
+    return { lead, detail };
+  }
+
+  function renderUserPromptBubbleContent(text) {
+    const raw = preservePromptText(text);
+    if (!raw) return '';
+    const split = splitUserPromptForDisplay(raw);
+    if (!split) return renderAssistantMarkdown(raw);
+    return `
+      <div class="user-doc-main">${renderAssistantMarkdown(split.lead)}</div>
+      <div class="user-doc-fold">
+        <div class="user-doc-fold-head" onclick="(function(el){var b=el.parentNode.querySelector('.user-doc-fold-body');var c=el.querySelector('.user-doc-fold-caret');var open=b.style.display==='block';b.style.display=open?'none':'block';c.textContent=open?'▸':'▾';})(this)">
+          <span class="user-doc-fold-caret">▸</span>
+          <span>文档详情</span>
+          <span class="user-doc-fold-tag">默认折叠</span>
+        </div>
+        <div class="user-doc-fold-body">${renderAssistantMarkdown(split.detail)}</div>
+      </div>`;
+  }
+
   function renderTraceTruncationBanner(truncation) {
     if (!truncation || !truncation.truncated) return '';
     const desc = truncation.message || '该会话轨迹较大，为保障服务稳定性，当前仅展示部分内容。';
@@ -8993,7 +9067,7 @@
         html.push(`
           <div class="flex justify-end">
             <div class="max-w-[88%] min-w-0 flex flex-col items-end">
-              <div class="msg-user user-md agent-md rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed break-words [overflow-wrap:anywhere] max-w-full">${renderAssistantMarkdown(bubbleText)}</div>
+              <div class="msg-user user-md agent-md rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed break-words [overflow-wrap:anywhere] max-w-full">${renderUserPromptBubbleContent(bubbleText)}</div>
               ${renderInjectedContextBlock(grp.injectedContext, { alreadyExtracted: true })}
             </div>
           </div>
