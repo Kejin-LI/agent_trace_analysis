@@ -19,10 +19,13 @@ import (
 
 // 产物发布状态：平台只纳入未发布 template 产物。
 const (
-	artifactStatusPublished    = "published"
-	artifactStatusUnpublished  = "unpublished"
-	artifactStatusUnknown      = "unknown"
-	currentDetailBundleVersion = 2
+	artifactStatusPublished   = "published"
+	artifactStatusUnpublished = "unpublished"
+	artifactStatusUnknown     = "unknown"
+	// currentDetailBundleVersion 每次 parser/bundle 解析口径发生“会改变已落库结果”的修复时 +1。
+	// 旧缓存 DetailVersion < 当前值时 detailBundleNeedsRefresh 触发懒加载重解析，实现历史 session 自愈。
+	// 2→3：修复 Responses API（input 数组）多轮 user_prompt 解析，避免历史缓存把后续轮次塌缩/丢 prompt。
+	currentDetailBundleVersion = 3
 	detailLookupHalfWindow     = 2 * time.Hour
 )
 
@@ -75,6 +78,66 @@ func detailBundleNeedsSourceRefresh(bundle apiSessionBundle, hit *modellog.Sessi
 		return false
 	}
 	return bundle.SourceUpdatedAtMs < updatedAt.UnixMilli()
+}
+
+// normalizeSourceFileKey 去掉 TOS 签名 query/fragment 后的文件路径，作为"同一物理文件"的判定键。
+// 同一对象每次取到的 URL 签名参数都会变，必须剥离后再比较，否则会把同一文件误判成新文件。
+func normalizeSourceFileKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if idx := strings.IndexAny(raw, "?#"); idx >= 0 {
+		raw = raw[:idx]
+	}
+	return raw
+}
+
+// upstreamLatestFileURL 取上游 Session 的首个非空 JSONL 文件 URL（即最新文件）。
+func upstreamLatestFileURL(hit *modellog.Session) string {
+	if hit == nil {
+		return ""
+	}
+	for _, f := range hit.FileList {
+		if strings.TrimSpace(f.URL) != "" {
+			return f.URL
+		}
+	}
+	return ""
+}
+
+// indexedSourceStaleVsUpstream 判断本地索引指向的 obj_url 是否已落后于上游最新文件。
+//
+// 关键场景：用户在原对话里追加多轮后，上游会产出文件名时间戳更新的新 JSONL，但
+// stg_session_sources 仅由离线导入写入、运行期从不更新 obj_url，于是索引永远指向旧文件。
+// 仅当上游可用且确实给出"不同物理文件 / 更晚时间戳"时返回 true；上游不可用或无文件时
+// 一律保守返回 false，不破坏离线导入数据的正常读取。
+func indexedSourceStaleVsUpstream(src model.StgSessionSource, hit *modellog.Session) bool {
+	if hit == nil {
+		return false
+	}
+	upstreamURL := upstreamLatestFileURL(hit)
+	if upstreamURL == "" {
+		return false
+	}
+	localKey := normalizeSourceFileKey(src.ObjURL)
+	upstreamKey := normalizeSourceFileKey(upstreamURL)
+	if localKey != "" && upstreamKey != "" {
+		// 能直接比对物理文件：不同即陈旧，相同即最新（忽略签名 query 差异）。
+		return localKey != upstreamKey
+	}
+	// 文件键无法比对时退化到时间戳：上游 update_at / 文件名时间戳更晚则视为陈旧。
+	upstreamAt := parseUpstreamTime(hit.UpdateAt)
+	if upstreamAt.IsZero() {
+		upstreamAt = parseUpstreamFileTimestamp(*hit)
+	}
+	if upstreamAt.IsZero() {
+		return false
+	}
+	if src.SourceUpdatedAt == nil || src.SourceUpdatedAt.IsZero() {
+		return true
+	}
+	return upstreamAt.After(*src.SourceUpdatedAt)
 }
 
 func detailLookupTimeRange(c *gin.Context, tr modellog.TimeRange, cachedBundle apiSessionBundle, hasCached bool) modellog.TimeRange {
@@ -492,9 +555,19 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		return
 	}
 
+	// 回源上游一次：判断本地索引/缓存是否已落后于上游最新文件，并在需要时复用此结果重抓。
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	hit, hitStatus, resolveErr := h.resolveSessionPublicationStatus(ctx, key, cookie, detailTR, statusHint)
+	if hitStatus != "" {
+		cachedBundle.ArtifactPublicationStatus = hitStatus
+	}
+
+	// 索引短路：仅当上游确认索引文件仍是最新（或上游不可用）时，才直接返回本地冻结快照。
+	// 若上游已产生新文件（用户在原对话里追加了多轮），则跳过短路，走下方回源重抓 + 回写索引。
 	if indexedBundle, indexedSrc, ok, err := h.getIndexedSessionBundle(key, statusHint); err != nil {
 		log.Printf("session detail indexed lookup failed key=%s err=%v", key, err)
-	} else if ok {
+	} else if ok && !indexedSourceStaleVsUpstream(indexedSrc, hit) {
 		if hasCached {
 			indexedBundle = mergeBundleWithCachedBundle(indexedBundle, cachedBundle)
 			indexedBundle.AggregateInvalidated = false
@@ -523,17 +596,10 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-	hit, hitStatus, resolveErr := h.resolveSessionPublicationStatus(ctx, key, cookie, detailTR, statusHint)
-
-	if hitStatus != "" {
-		cachedBundle.ArtifactPublicationStatus = hitStatus
-	}
 	if hasCached && !cachedBundle.AggregateInvalidated && hasDetailTraces(cachedBundle) &&
 		!detailBundleNeedsRefresh(cachedBundle) &&
 		!detailBundleNeedsSourceRefresh(cachedBundle, hit) {
-		// DB 已有完整 bundle 时仍要实时刷新发布状态，避免详情页命中旧缓存。
+		// DB 已有完整 bundle 且上游未见更新时，仍实时刷新发布状态后返回缓存。
 		c.JSON(http.StatusOK, h.applyQualityEvaluation(cachedBundle))
 		return
 	}
@@ -602,6 +668,8 @@ func (h *Handler) getSessionBundleAPI(c *gin.Context) {
 			if err := h.aggregator.PersistBundle(src, bundle); err != nil {
 				log.Printf("session detail persist failed session=%s artifact=%s err=%v", src.SessionID, src.ArtifactID, err)
 			}
+			// 回写索引，使下次详情读/freshness 直接命中新文件，不必每次都回源重抓大文件。
+			h.aggregator.writebackIndexedSource(src)
 		}
 		if cachedBundle.AggregateInvalidated {
 			persist(src, bundle)
