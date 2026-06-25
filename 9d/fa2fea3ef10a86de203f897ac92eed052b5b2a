@@ -1,0 +1,31 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9dfa2fea3ef10a86de203f897ac92eed052b5b2a",
+  "prompts": {},
+  "attestation_metadata": {},
+  "remote_transcripts": {
+    "s_8a1f6451e1f9ff": {
+      "tool": "trae",
+      "conversation_id": "6a3be8813f649d16fef4ea8f",
+      "session_id": "6a3be8813f649d16fef4ea8f",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_8a1f6451e1f9ff::t_ddf47ecded1db8": {
+      "tool": "trae",
+      "conversation_id": "6a3be8813f649d16fef4ea8f",
+      "session_id": "6a3be8813f649d16fef4ea8f",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_8a1f6451e1f9ff::t_e3ee4d5db4c294": {
+      "tool": "trae",
+      "conversation_id": "6a3be8813f649d16fef4ea8f",
+      "session_id": "6a3be8813f649d16fef4ea8f",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
