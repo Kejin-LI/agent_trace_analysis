@@ -148,7 +148,7 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 		if traceDur < 0 {
 			traceDur = 0
 		}
-		title := r.UserPrompt
+		title := summarizeSessionTitle(r.UserPrompt, "")
 		if title == "" {
 			title = fmt.Sprintf("Round %d", i+1)
 		}
@@ -184,7 +184,7 @@ func buildBundleFromTOS(src model.StgSessionSource, pr *tracelog.ParseResult) ap
 	title := ""
 	firstTraceID := ""
 	if len(traces) > 0 {
-		title = traces[0].Title
+		title = summarizeSessionTitle(traces[0].UserPrompt, traces[0].Title)
 		firstTraceID = traces[0].TraceID
 	}
 	if title == "" {

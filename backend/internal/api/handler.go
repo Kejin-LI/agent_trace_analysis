@@ -720,10 +720,11 @@ func buildSessionBundle(session model.StgArtifactSession, traceRows []model.StgA
 		userPrompt := extractTraceUserPrompt(tr.UserRequestPreview, spans)
 		roundCount := countRounds(spans)
 		turns := countModelSpans(spans)
+		traceTitle := summarizeSessionTitle(userPrompt, pickFirstNonEmpty(tr.UserRequestPreview, tr.FinalResult, tr.TraceID))
 		apiTraces = append(apiTraces, apiTrace{
 			TraceID:      tr.TraceID,
 			SpanID:       tr.RootSpanID,
-			Title:        pickFirstNonEmpty(tr.UserRequestPreview, tr.FinalResult, tr.TraceID),
+			Title:        traceTitle,
 			UserPrompt:   userPrompt,
 			RoundCount:   roundCount,
 			ModelName:    tr.ModelName,
@@ -743,7 +744,7 @@ func buildSessionBundle(session model.StgArtifactSession, traceRows []model.StgA
 		totalOut += nullableInt64(tr.OutputTokens)
 		if i == 0 {
 			firstTraceID = tr.TraceID
-			title = pickFirstNonEmpty(tr.UserRequestPreview, tr.FinalResult, tr.TraceID)
+			title = summarizeSessionTitle(userPrompt, traceTitle)
 			if nullableInt64(tr.StartedAtMs) > 0 {
 				startedAtMs = nullableInt64(tr.StartedAtMs)
 				startedAt = timeToString(tr.StartedAt)
