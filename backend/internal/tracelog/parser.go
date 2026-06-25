@@ -1284,13 +1284,7 @@ func decodeRequest(raw json.RawMessage, c *callRec) {
 	if len(raw) == 0 {
 		return
 	}
-	var body struct {
-		Model    string        `json:"model"`
-		Messages []chatMessage `json:"messages"`
-	}
-	if err := json.Unmarshal(raw, &body); err == nil {
-		c.Model = body.Model
-		c.Messages = body.Messages
+	if applyRequestBody(raw, c) {
 		return
 	}
 	// 兜底：data 可能再嵌一层 {body: ...}。
@@ -1298,10 +1292,39 @@ func decodeRequest(raw json.RawMessage, c *callRec) {
 		Body json.RawMessage `json:"body"`
 	}
 	if err := json.Unmarshal(raw, &wrap); err == nil && len(wrap.Body) > 0 {
-		_ = json.Unmarshal(wrap.Body, &body)
-		c.Model = body.Model
-		c.Messages = body.Messages
+		applyRequestBody(wrap.Body, c)
 	}
+}
+
+// applyRequestBody 从单次 LLM 调用的请求体里提取 model 与历史消息。
+//
+// 兼容两种线上格式：
+//   - Chat Completions：{model, messages:[{role,content},...]}
+//   - Responses API   ：{model, input:[{role,content},...]}（GPT-5.x 等新模型走这套）
+//
+// 同一 session 可能逐轮切换格式（首轮 gemini 用 messages，后续 gpt 用 input），
+// 旧实现只认 messages，导致 Responses 轮的 user prompt 解析为空、多轮在详情页塌缩成一轮。
+// input 数组里还混有 function_call / function_call_output 等无 role 的项，它们不影响
+// extractUserPrompt（只回溯 role==user 的消息），原样保留即可。
+func applyRequestBody(raw json.RawMessage, c *callRec) bool {
+	var body struct {
+		Model    string        `json:"model"`
+		Messages []chatMessage `json:"messages"`
+		Input    []chatMessage `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return false
+	}
+	msgs := body.Messages
+	if len(msgs) == 0 {
+		msgs = body.Input
+	}
+	if body.Model == "" && len(msgs) == 0 {
+		return false
+	}
+	c.Model = body.Model
+	c.Messages = msgs
+	return true
 }
 
 // decodeResponse 从 RESPONSE_BODY_FINAL.data 提取 final 块。

@@ -203,7 +203,11 @@ func (h *Handler) getSessionBundleFreshness(c *gin.Context) {
 	latestStatus := resp.ArtifactPublicationStatus
 	var shouldEnqueue bool
 
+	var indexedSrc model.StgSessionSource
+	var hasIndexed bool
 	if src, found, srcErr := h.latestIndexedSessionSource(row.SessionID, row.ArtifactID); srcErr == nil && found {
+		indexedSrc = src
+		hasIndexed = true
 		if src.SourceUpdatedAt != nil {
 			latestUpdatedAt = src.SourceUpdatedAt
 			if row.SourceUpdateAt == nil || src.SourceUpdatedAt.After(*row.SourceUpdateAt) {
@@ -238,6 +242,15 @@ func (h *Handler) getSessionBundleFreshness(c *gin.Context) {
 						if resp.Reason == "" {
 							resp.Reason = "upstream_source_refresh_queued"
 						}
+					}
+				}
+				// 兜底：当 source_updated_at 缺失或时间戳未体现新轮次时，时间戳比较会静默漏判。
+				// 改用"上游最新文件 URL vs 本地索引 obj_url"直接比对物理文件，命中差异即判定需要刷新。
+				if !shouldEnqueue && hasIndexed && indexedSourceStaleVsUpstream(indexedSrc, hit) {
+					shouldEnqueue = true
+					resp.NeedsRefresh = true
+					if resp.Reason == "" {
+						resp.Reason = "upstream_file_changed"
 					}
 				}
 			}

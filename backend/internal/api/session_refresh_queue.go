@@ -161,43 +161,107 @@ func (a *Aggregator) runSessionRefreshJob(job model.StgSessionRefreshQueue) erro
 	if sessionID == "" {
 		return fmt.Errorf("empty session id")
 	}
-	if src, status, ok, err := a.latestRefreshIndexedSource(job); err != nil {
-		return err
-	} else if ok {
-		return a.refreshSessionFromSource(src, status)
-	}
-	row, ok, err := a.latestAggregateForRefresh(sessionID, strings.TrimSpace(job.ArtifactID))
+
+	indexedSrc, indexedStatus, hasIndexed, err := a.latestRefreshIndexedSource(job)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("aggregate row not found")
+
+	// 优先回源上游拿最新文件 URL，再与本地索引比对：
+	// 用户在原对话里追加多轮后，上游会产出文件名时间戳更新的新 JSONL，但
+	// stg_session_sources 仅由离线导入写入、运行期从不更新 obj_url，索引会永远指向旧文件。
+	// 因此必须以上游为准重抓，并把新 obj_url 回写索引，否则"刷新了个寂寞"。
+	hit, hitStatus := a.resolveUpstreamSessionForRefresh(job, sessionID, hasIndexed, indexedSrc)
+	if hit != nil && upstreamLatestFileURL(hit) != "" {
+		if !hasIndexed || indexedSourceStaleVsUpstream(indexedSrc, hit) {
+			src := sessionToStgSource(*hit)
+			status := hitStatus
+			if status == "" {
+				status = indexedStatus
+			}
+			if err := a.refreshSessionFromSource(src, status); err != nil {
+				return err
+			}
+			a.writebackIndexedSource(src)
+			return nil
+		}
 	}
+
+	// 上游未见更新（或不可用）：退回到本地索引重抓。
+	if hasIndexed {
+		return a.refreshSessionFromSource(indexedSrc, indexedStatus)
+	}
+	if hit == nil {
+		return fmt.Errorf("session not found in upstream window and no indexed source")
+	}
+	return fmt.Errorf("upstream session has no jsonl file")
+}
+
+// resolveUpstreamSessionForRefresh 尽力回源上游拿到该 session 的最新 Session 记录（含最新 FileList）。
+// best-effort：上游不可用 / 无 Cookie / 鉴权失效时返回 (nil, "")，让上层退回本地索引重抓，不让队列任务失败。
+func (a *Aggregator) resolveUpstreamSessionForRefresh(job model.StgSessionRefreshQueue, sessionID string, hasIndexed bool, indexedSrc model.StgSessionSource) (*modellog.Session, string) {
 	if a.upstream == nil || a.fetcher == nil {
-		return fmt.Errorf("upstream refresh unavailable")
+		return nil, ""
 	}
 	cookie := strings.TrimSpace(a.currentCookie())
 	if cookie == "" {
-		return fmt.Errorf("cookie unavailable")
+		return nil, ""
+	}
+	statusHint := ""
+	anchor := time.Time{}
+	if row, ok, err := a.latestAggregateForRefresh(sessionID, strings.TrimSpace(job.ArtifactID)); err == nil && ok {
+		statusHint = row.ArtifactPublicationStatus
+		if row.StartedAtMs > 0 {
+			anchor = time.UnixMilli(row.StartedAtMs)
+		}
+	}
+	if anchor.IsZero() && hasIndexed {
+		if indexedSrc.SourceCreatedAt != nil && !indexedSrc.SourceCreatedAt.IsZero() {
+			anchor = *indexedSrc.SourceCreatedAt
+		} else if indexedSrc.SourceUpdatedAt != nil && !indexedSrc.SourceUpdatedAt.IsZero() {
+			anchor = *indexedSrc.SourceUpdatedAt
+		}
 	}
 	tr := modellog.TimeRange{}
-	if row.StartedAtMs > 0 {
-		sessionAt := time.UnixMilli(row.StartedAtMs)
-		tr.StartTime = sessionAt.Add(-detailLookupHalfWindow).Format("2006-01-02 15:04:05")
-		tr.EndTime = sessionAt.Add(detailLookupHalfWindow).Format("2006-01-02 15:04:05")
+	if !anchor.IsZero() {
+		tr.StartTime = anchor.Add(-detailLookupHalfWindow).Format("2006-01-02 15:04:05")
+		tr.EndTime = anchor.Add(detailLookupHalfWindow).Format("2006-01-02 15:04:05")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	handler := &Handler{upstream: a.upstream}
-	hit, hitStatus, err := handler.resolveSessionPublicationStatus(ctx, pickFirstNonEmpty(sessionID, job.ArtifactID), cookie, tr, row.ArtifactPublicationStatus)
+	hit, hitStatus, err := handler.resolveSessionPublicationStatus(ctx, pickFirstNonEmpty(sessionID, job.ArtifactID), cookie, tr, statusHint)
 	if err != nil {
-		return err
+		if isUpstreamAuthMissing(err) {
+			a.forgetCookie()
+		}
+		log.Printf("session refresh: upstream resolve failed session=%s err=%v", sessionID, err)
+		return nil, ""
 	}
-	if hit == nil {
-		return fmt.Errorf("session not found in upstream window")
+	return hit, hitStatus
+}
+
+// writebackIndexedSource 把上游最新文件 URL 回写到 stg_session_sources（OnConflict on artifact_id），
+// 使后续详情读/freshness 判定不再指向旧文件。运行期唯一更新该表 obj_url 的入口。
+func (a *Aggregator) writebackIndexedSource(src model.StgSessionSource) {
+	if a == nil || a.db == nil {
+		return
 	}
-	src := sessionToStgSource(*hit)
-	return a.refreshSessionFromSource(src, hitStatus)
+	if strings.TrimSpace(src.ArtifactID) == "" || strings.TrimSpace(src.ObjURL) == "" {
+		return
+	}
+	if strings.TrimSpace(src.ObjFormat) == "" {
+		src.ObjFormat = "jsonl"
+	}
+	if err := a.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "artifact_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"session_id", "user_id", "user_name", "obj_url", "obj_format",
+			"source_created_at", "source_updated_at", "updated_at",
+		}),
+	}).Create(&src).Error; err != nil {
+		log.Printf("session refresh: writeback indexed source failed artifact=%s err=%v", src.ArtifactID, err)
+	}
 }
 
 func (a *Aggregator) latestRefreshIndexedSource(job model.StgSessionRefreshQueue) (model.StgSessionSource, string, bool, error) {

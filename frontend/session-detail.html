@@ -5686,11 +5686,11 @@
     return segment || raw;
   }
 
-  function cleanUserPrompt(text, { dropGeneratedRoundTitle = true } = {}) {
+  function cleanUserPrompt(text, { dropGeneratedRoundTitle = true, allowControlWords = false } = {}) {
     const prompt = normalizePromptText(extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(text))));
     if (!prompt
       || (dropGeneratedRoundTitle && isGeneratedRoundTitle(prompt))
-      || isControlLikePrompt(prompt)
+      || (!allowControlWords && isControlLikePrompt(prompt))
       || isSyntheticToolPrompt(prompt)) return '';
     return prompt;
   }
@@ -5720,9 +5720,14 @@
   }
 
   function pickPromptForSpan(span, trace, { preferTracePrompt = false } = {}) {
+    // 后端已按 promptId 给出本轮权威 user_prompt（含「继续」这类控制词——它在某一轮里
+    // 确实是用户真实输入）。优先信任它；否则回退到从 span.input 历史回溯。
+    // 注意：Responses API 的 input 携带累积历史，若直接历史回溯且本轮 prompt 是被过滤的
+    // 控制词，会回溯抓到上一轮 prompt，导致「上一轮重复 + 本轮丢失」。
+    const authoritativeSpan = cleanUserPrompt(span && span.user_prompt, { dropGeneratedRoundTitle: false, allowControlWords: true });
     const messagePrompt = cleanUserPrompt(extractUserPrompt(span), { dropGeneratedRoundTitle: false });
-    const spanPrompt = messagePrompt || cleanUserPrompt(span.user_prompt);
-    const tracePrompt = cleanUserPrompt(trace.user_prompt);
+    const spanPrompt = authoritativeSpan || messagePrompt;
+    const tracePrompt = cleanUserPrompt(trace.user_prompt, { allowControlWords: true });
     const titlePrompt = cleanUserPrompt(trace.title);
     return preferTracePrompt
       ? (tracePrompt || spanPrompt || titlePrompt)
