@@ -3511,7 +3511,7 @@
       try {
         sessionStorage.setItem(detailSeedStorageKey(sessionId), JSON.stringify({
           id: sessionId,
-          title: String(real?.title || ('Session ' + sessionId)),
+          title: resolveSessionTitle(real) || ('Session ' + sessionId),
           user: String(real?.user || real?.user_id || 'anonymous'),
           trace,
           startedAtMs: Number(real?.started_at_ms || 0),
@@ -3933,16 +3933,29 @@
       return value;
     }
 
+    // 会话标题：优先用顶层 title；但当它是框架生成的 "Round N" / 合成 prompt / 注入块时，
+    // 回退到对话流首个真实用户输入（与首个用户气泡一致），避免详情页标题显示成无意义的 "Round 1"。
+    function resolveSessionTitle(real) {
+      if (!real) return '';
+      const cleanedTitle = cleanUserPrompt(real.title, { dropGeneratedRoundTitle: true });
+      if (cleanedTitle) return cleanedTitle;
+      try {
+        const convo = buildConversationGroups(real);
+        const firstReal = (convo.groups || []).find(g => String(g.userPrompt || '').trim() && !g.synthetic);
+        if (firstReal) return String(firstReal.userPrompt).trim();
+      } catch {}
+      return '';
+    }
+
     function renderSession(real, stage) {
     let s;
     if (real) {
       // 真实数据：将后端字段映射到前端展示字段
       const r = real;
-      const cleanedTitle = cleanUserPrompt(r.title, { dropGeneratedRoundTitle: false });
-      const titleIsSynthetic = detectSyntheticPromptKind(stripInjectedContext(r.title));
+      const resolvedTitle = resolveSessionTitle(r);
       const traceDisplay = normalizeDisplayTraceId(r.trace || (r.traces && r.traces[0] ? r.traces[0].trace_id : ''));
       s = {
-        title: cleanedTitle || (titleIsSynthetic ? '' : r.title) || ('Session ' + id),
+        title: resolvedTitle || ('Session ' + id),
         score: r.score ?? null,
         color: r.color || 'gray',
         chip: r.chip || '--',
@@ -5586,29 +5599,56 @@
     return end;
   }
 
+  // 收集所有成对注入块（前缀 / 后缀 / 夹在用户输入中间均可），并返回剥离后的剩余文本。
+  // 新版 Agent 框架（如 Plan 模式）会把 <system-reminder> 等注入块拼在用户输入之后，
+  // 甚至把真实 prompt 夹在两个注入块中间，旧的"最后闭合标签锚点"会把这类真实 prompt 整段误删。
+  function splitInjectedContext(raw) {
+    const blocks = [];
+    const pairedRe = /<(system-reminders?|project-memory|related-conversations?)>[\s\S]*?<\/\1>/gi;
+    // 循环替换以消除注入块内部的同名嵌套，保证嵌套块也被完整剥离。
+    let stripped = raw;
+    let prev = null;
+    while (prev !== stripped) {
+      prev = stripped;
+      stripped = stripped.replace(pairedRe, (match) => {
+        blocks.push(match.trim());
+        return ' ';
+      });
+    }
+    return { blocks, stripped: stripped.replace(/\s+/g, ' ').trim() };
+  }
+
+  // 残留注入标签（开或闭）检测：用于判断成对剥离是否已干净，否则回退到锚点逻辑。
+  function hasResidualInjectedTag(text) {
+    return /<\/?(system-reminders?|project-memory|related-conversations?)>/i.test(text);
+  }
+
   // 抽取框架注入的上下文块（用于单独折叠展示，而非丢弃）。
-  // 优先按"最后闭合标签"锚点切分：闭合标签（含）之前整体视为注入上下文。
   function extractInjectedContext(text) {
     const raw = String(text || '');
+    const { blocks, stripped } = splitInjectedContext(raw);
+    // 成对块全部剥离后若不再残留注入标签，说明已完整切分，直接返回收集到的块。
+    if (!hasResidualInjectedTag(stripped)) {
+      return blocks.join('\n\n').trim();
+    }
+    // 回退：存在未闭合/同名嵌套残留标签时，按"最后闭合标签"锚点把其前整体视为注入上下文。
     const end = lastInjectedCloseEnd(raw);
     if (end >= 0) return raw.slice(0, end).trim();
-    // 回退：仅命中成对标签的旧逻辑（极端情况下闭合标签缺失但成对块存在）。
-    const blocks = [];
-    injectedContextTags().forEach(tag => {
-      const re = new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi');
-      let m;
-      while ((m = re.exec(raw)) !== null) blocks.push(m[0].trim());
-    });
     return blocks.join('\n\n').trim();
   }
 
-  // 剥离框架注入的上下文包裹块，保留其后真实用户输入。
+  // 剥离框架注入的上下文包裹块，保留真实用户输入（无论注入块在前缀、后缀还是夹在中间）。
   // 不剥离会导致气泡显示成系统注入、且多轮因 prompt 判空而塌缩成一轮。
   function stripInjectedContext(text) {
     const raw = String(text || '');
+    const { stripped } = splitInjectedContext(raw);
+    // 成对块剥离后若不再残留注入标签，说明已完整切分，剩余文本即真实用户输入。
+    if (!hasResidualInjectedTag(stripped)) {
+      return stripped;
+    }
+    // 回退：存在未闭合/同名嵌套残留标签时，沿用"最后闭合标签之后即真实输入"的旧锚点逻辑。
     const end = lastInjectedCloseEnd(raw);
     if (end >= 0) return raw.slice(end).trim();
-    // 回退：仅命中成对标签的旧逻辑。
     let cleaned = raw;
     injectedContextTags().forEach(tag => {
       cleaned = cleaned.replace(new RegExp(`<(${tag})>[\\s\\S]*?</\\1>`, 'gi'), '');
@@ -6416,6 +6456,42 @@
     return '';
   }
 
+  // 从一个 model span 的 input.messages 里抽出「真实用户轮次」的有序文本列表。
+  // 注入上下文 / question_answer_result 回传 / 合成控制词等经 cleanUserPrompt 会被清空，
+  // 因此这里得到的就是用户真正手动发出的输入序列。
+  function extractRealUserTurnsFromSpan(span) {
+    const inp = safeJSON(span && span.input);
+    if (!inp || !Array.isArray(inp.messages)) return [];
+    const turns = [];
+    inp.messages.forEach(m => {
+      if (!m || m.role !== 'user') return;
+      const cleaned = cleanUserPrompt(contentToText(m.content), { dropGeneratedRoundTitle: false });
+      if (cleaned) turns.push(cleaned);
+    });
+    return turns;
+  }
+
+  // 统计整个 session 里每条「真实用户输入」实际被发送的次数。
+  // 取 input 最长的 model span（线性对话中即累积历史最完整的那次调用）为权威序列：
+  // 它包含到那一刻为止的全部用户轮次，因此 "同一条 prompt 出现几次" 就等于用户真发了几次。
+  // 这样既能合并「同一轮被多个 trace 重复携带」的假重复，又能保留「用户真连发两条」的真重复。
+  function buildAuthoritativeUserTurnCounts(real) {
+    const spans = (real?.traces || []).flatMap(t => t.spans || []).filter(sp => sp && sp.span_type === 'model');
+    let best = null;
+    let bestLen = -1;
+    spans.forEach(sp => {
+      const len = typeof sp.input === 'string' ? sp.input.length : 0;
+      if (len > bestLen) { bestLen = len; best = sp; }
+    });
+    const counts = new Map();
+    if (!best) return counts;
+    extractRealUserTurnsFromSpan(best).forEach(text => {
+      const key = String(text || '').trim();
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }
+
   function buildConversationGroups(real) {
     const traces = (real?.traces || [])
       .slice()
@@ -6450,9 +6526,19 @@
       return isClarifyMessageText(text) || tool_calls.some(tc => isClarifyTool(tc.name || ''));
     }));
     const normalizedBaseGroups = [];
+    // 权威用户轮次计数：用于区分「同一轮被多个 trace 重复携带」(假重复，应合并)
+    // 与「用户真的连发多条相同 prompt」(真重复，应各自成轮)。
+    const userTurnCounts = buildAuthoritativeUserTurnCounts(real);
+    const renderedPromptCounts = new Map();
     baseGroups.forEach(grp => {
       const hasRealPrompt = !!String(grp.userPrompt || '').trim() && !grp.synthetic;
-      const shouldAttachToPrevious = normalizedBaseGroups.length && !hasRealPrompt;
+      const promptKey = hasRealPrompt ? String(grp.userPrompt).trim() : '';
+      const allowed = promptKey ? (userTurnCounts.get(promptKey) || 0) : 0;
+      const rendered = promptKey ? (renderedPromptCounts.get(promptKey) || 0) : 0;
+      // 仅当权威序列里这条 prompt 的"应渲染次数"已用尽时，才判定当前是重复携带。
+      // allowed===0 表示权威序列不可用/未覆盖，此时退回旧行为，不做抑制。
+      const isDuplicateCarry = hasRealPrompt && allowed > 0 && rendered >= allowed;
+      const shouldAttachToPrevious = normalizedBaseGroups.length && (!hasRealPrompt || isDuplicateCarry);
       const prev = normalizedBaseGroups.length ? normalizedBaseGroups[normalizedBaseGroups.length - 1] : null;
       if (shouldAttachToPrevious) {
         prev.traces.push(...grp.traces);
@@ -6461,6 +6547,7 @@
         if (!prev.clarifyAnswerInfo && grp.clarifyAnswerInfo) prev.clarifyAnswerInfo = grp.clarifyAnswerInfo;
         return;
       }
+      if (promptKey) renderedPromptCounts.set(promptKey, rendered + 1);
       normalizedBaseGroups.push({
         ...grp,
         internalPrompts: grp.synthetic ? [{ info: grp.synthetic, raw: grp.syntheticRaw }] : [],
