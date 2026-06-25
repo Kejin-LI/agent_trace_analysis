@@ -422,9 +422,6 @@
       <div class="text-[12px] text-[--text-tertiary] mb-1.5 tracking-wide">DASHBOARD · <span id="hdr-today">2026-05-25</span></div>
       <h1 id="hdr-title" class="text-[34px] font-semibold tracking-tight leading-tight truncate max-w-[820px]"><span id="hdr-greet">早安 ☀️</span> <span id="hdr-rangelabel">最近 7 天</span>有 <span class="text-[--apple-orange]" id="hdr-issue-count">— 个</span> 异常会话需要关注</h1>
       <p class="text-[14px] text-[--text-secondary] mt-1.5" id="hdr-sub">共 <span class="text-[--text-primary] font-medium num-mono" id="hdr-total">—</span> 个 session，其中 <span class="text-[--apple-red] font-medium num-mono" id="hdr-anomaly">—</span> 个有异常。<span id="hdr-top-issue"></span></p>
-      <p class="text-[12px] text-[--apple-orange] mt-2 px-3 py-2 rounded-xl bg-[--apple-orange]/10 border border-[--apple-orange]/20 hidden" id="hdr-list-cap-note">
-        查看 Session 列表时，默认仅展示当前时间范围内最新 2000 条记录；如需完整排查，请缩小时间范围。
-      </p>
     </div>
     <div class="flex items-center gap-2"></div>
   </section>
@@ -623,6 +620,9 @@
       <div>
         <h2 class="text-[17px] font-semibold tracking-tight">异常Sessions</h2>
         <p class="text-[12px] text-[--text-secondary] mt-0.5">仅展示有异常问题的最低健康度 10 个 sessions · 异常标签与 Session 列表口径一致</p>
+        <p class="text-[12px] text-[--apple-orange] mt-2 px-3 py-2 rounded-xl bg-[--apple-orange]/10 border border-[--apple-orange]/20 hidden" id="hdr-list-cap-note">
+          点击「查看全部」进入 Session 列表时，默认仅展示当前时间范围内最新 2000 条记录；如需完整排查，请缩小时间范围。
+        </p>
       </div>
       <div class="flex items-center gap-2">
         <a href="./sessions.html" class="text-[12px] text-[--apple-blue] hover:underline ml-1">查看全部 →</a>
@@ -1018,7 +1018,7 @@
       const truncated = totalN > 2000;
       listCapNoteEl.classList.toggle('hidden', !truncated);
       if (truncated) {
-        listCapNoteEl.innerHTML = `查看 Session 列表时，默认仅展示当前时间范围内最新 <span class="num-mono">2,000</span> 条记录；当前范围共有 <span class="num-mono">${totalN.toLocaleString()}</span> 条。完整排查请缩小时间范围。`;
+        listCapNoteEl.innerHTML = `点击「查看全部」进入 Session 列表时，默认仅展示当前时间范围内最新 <span class="num-mono">2,000</span> 条记录；当前范围共有 <span class="num-mono">${totalN.toLocaleString()}</span> 条。完整排查请缩小时间范围。`;
       }
     }
     window.renderListCapNote = renderListCapNote;
@@ -1116,6 +1116,32 @@
       if (ruleEl) {
         ruleEl.textContent = radarAvg == null ? (pendingCount > 0 ? '计算中...' : '—') : Math.round(radarAvg);
         ruleEl.style.color = previewScoreColor(radarAvg);
+      }
+
+      // GPT 卡片同样用 summary 全量聚合预渲染，避免等 Top10 返回前出现空窗或被样本覆盖。
+      // 注意：本函数与 LLM_DIMENSIONS 不在同一 <script> 块，无法引用该 const，故本地写死维度 key；
+      // renderLLMMatrix 是函数声明（挂在全局对象上），跨块可直接调用。
+      const previewLLMDimKeys = ['resolved', 'intent_match', 'efficiency_feel', 'sentiment', 'actionability', 'hallucination_risk'];
+      const llmEvaluatedCount = Number(summary.llm_evaluated_count || 0) || 0;
+      const summaryLLMScore = summary.llm_avg_score;
+      const summaryLLMRadar = summary.llm_radar || null;
+      const llmEl = document.getElementById('kpi-llm-score');
+      if (llmEl) {
+        const hasLLMScore = llmEvaluatedCount && summaryLLMScore !== null && summaryLLMScore !== undefined;
+        llmEl.textContent = hasLLMScore ? Math.round(summaryLLMScore) : (pendingCount > 0 ? '计算中...' : '—');
+        llmEl.style.color = hasLLMScore ? previewScoreColor(summaryLLMScore) : 'var(--text-tertiary)';
+      }
+      const llmNEl = document.getElementById('llm-evaluated-n');
+      if (llmNEl) llmNEl.textContent = llmEvaluatedCount;
+      const coverageEl = document.getElementById('kpi-llm-coverage');
+      if (coverageEl) coverageEl.textContent = total ? `${Math.round(llmEvaluatedCount / total * 100)}%` : '—';
+      if (typeof renderLLMMatrix === 'function') {
+        const previewLLMDims = {};
+        previewLLMDimKeys.forEach(key => {
+          const v = summaryLLMRadar ? summaryLLMRadar[key] : null;
+          previewLLMDims[key] = (typeof v === 'number' && !Number.isNaN(v)) ? v : null;
+        });
+        renderLLMMatrix(previewLLMDims, llmEvaluatedCount);
       }
     }
 
@@ -1886,6 +1912,27 @@
         avgLLMDims[dim.key] = llmDimCount[dim.key] ? (avgLLMDims[dim.key] / llmDimCount[dim.key]) : null;
       });
 
+      // GPT 卡片优先使用 summary 的全量聚合（整段时间窗内的真实大盘均分/六维），
+      // 仅在 summary 缺失时才退回异常 Top10 样本现算，避免大盘 GPT 数据被 10 条样本代表。
+      const summaryLLMRadar = summary?.llm_radar || null;
+      const summaryLLMScore = summary?.llm_avg_score;
+      const hasSummaryLLM = !!summary && (summaryLLMScore !== null && summaryLLMScore !== undefined || !!summaryLLMRadar);
+      let displayLLMScore = avgLLMScore;
+      let displayLLMScoreCount = llmScoreCount;
+      const displayLLMDims = {};
+      let displayLLMDimCount = llmScoreCount;
+      if (hasSummaryLLM) {
+        displayLLMScore = summaryLLMScore ?? null;
+        displayLLMScoreCount = llmEvaluatedCount;
+        displayLLMDimCount = llmEvaluatedCount;
+        LLM_DIMENSIONS.forEach(dim => {
+          const v = summaryLLMRadar ? summaryLLMRadar[dim.key] : null;
+          displayLLMDims[dim.key] = (typeof v === 'number' && !Number.isNaN(v)) ? v : null;
+        });
+      } else {
+        LLM_DIMENSIONS.forEach(dim => { displayLLMDims[dim.key] = avgLLMDims[dim.key]; });
+      }
+
       const pendingCount = Number(summary?.pending_count ?? samplePendingCount);
       const analyzedTotal = Number(summary?.analyzed_count ?? sampleAnalyzedTotal);
       const anomalyCount = Number(summary?.anomaly_count ?? sampleAnomalyCount);
@@ -1957,14 +2004,15 @@
       }
       const llmEl = document.getElementById('kpi-llm-score');
       if (llmEl) {
-        llmEl.textContent = llmScoreCount ? Math.round(avgLLMScore) : '—';
-        llmEl.style.color = llmScoreCount ? scoreColor(avgLLMScore) : 'var(--text-tertiary)';
+        const hasLLMScore = displayLLMScoreCount && displayLLMScore !== null && displayLLMScore !== undefined;
+        llmEl.textContent = hasLLMScore ? Math.round(displayLLMScore) : '—';
+        llmEl.style.color = hasLLMScore ? scoreColor(displayLLMScore) : 'var(--text-tertiary)';
       }
       const coverageEl = document.getElementById('kpi-llm-coverage');
       if (coverageEl) coverageEl.textContent = total ? `${llmCoverage}%` : '—';
       const llmNEl = document.getElementById('llm-evaluated-n');
       if (llmNEl) llmNEl.textContent = llmEvaluatedCount;
-      renderLLMMatrix(avgLLMDims, llmScoreCount);
+      renderLLMMatrix(displayLLMDims, displayLLMDimCount);
       if (window.bindHelpTooltips) window.bindHelpTooltips(document);
       const kpiP95El = document.getElementById('kpi-p95');
       if (kpiP95El) kpiP95El.innerHTML = fmtDuration(percentile(durations, 0.95));

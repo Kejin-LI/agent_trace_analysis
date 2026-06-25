@@ -30,6 +30,17 @@ type apiDashboardSummaryRadar struct {
 	Orchestration *float64 `json:"orchestration,omitempty"`
 }
 
+// apiDashboardLLMRadar 是 GPT-5.5 六维评估在选定时间窗内的全量均分，
+// 维度与前端 LLM_DIMENSIONS 一一对应。仅当该维度在窗口内有评估样本时才非空。
+type apiDashboardLLMRadar struct {
+	Resolved          *float64 `json:"resolved,omitempty"`
+	IntentMatch       *float64 `json:"intent_match,omitempty"`
+	EfficiencyFeel    *float64 `json:"efficiency_feel,omitempty"`
+	Sentiment         *float64 `json:"sentiment,omitempty"`
+	Actionability     *float64 `json:"actionability,omitempty"`
+	HallucinationRisk *float64 `json:"hallucination_risk,omitempty"`
+}
+
 type apiDashboardSummary struct {
 	Total             int                      `json:"total"`
 	AnalyzedCount     int                      `json:"analyzed_count"`
@@ -40,6 +51,10 @@ type apiDashboardSummary struct {
 	P90DurationMs     int64                    `json:"p90_duration_ms,omitempty"`
 	AvgScore          *float64                 `json:"avg_score,omitempty"`
 	Radar             apiDashboardSummaryRadar `json:"radar"`
+	// LLMAvgScore / LLMRadar 是 GPT-5.5 在整段时间窗内的全量均分与六维雷达，
+	// 与异常 Top10 样本无关，供大盘 GPT 卡片直接渲染选定范围的真实大盘数据。
+	LLMAvgScore *float64             `json:"llm_avg_score,omitempty"`
+	LLMRadar    apiDashboardLLMRadar `json:"llm_radar"`
 }
 
 type dashboardAnomalyCandidateStats struct {
@@ -305,11 +320,13 @@ func (h *Handler) buildDashboardSummaryFromDailySummaries(tr modellog.TimeRange)
 	summary.Radar.Resource = &resource
 	summary.Radar.Stability = &stability
 	summary.Radar.Orchestration = &orchestration
-	llmCount, err := h.countDashboardLLMEvaluated(tr)
+	llmAgg, err := h.aggregateDashboardLLMFromStaging(tr)
 	if err != nil {
 		return apiDashboardSummary{}, err
 	}
-	summary.LLMEvaluatedCount = llmCount
+	summary.LLMEvaluatedCount = llmAgg.count
+	summary.LLMAvgScore = llmAgg.avgScore
+	summary.LLMRadar = llmAgg.radar
 	return summary, nil
 }
 
@@ -326,6 +343,7 @@ func (h *Handler) buildDashboardSummaryFromAggregates(tr modellog.TimeRange) (ap
 		return summary, nil
 	}
 	bundles = h.applyQualityEvaluations(bundles)
+	summary.LLMAvgScore, summary.LLMRadar = accumulateDashboardLLMAggregate(bundles)
 
 	summary.AnalyzedCount = len(bundles)
 	summary.Total = len(bundles)
@@ -718,38 +736,78 @@ func (h *Handler) listSummaryBundlesFromDB(tr modellog.TimeRange) ([]apiSessionB
 	return bundles, nil
 }
 
-func (h *Handler) countDashboardLLMEvaluated(tr modellog.TimeRange) (int, error) {
+type dashboardLLMAggregate struct {
+	count    int
+	avgScore *float64
+	radar    apiDashboardLLMRadar
+}
+
+// aggregateDashboardLLMFromStaging 在日汇总路径下，直接从质量评估表算出整段时间窗的
+// GPT-5.5 全量已评估数、均分与六维雷达。口径与 llm_evaluated_count 完全一致
+// （is_deleted=0 / session_id 前缀 / llm_eval_status=succeeded / session_started_at 落窗），
+// 每个 session 仅保留一行最新评估，故按行 AVG 即等价按 session 均分。
+// 这是大盘唯一的重查询，套短超时上下文：DB 慢就整体降级为空，绝不拖垮大盘主数据。
+func (h *Handler) aggregateDashboardLLMFromStaging(tr modellog.TimeRange) (dashboardLLMAggregate, error) {
 	if h == nil || h.db == nil {
-		return 0, nil
+		return dashboardLLMAggregate{}, nil
 	}
 	startAt, endAt, ok := parseTimeRangeBounds(tr)
 	if !ok {
-		return 0, nil
+		return dashboardLLMAggregate{}, nil
 	}
-	// 这条 COUNT(DISTINCT) 是大盘唯一的重查询：宽窗口下会扫 staging 表数千行，
-	// 实测 30 天窗口稳定 ~5.7s，直接撞网关超时导致大盘白屏(504)。
-	// llm_evaluated_count 只是个次要展示指标，宁可超时返回 0 也不能拖垮整个大盘，
-	// 因此套一个短超时上下文：DB 慢就放弃这个数，保证大盘主数据秒回。
 	ctx, cancel := context.WithTimeout(context.Background(), dashboardLLMCountTimeout)
 	defer cancel()
-	type countRow struct {
-		Count int
+	type aggRow struct {
+		Count                int
+		AvgScore             *float64
+		AvgResolved          *float64
+		AvgIntentMatch       *float64
+		AvgEfficiencyFeel    *float64
+		AvgSentiment         *float64
+		AvgActionability     *float64
+		AvgHallucinationRisk *float64
 	}
-	var row countRow
+	var row aggRow
 	// 用 session_id LIKE 'ses\_%' 替代 LEFT(session_id,4)='ses_'：
 	// 函数包裹列会让 session_id 索引失效，LIKE 前缀匹配可走索引。
 	if err := h.db.WithContext(ctx).Model(&model.StgSessionQualityEvaluation{}).
-		Select("COUNT(DISTINCT session_id) AS count").
+		Select("COUNT(DISTINCT session_id) AS count, "+
+			"AVG(llm_score) AS avg_score, "+
+			"AVG(llm_resolved_score) AS avg_resolved, "+
+			"AVG(llm_intent_match_score) AS avg_intent_match, "+
+			"AVG(llm_efficiency_feel_score) AS avg_efficiency_feel, "+
+			"AVG(llm_sentiment_score) AS avg_sentiment, "+
+			"AVG(llm_actionability_score) AS avg_actionability, "+
+			"AVG(llm_hallucination_risk_score) AS avg_hallucination_risk").
 		Where("is_deleted = 0").
 		Where("session_id LIKE ?", "ses\\_%").
 		Where("llm_eval_status = ?", "succeeded").
 		Where("session_started_at BETWEEN ? AND ?", startAt, endAt).
 		Scan(&row).Error; err != nil {
-		// 超时或查询失败都降级为 0，不让次要指标阻断大盘。
-		log.Printf("dashboard: countDashboardLLMEvaluated degraded to 0: %v", err)
-		return 0, nil
+		// 超时或查询失败都降级为空，不让次要指标阻断大盘。
+		log.Printf("dashboard: aggregateDashboardLLMFromStaging degraded to empty: %v", err)
+		return dashboardLLMAggregate{}, nil
 	}
-	return row.Count, nil
+	return dashboardLLMAggregate{
+		count:    row.Count,
+		avgScore: roundOptionalScoreAvg(row.AvgScore),
+		radar: apiDashboardLLMRadar{
+			Resolved:          roundOptionalScoreAvg(row.AvgResolved),
+			IntentMatch:       roundOptionalScoreAvg(row.AvgIntentMatch),
+			EfficiencyFeel:    roundOptionalScoreAvg(row.AvgEfficiencyFeel),
+			Sentiment:         roundOptionalScoreAvg(row.AvgSentiment),
+			Actionability:     roundOptionalScoreAvg(row.AvgActionability),
+			HallucinationRisk: roundOptionalScoreAvg(row.AvgHallucinationRisk),
+		},
+	}, nil
+}
+
+func roundOptionalScoreAvg(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	avg := round2(*v)
+	return &avg
 }
 
 func (h *Handler) fetchDashboardTotalCount(ctx context.Context, cookie string, tr modellog.TimeRange) (int, error) {
@@ -838,6 +896,7 @@ func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
 	if len(bundles) == 0 {
 		return summary
 	}
+	summary.LLMAvgScore, summary.LLMRadar = accumulateDashboardLLMAggregate(bundles)
 	summary.AnalyzedCount = len(bundles)
 	scores := make([]float64, 0, len(bundles))
 	durations := make([]int64, 0, len(bundles))
@@ -913,6 +972,58 @@ func summarizeDashboardBundles(bundles []apiSessionBundle) apiDashboardSummary {
 		summary.Radar.Orchestration = &v
 	}
 	return summary
+}
+
+// llmDimensionAccumulator 在遍历 bundle 时累计单个 GPT 维度的有效分数之和与样本数，
+// 最终求得该维度在整段时间窗内的全量均分（无样本则返回 nil）。
+type llmDimensionAccumulator struct {
+	sum   float64
+	count int
+}
+
+func (a *llmDimensionAccumulator) add(score *int) {
+	v := clampOptionalScore(score)
+	if v == nil {
+		return
+	}
+	a.sum += float64(*v)
+	a.count++
+}
+
+func (a llmDimensionAccumulator) average() *float64 {
+	if a.count == 0 {
+		return nil
+	}
+	avg := round2(a.sum / float64(a.count))
+	return &avg
+}
+
+// accumulateDashboardLLMAggregate 从已评估的 bundle 全量计算 GPT-5.5 均分与六维雷达。
+// 数据源是时间窗内的全部 session（非异常 Top10 样本），保证大盘 GPT 卡片反映选定范围真实大盘。
+func accumulateDashboardLLMAggregate(bundles []apiSessionBundle) (*float64, apiDashboardLLMRadar) {
+	var score llmDimensionAccumulator
+	var resolved, intentMatch, efficiencyFeel, sentiment, actionability, hallucinationRisk llmDimensionAccumulator
+	for _, bundle := range bundles {
+		q := getDashboardQualityScores(bundle)
+		score.add(q.LLMScore)
+		if !hasDashboardLLMScoreEvidence(bundle) {
+			continue
+		}
+		resolved.add(bundle.LLMResolvedScore)
+		intentMatch.add(bundle.LLMIntentMatchScore)
+		efficiencyFeel.add(bundle.LLMEfficiencyFeelScore)
+		sentiment.add(bundle.LLMSentimentScore)
+		actionability.add(bundle.LLMActionabilityScore)
+		hallucinationRisk.add(bundle.LLMHallucinationRiskScore)
+	}
+	return score.average(), apiDashboardLLMRadar{
+		Resolved:          resolved.average(),
+		IntentMatch:       intentMatch.average(),
+		EfficiencyFeel:    efficiencyFeel.average(),
+		Sentiment:         sentiment.average(),
+		Actionability:     actionability.average(),
+		HallucinationRisk: hallucinationRisk.average(),
+	}
 }
 
 type dashboardQualityScores struct {
