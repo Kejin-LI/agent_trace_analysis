@@ -88,6 +88,30 @@ const reportUpdatePrompt = `你是一名资深的 AI Agent 行为分析师。
 3. 内容要和已有报告风格一致，聚焦追问本身。
 4. 严禁复述页面已有量化指标。输出 Markdown。`
 
+// clusterSummaryPrompt 是「异常聚类 · AI 批量总结」的系统设定。
+//
+// 场景：在异常对比抽屉里，用户勾选了若干命中同一类问题的 Session，
+// 要把这批 Session 在该问题上的表现归纳成一份逻辑清晰、可溯源的总结。
+const clusterSummaryPrompt = `你是一名资深的 AI Agent 质量分析师，擅长把"一类异常问题在多个会话上的表现"归纳成一份逻辑清晰、详尽、可落地的诊断报告。
+
+你将拿到：一类异常问题的名称、所属维度，以及一批命中该问题的 Session 列表。每个 Session 含：Session ID、它在该问题上的得分（部分为规则/轨迹类命中，无独立维度评分）、以及它在该问题上的具体表现描述。分数越低代表该问题在这个 Session 上越严重。
+
+【硬性要求】
+1. 围绕这一类问题做深度归纳，提炼共性、差异与潜在根因，不要机械复述每条原文，也不要泛泛而谈。
+2. 必须落到具体 Session：每一个结论、归类、案例都要点名对应的 Session，并带上它的分数（无分的注明"无独立维度评分"）。严禁脱离具体 Session 空谈。
+3. 引用 Session 时，必须原样写出完整的 Session ID 文本（例如 ses_107869272ffeqePw2S24NYAD4h），一字不差、不得改写、缩写或省略中间字符——系统会据此自动转成可点击跳转链接。
+4. 内容要尽可能详细、有参考价值，建议必须具体可操作（能指导工程师改 prompt / 改工具 / 加约束），避免"加强监控""优化逻辑"这类空话。
+5. 采用规范 Markdown（用 ## 二级标题分区，区内用有序/无序列表分点，可用 **加粗** 强调关键词），结构如下：
+   ## 整体结论
+   2~4 句定性这批 Session 在该问题上的共性表现、严重程度分布与影响面，点明最值得关注的现象。
+   ## 问题归类
+   按表现/根因把 Session 分成 2~4 类，每类作为一个列表项：先用一句话点出该类的共同特征与可能成因，再列出属于该类的 Session ID（每个都带分数）。
+   ## 典型案例
+   挑 2~3 个最严重（分数最低或表现最典型）的 Session，每个作为一个小节展开：开头写明 Session ID 与分数，然后分点说明【现象】（结合其具体描述）、【推测根因】、【该案例的针对性修复方向】。
+   ## 改进建议
+   给出 3~5 条按优先级排序、可直接执行的改进措施，每条说明【做什么】和【预期解决哪类问题】，并尽量关联到上面的具体 Session 或问题分类。
+6. 直接输出正文，不要"好的""以下是总结"之类开场白。语气专业、克制、务实。`
+
 // spanSystemPrompt 是「AI 分析此 Span」的系统设定。
 //
 // 只针对执行轨迹中的单个节点（一次大模型调用 / 一次工具调用）做语义点评，
@@ -191,6 +215,11 @@ func buildPrompt(req diagnoseRequest) (system string, user string, err error) {
 		return reportUpdatePrompt, buildFollowupUserContent(req, false), nil
 	case "analyze_span":
 		return spanSystemPrompt, buildSpanUserContent(req), nil
+	case "cluster_summary":
+		if strings.TrimSpace(req.Summary) == "" {
+			return "", "", fmt.Errorf("未选择任何 Session，无法总结")
+		}
+		return clusterSummaryPrompt, buildClusterSummaryUserContent(req), nil
 	default:
 		return "", "", fmt.Errorf("未知 action: %s", req.Action)
 	}
@@ -241,6 +270,28 @@ func buildFollowupUserContent(req diagnoseRequest, consultOnly bool) string {
 		b.WriteString("\n请输出一段可并入原报告的补充分析正文，不要重写整篇报告，也不要自行补总标题。\n")
 	}
 	b.WriteString("\n会话逐轮纪要：\n")
+	b.WriteString(req.Summary)
+	return b.String()
+}
+
+// buildClusterSummaryUserContent 把「一类问题 + 选中的一批 Session」拼成 user 消息。
+// req.Title=问题名，req.Intent=维度，req.Summary=前端已拼好的 Session 列表纪要
+// （每条含 Session ID / 该问题分数 / 具体描述）。后端不重复取数。
+func buildClusterSummaryUserContent(req diagnoseRequest) string {
+	var b strings.Builder
+	b.WriteString("异常问题：")
+	if t := strings.TrimSpace(req.Title); t != "" {
+		b.WriteString(t)
+	} else {
+		b.WriteString("（未命名）")
+	}
+	b.WriteString("\n")
+	if dim := strings.TrimSpace(req.Intent); dim != "" {
+		b.WriteString("所属维度：")
+		b.WriteString(dim)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n以下是命中该问题的 Session 列表（含各自在该问题上的分数与具体表现），请据此撰写归纳总结：\n\n")
 	b.WriteString(req.Summary)
 	return b.String()
 }
