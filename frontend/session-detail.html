@@ -665,6 +665,59 @@
   }
   .agent-md table.md-table th { background: rgba(0,113,227,0.06); color: var(--text-primary); font-weight: 600; white-space: nowrap; }
   .agent-md table.md-table tr:nth-child(even) td { background: rgba(0,0,0,0.015); }
+  .msg-user.user-md {
+    color: rgba(255,255,255,0.96);
+    white-space: normal;
+  }
+  .msg-user.user-md p,
+  .msg-user.user-md li,
+  .msg-user.user-md blockquote,
+  .msg-user.user-md table.md-table td { color: rgba(255,255,255,0.92); }
+  .msg-user.user-md h1,
+  .msg-user.user-md h2,
+  .msg-user.user-md h3,
+  .msg-user.user-md table.md-table th { color: #fff; }
+  .msg-user.user-md h2::before,
+  .msg-user.user-md h3::before {
+    background: rgba(255,255,255,0.82);
+  }
+  .msg-user.user-md li::before {
+    background: rgba(255,255,255,0.72);
+  }
+  .msg-user.user-md ol li::before {
+    color: #0B4EA2;
+    background: rgba(255,255,255,0.86);
+  }
+  .msg-user.user-md blockquote {
+    background: rgba(255,255,255,0.10);
+    border-left-color: rgba(255,255,255,0.35);
+  }
+  .msg-user.user-md code {
+    color: #FDE68A;
+    background: rgba(255,255,255,0.12);
+  }
+  .msg-user.user-md pre {
+    background: rgba(9,30,66,0.28);
+    border-color: rgba(255,255,255,0.14);
+  }
+  .msg-user.user-md pre code { color: rgba(255,255,255,0.94); }
+  .msg-user.user-md .md-table-wrap {
+    border-color: rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.05);
+  }
+  .msg-user.user-md table.md-table {
+    background: rgba(255,255,255,0.06);
+  }
+  .msg-user.user-md table.md-table th,
+  .msg-user.user-md table.md-table td {
+    border-color: rgba(255,255,255,0.14);
+  }
+  .msg-user.user-md table.md-table th {
+    background: rgba(255,255,255,0.12);
+  }
+  .msg-user.user-md table.md-table tr:nth-child(even) td {
+    background: rgba(255,255,255,0.04);
+  }
 
   /* 工具/Skill/MCP 调用 - 单行 chip 风格（在气泡内紧跟回复） */
   .tool-line {
@@ -5103,6 +5156,7 @@
         return `<code>${escapeHTML(part.slice(1, -1))}</code>`;
       }
       return escapeHTML(part)
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/__([^_]+)__/g, '<strong>$1</strong>');
     }).join('');
@@ -5477,6 +5531,14 @@
     return String(text || '').replace(/\s+/g, ' ').trim();
   }
 
+  function preservePromptText(text) {
+    return String(text || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   function findQuestionAnswerResultPayload(text) {
     const raw = String(text || '');
     const marker = raw.match(/"type"\s*:\s*"question_answer_result"/);
@@ -5695,7 +5757,7 @@
 
   // 收集所有成对注入块（前缀 / 后缀 / 夹在用户输入中间均可），并返回剥离后的剩余文本。
   // 新版 Agent 框架（如 Plan 模式）会把 <system-reminder> 等注入块拼在用户输入之后，
-  // 甚至把真实 prompt 夹在两个注入块中间，旧的"最后闭合标签锚点"会把这类真实 prompt 整段误删。
+  // 甚至把真实 prompt 夹在两个注入块中间，旧的“最后闭合标签锚点”会把这类真实 prompt 整段误删。
   function splitInjectedContext(raw) {
     const blocks = [];
     const pairedRe = /<(system-reminders?|project-memory|related-conversations?)>[\s\S]*?<\/\1>/gi;
@@ -5709,7 +5771,7 @@
         return ' ';
       });
     }
-    return { blocks, stripped: stripped.replace(/\s+/g, ' ').trim() };
+    return { blocks, stripped: preservePromptText(stripped) };
   }
 
   // 残留注入标签（开或闭）检测：用于判断成对剥离是否已干净，否则回退到锚点逻辑。
@@ -5721,26 +5783,23 @@
   function extractInjectedContext(text) {
     const raw = String(text || '');
     const { blocks, stripped } = splitInjectedContext(raw);
-    // 成对块全部剥离后若不再残留注入标签，说明已完整切分，直接返回收集到的块。
     if (!hasResidualInjectedTag(stripped)) {
       return blocks.join('\n\n').trim();
     }
-    // 回退：存在未闭合/同名嵌套残留标签时，按"最后闭合标签"锚点把其前整体视为注入上下文。
+    // 回退：存在未闭合/同名嵌套残留标签时，按“最后闭合标签”锚点把其前整体视为注入上下文。
     const end = lastInjectedCloseEnd(raw);
     if (end >= 0) return raw.slice(0, end).trim();
     return blocks.join('\n\n').trim();
   }
 
   // 剥离框架注入的上下文包裹块，保留真实用户输入（无论注入块在前缀、后缀还是夹在中间）。
-  // 不剥离会导致气泡显示成系统注入、且多轮因 prompt 判空而塌缩成一轮。
   function stripInjectedContext(text) {
     const raw = String(text || '');
     const { stripped } = splitInjectedContext(raw);
-    // 成对块剥离后若不再残留注入标签，说明已完整切分，剩余文本即真实用户输入。
     if (!hasResidualInjectedTag(stripped)) {
       return stripped;
     }
-    // 回退：存在未闭合/同名嵌套残留标签时，沿用"最后闭合标签之后即真实输入"的旧锚点逻辑。
+    // 回退：存在未闭合/同名嵌套残留标签时，沿用“最后闭合标签之后即真实输入”的旧锚点逻辑。
     const end = lastInjectedCloseEnd(raw);
     if (end >= 0) return raw.slice(end).trim();
     let cleaned = raw;
@@ -5789,10 +5848,27 @@
     return prompt;
   }
 
+  function cleanUserPromptRaw(text, { dropGeneratedRoundTitle = true, allowControlWords = false } = {}) {
+    const prompt = preservePromptText(extractBusinessWrappedOriginalQuery(stripQuestionAnswerResultPayload(stripInjectedContext(text))));
+    if (!prompt) return '';
+    const normalized = normalizePromptText(prompt);
+    if (!normalized
+      || (dropGeneratedRoundTitle && isGeneratedRoundTitle(normalized))
+      || (!allowControlWords && isControlLikePrompt(normalized))
+      || isSyntheticToolPrompt(normalized)) return '';
+    return prompt;
+  }
+
   function contentToText(content) {
     if (typeof content === 'string') return normalizePromptText(content);
     if (!Array.isArray(content)) return '';
     return content.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n').trim();
+  }
+
+  function contentToRawText(content) {
+    if (typeof content === 'string') return preservePromptText(content);
+    if (!Array.isArray(content)) return '';
+    return preservePromptText(content.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n'));
   }
 
   // 从一个 LLM span 的 input.messages 中找最后一个"有效用户提问"；
@@ -5813,6 +5889,21 @@
     return fallback;
   }
 
+  function extractUserPromptRaw(span) {
+    const inp = safeJSON(span.input);
+    if (!inp || !inp.messages) return '';
+    const userMsgs = inp.messages.filter(m => m.role === 'user');
+    let fallback = '';
+    for (let i = userMsgs.length - 1; i >= 0; i--) {
+      const content = contentToRawText(userMsgs[i].content);
+      if (!content) continue;
+      const cleaned = cleanUserPromptRaw(content, { dropGeneratedRoundTitle: false });
+      if (cleaned) return cleaned;
+      if (!fallback) fallback = preservePromptText(content);
+    }
+    return fallback;
+  }
+
   function pickPromptForSpan(span, trace, { preferTracePrompt = false } = {}) {
     // 后端已按 promptId 给出本轮权威 user_prompt（含「继续」这类控制词——它在某一轮里
     // 确实是用户真实输入）。优先信任它；否则回退到从 span.input 历史回溯。
@@ -5823,6 +5914,17 @@
     const spanPrompt = authoritativeSpan || messagePrompt;
     const tracePrompt = cleanUserPrompt(trace.user_prompt, { allowControlWords: true });
     const titlePrompt = cleanUserPrompt(trace.title);
+    return preferTracePrompt
+      ? (tracePrompt || spanPrompt || titlePrompt)
+      : (spanPrompt || tracePrompt || titlePrompt);
+  }
+
+  function pickPromptRawForSpan(span, trace, { preferTracePrompt = false } = {}) {
+    const authoritativeSpan = cleanUserPromptRaw(span && span.user_prompt, { dropGeneratedRoundTitle: false, allowControlWords: true });
+    const messagePrompt = cleanUserPromptRaw(extractUserPromptRaw(span), { dropGeneratedRoundTitle: false });
+    const spanPrompt = authoritativeSpan || messagePrompt;
+    const tracePrompt = cleanUserPromptRaw(trace.user_prompt, { allowControlWords: true });
+    const titlePrompt = cleanUserPromptRaw(trace.title);
     return preferTracePrompt
       ? (tracePrompt || spanPrompt || titlePrompt)
       : (spanPrompt || tracePrompt || titlePrompt);
@@ -5876,11 +5978,10 @@
   }
 
   // 折叠的「框架注入上下文」引用块：灰字、默认折叠、点击展开。挂在用户气泡下方。
-  let __injCtxSeq = 0;
-  function renderInjectedContextBlock(rawText) {
-    const ctx = extractInjectedContext(rawText);
+  function renderInjectedContextBlock(text, { alreadyExtracted = false } = {}) {
+    const raw = String(text || '').trim();
+    const ctx = alreadyExtracted ? raw : extractInjectedContext(raw);
     if (!ctx) return '';
-    const id = 'injctx-' + (++__injCtxSeq);
     return `
       <div class="inj-ctx">
         <div class="inj-ctx-head" onclick="(function(el){var b=el.parentNode.querySelector('.inj-ctx-body');var c=el.querySelector('.inj-ctx-caret');var open=b.style.display==='block';b.style.display=open?'none':'block';c.textContent=open?'▸':'▾';})(this)">
@@ -5888,7 +5989,7 @@
           <span>框架注入的上下文（非用户输入）</span>
           <span class="inj-ctx-tag">记忆 / 历史会话</span>
         </div>
-        <div class="inj-ctx-body" id="${id}" style="display:none">${escapeHTML(ctx)}</div>
+        <div class="inj-ctx-body" style="display:none">${escapeHTML(ctx)}</div>
       </div>`;
   }
 
@@ -6600,16 +6701,20 @@
       const spans = (t.spans || []);
       const firstLLM = pickPrimaryModelSpan(spans);
       const up = firstLLM ? pickPromptForSpan(firstLLM, t) : '';
+      const upRaw = firstLLM ? pickPromptRawForSpan(firstLLM, t) : '';
       const rawUser = pickRawUserText(firstLLM, t);
       const rawPrompt = cleanUserPrompt(t.user_prompt) || cleanUserPrompt(t.title);
+      const rawPromptDisplay = cleanUserPromptRaw(t.user_prompt) || cleanUserPromptRaw(t.title);
       const syntheticInfo = !up ? detectSyntheticPromptKind(stripInjectedContext(rawUser)) : null;
       const displayPrompt = up || rawPrompt || '';
+      const displayPromptRaw = upRaw || rawPromptDisplay || displayPrompt;
       const injectedContext = extractInjectedContext(rawUser);
       const clarifyAnswerInfo = extractQuestionAnswerReplyInfo(rawUser)
         || extractQuestionAnswerReplyInfoFromTrace(t);
       const clarifyAnswerReply = clarifyAnswerInfo?.text || '';
       return {
         userPrompt: displayPrompt,
+        userPromptRaw: displayPromptRaw,
         injectedContext,
         traces: [t],
         synthetic: syntheticInfo,
@@ -8884,11 +8989,12 @@
         // 框架内部 prompt：不渲染蓝色用户气泡，改为左对齐的灰色折叠块（与系统注入引用块同款）
         html.push(renderSyntheticPromptBlock(grp.synthetic, grp.syntheticRaw));
       } else if (grp.userPrompt) {
+        const bubbleText = grp.userPromptRaw || grp.userPrompt;
         html.push(`
           <div class="flex justify-end">
             <div class="max-w-[88%] min-w-0 flex flex-col items-end">
-              <div class="msg-user rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">${escapeHTML(grp.userPrompt)}</div>
-              ${renderInjectedContextBlock(grp.injectedContext)}
+              <div class="msg-user user-md agent-md rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-relaxed break-words [overflow-wrap:anywhere] max-w-full">${renderAssistantMarkdown(bubbleText)}</div>
+              ${renderInjectedContextBlock(grp.injectedContext, { alreadyExtracted: true })}
             </div>
           </div>
         `);
