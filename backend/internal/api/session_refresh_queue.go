@@ -62,13 +62,13 @@ func (a *Aggregator) EnqueueSessionRefresh(req sessionRefreshRequest) error {
 	}
 	now := time.Now()
 	row := model.StgSessionRefreshQueue{
-		SessionID:                  sessionID,
-		ArtifactID:                 strings.TrimSpace(req.ArtifactID),
-		TriggerSource:              triggerSource,
+		SessionID:                  trimDBString(sessionID, 128),
+		ArtifactID:                 trimDBString(req.ArtifactID, 128),
+		TriggerSource:              trimDBString(triggerSource, 32),
 		Priority:                   req.Priority,
 		Status:                     "pending",
 		DiscoveredSourceUpdatedAt:  req.DiscoveredSourceUpdatedAt,
-		DiscoveredTraceFingerprint: strings.TrimSpace(req.DiscoveredTraceFingerprint),
+		DiscoveredTraceFingerprint: trimDBString(req.DiscoveredTraceFingerprint, 64),
 		NextRetryAt:                &now,
 	}
 	return a.db.Clauses(clause.OnConflict{

@@ -15,7 +15,7 @@ type APISessionAggregate struct {
 	StartedAt                 *time.Time `gorm:"column:started_at;type:datetime(3);comment:会话起始时间"`
 	DurationMs                int64      `gorm:"column:duration_ms;not null;default:0;comment:总耗时(ms)"`
 	TraceID                   string     `gorm:"column:trace_id;type:varchar(128);not null;default:'';comment:主 trace_id"`
-	Title                     string     `gorm:"column:title;type:varchar(512);not null;default:'';comment:列表展示标题"`
+	Title                     string     `gorm:"column:title;type:varchar(1024);not null;default:'';comment:列表展示标题"`
 	Chip                      string     `gorm:"column:chip;type:varchar(64);not null;default:'';index:idx_chip;comment:异常标签或健康标签"`
 	InputTokens               int64      `gorm:"column:input_tokens;not null;default:0;comment:输入 token"`
 	OutputTokens              int64      `gorm:"column:output_tokens;not null;default:0;comment:输出 token"`

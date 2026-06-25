@@ -159,6 +159,50 @@ func TestBuildBundleFromTOSCarriesPromptAndRoundModel(t *testing.T) {
 	}
 }
 
+func TestBuildBundleFromTOSShortensSessionTitleButKeepsPrompt(t *testing.T) {
+	longPrompt := "我需要搭建一条专家评估产线，具体情况如下：" + strings.Repeat("这是很长的背景说明，", 40)
+	raw := `[
+  {"type":"REQUEST_BODY","timestamp":"2026-06-23T07:14:00.000Z","data":{
+    "model":"gemini-3-flash-preview",
+    "input":[
+      {"role":"system","content":"sys"},
+      {"role":"user","content":"` + longPrompt + `"}
+    ]}},
+  {"type":"STREAM_RESPONSE","timestamp":"2026-06-23T07:14:01.000Z","data":{
+    "durationMs":1000,
+    "allChunks":[{"type":"response.completed","response":{"model":"gemini-3-flash-preview","usage":{"input_tokens":10,"output_tokens":5},"output":[]}}]}}
+]`
+
+	pr, err := tracelog.Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	bundle := buildBundleFromTOS(model.StgSessionSource{
+		SessionID:  "ses_test",
+		ArtifactID: "art_test",
+		UserName:   "u",
+		UserID:     "uid",
+	}, pr)
+	if bundle.Title == longPrompt {
+		t.Fatalf("bundle title should be shortened for list display")
+	}
+	if len([]rune(bundle.Title)) > sessionDisplayTitleHardLimit+3 {
+		t.Fatalf("bundle title len = %d, want <= %d", len([]rune(bundle.Title)), sessionDisplayTitleHardLimit+3)
+	}
+	if !strings.HasPrefix(longPrompt, strings.TrimSuffix(bundle.Title, "...")) {
+		t.Fatalf("bundle title = %q, want prefix of original prompt", bundle.Title)
+	}
+	if len(bundle.Traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(bundle.Traces))
+	}
+	if bundle.Traces[0].UserPrompt != longPrompt {
+		t.Fatalf("trace user prompt should preserve full prompt")
+	}
+	if bundle.Traces[0].Title == longPrompt {
+		t.Fatalf("trace title should be shortened for display")
+	}
+}
+
 func TestDetailBundleNeedsSourceRefresh(t *testing.T) {
 	bundle := apiSessionBundle{
 		DetailVersion:     currentDetailBundleVersion,
