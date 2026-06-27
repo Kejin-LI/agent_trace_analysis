@@ -1,0 +1,6 @@
+.idea
+.vscode
+testdata
+*.swp
+v2/test
+.DS_Store
